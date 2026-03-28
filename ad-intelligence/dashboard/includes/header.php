@@ -32,7 +32,12 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                     </li>
                     <li class="nav-item">
                         <a class="nav-link <?= $currentPage === 'explorer' ? 'active' : '' ?>" href="explorer.php">
-                            <i class="bi bi-search me-1"></i>Ad Explorer
+                            <i class="bi bi-layout-text-window me-1"></i>Explorer
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?= $currentPage === 'search' ? 'active' : '' ?>" href="search.php">
+                            <i class="bi bi-search me-1"></i>Search
                         </a>
                     </li>
                     <li class="nav-item">
@@ -42,7 +47,32 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                     </li>
                     <li class="nav-item">
                         <a class="nav-link <?= $currentPage === 'geo' ? 'active' : '' ?>" href="geo.php">
-                            <i class="bi bi-globe me-1"></i>Geo Dashboard
+                            <i class="bi bi-globe me-1"></i>Geo
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?= $currentPage === 'intelligence' ? 'active' : '' ?>" href="intelligence.php">
+                            <i class="bi bi-cpu me-1"></i>AI Intel
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?= $currentPage === 'landing' ? 'active' : '' ?>" href="landing.php">
+                            <i class="bi bi-browser-chrome me-1"></i>Landing
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?= $currentPage === 'compare' ? 'active' : '' ?>" href="compare.php">
+                            <i class="bi bi-arrow-left-right me-1"></i>Compare
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?= $currentPage === 'watchlists' ? 'active' : '' ?>" href="watchlists.php">
+                            <i class="bi bi-binoculars me-1"></i>Watchlists
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?= $currentPage === 'alerts' ? 'active' : '' ?>" href="alerts.php">
+                            <i class="bi bi-bell me-1"></i>Alerts
                         </a>
                     </li>
                 </ul>

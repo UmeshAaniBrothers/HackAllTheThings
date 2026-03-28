@@ -582,6 +582,702 @@ function renderExpansionTimeline(expansion) {
     `).join('') || '<p class="text-muted">No expansion data available</p>';
 }
 
+// ============================================================
+// Alerts Page
+// ============================================================
+
+async function loadAlerts() {
+    try {
+        const data = await fetchAPI('alerts.php', { action: 'dashboard' });
+        if (!data.success) return;
+
+        document.getElementById('alertsToday').textContent = formatNumber(data.today_count || 0);
+        document.getElementById('activeRules').textContent = formatNumber(data.rules?.length || 0);
+        document.getElementById('newAdsDetected').textContent = formatNumber(data.new_ads_today || 0);
+        document.getElementById('channelsCount').textContent = formatNumber(data.channels_count || 0);
+
+        renderAlertRules(data.rules || []);
+        renderAlertLog(data.recent_log || []);
+    } catch (err) {
+        console.error('Alerts load error:', err);
+    }
+}
+
+function renderAlertRules(rules) {
+    const tbody = document.getElementById('alertRulesTable');
+    if (!tbody) return;
+
+    if (rules.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No alert rules configured</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rules.map(r => `
+        <tr>
+            <td>${escapeHtml(r.rule_name)}</td>
+            <td><span class="badge bg-info">${escapeHtml(r.rule_type)}</span></td>
+            <td>${escapeHtml(r.advertiser_id || 'All')}</td>
+            <td><span class="badge bg-secondary">${escapeHtml(r.channel)}</span></td>
+            <td>${r.enabled ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-inactive">Disabled</span>'}</td>
+            <td>${formatDate(r.last_triggered_at)}</td>
+            <td>
+                <button class="btn btn-sm btn-outline-danger" onclick="toggleAlertRule(${r.id}, ${r.enabled ? 0 : 1})">
+                    ${r.enabled ? 'Disable' : 'Enable'}
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function renderAlertLog(logs) {
+    const tbody = document.getElementById('alertLogTable');
+    if (!tbody) return;
+
+    if (logs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No recent alerts</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = logs.map(l => `
+        <tr>
+            <td>${formatDate(l.sent_at)}</td>
+            <td>${escapeHtml(l.rule_name || 'Rule #' + l.alert_rule_id)}</td>
+            <td><span class="badge bg-secondary">${escapeHtml(l.channel)}</span></td>
+            <td>${l.status === 'sent' ? '<span class="badge badge-active">Sent</span>' : '<span class="badge badge-inactive">Failed</span>'}</td>
+            <td class="text-truncate" style="max-width: 300px;">${escapeHtml(l.message || '')}</td>
+        </tr>
+    `).join('');
+}
+
+async function createAlertRule() {
+    try {
+        const data = await fetchAPI('alerts.php', {
+            action: 'create_rule',
+            rule_name: document.getElementById('alertRuleName').value,
+            rule_type: document.getElementById('alertRuleType').value,
+            advertiser_id: document.getElementById('alertAdvertiserId').value,
+            channel: document.getElementById('alertChannel').value,
+            threshold: document.getElementById('alertThreshold').value,
+        });
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('createAlertModal')).hide();
+            loadAlerts();
+        }
+    } catch (err) {
+        console.error('Create alert rule error:', err);
+    }
+}
+
+async function toggleAlertRule(ruleId, enabled) {
+    try {
+        await fetchAPI('alerts.php', { action: 'toggle_rule', rule_id: ruleId, enabled: enabled });
+        loadAlerts();
+    } catch (err) {
+        console.error('Toggle alert error:', err);
+    }
+}
+
+// ============================================================
+// Watchlists Page
+// ============================================================
+
+async function loadWatchlists() {
+    try {
+        const data = await fetchAPI('watchlists.php', { action: 'list' });
+        if (!data.success) return;
+
+        renderWatchlistTable(data.watchlists || []);
+    } catch (err) {
+        console.error('Watchlists load error:', err);
+    }
+}
+
+function renderWatchlistTable(watchlists) {
+    const tbody = document.getElementById('watchlistTable');
+    if (!tbody) return;
+
+    if (watchlists.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No watchlists created</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = watchlists.map(w => `
+        <tr>
+            <td><strong>${escapeHtml(w.name)}</strong></td>
+            <td><span class="badge bg-primary">${w.advertiser_count || 0} advertisers</span></td>
+            <td>${formatDate(w.created_at)}</td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary me-1" onclick="viewWatchlist(${w.id})">
+                    <i class="bi bi-eye"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteWatchlist(${w.id})">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function viewWatchlist(watchlistId) {
+    try {
+        const [summary, changes] = await Promise.all([
+            fetchAPI('watchlists.php', { action: 'summary', watchlist_id: watchlistId }),
+            fetchAPI('watchlists.php', { action: 'changes', watchlist_id: watchlistId }),
+        ]);
+
+        const summaryEl = document.getElementById('dailySummary');
+        if (summaryEl && summary.success) {
+            const s = summary.summary || {};
+            summaryEl.innerHTML = `
+                <div class="row text-center">
+                    <div class="col-4"><div class="kpi-label">New Ads</div><div class="fw-bold fs-5">${s.new_ads || 0}</div></div>
+                    <div class="col-4"><div class="kpi-label">Stopped</div><div class="fw-bold fs-5">${s.stopped_ads || 0}</div></div>
+                    <div class="col-4"><div class="kpi-label">Updated</div><div class="fw-bold fs-5">${s.updated_ads || 0}</div></div>
+                </div>
+            `;
+        }
+
+        const logEl = document.getElementById('changeLog');
+        if (logEl && changes.success) {
+            const logs = changes.changes || [];
+            logEl.innerHTML = logs.length === 0
+                ? '<p class="text-muted">No recent changes</p>'
+                : logs.map(c => `
+                    <div class="timeline-item">
+                        <strong>${escapeHtml(c.advertiser_id)}</strong>
+                        <span class="badge bg-info ms-1">${escapeHtml(c.change_type)}</span>
+                        <br><small class="text-muted">${formatDate(c.detected_at)}: ${escapeHtml(c.details || '')}</small>
+                    </div>
+                `).join('');
+        }
+    } catch (err) {
+        console.error('View watchlist error:', err);
+    }
+}
+
+async function createWatchlist() {
+    try {
+        const name = document.getElementById('watchlistName').value;
+        const advertisers = document.getElementById('watchlistAdvertisers').value;
+
+        const data = await fetchAPI('watchlists.php', {
+            action: 'create',
+            name: name,
+            advertisers: advertisers,
+        });
+
+        if (data.success) {
+            bootstrap.Modal.getInstance(document.getElementById('createWatchlistModal')).hide();
+            loadWatchlists();
+        }
+    } catch (err) {
+        console.error('Create watchlist error:', err);
+    }
+}
+
+async function deleteWatchlist(id) {
+    if (!confirm('Delete this watchlist?')) return;
+    try {
+        await fetchAPI('watchlists.php', { action: 'delete', watchlist_id: id });
+        loadWatchlists();
+    } catch (err) {
+        console.error('Delete watchlist error:', err);
+    }
+}
+
+// ============================================================
+// Comparison Page
+// ============================================================
+
+async function loadCompareAdvertisers() {
+    try {
+        const data = await fetchAPI('overview.php');
+        if (!data.success) return;
+
+        const advertisers = data.advertisers || [];
+        ['compareA', 'compareB'].forEach(id => {
+            const select = document.getElementById(id);
+            if (select && select.options.length <= 1) {
+                advertisers.forEach(a => {
+                    const option = document.createElement('option');
+                    option.value = a.advertiser_id;
+                    option.textContent = `${a.advertiser_id} (${a.total_ads} ads)`;
+                    select.appendChild(option);
+                });
+            }
+        });
+    } catch (err) {
+        console.error('Load compare advertisers error:', err);
+    }
+}
+
+async function runComparison() {
+    const a = document.getElementById('compareA').value;
+    const b = document.getElementById('compareB').value;
+    if (!a || !b) { alert('Please select two advertisers'); return; }
+
+    try {
+        const data = await fetchAPI('compare.php', { advertiser_a: a, advertiser_b: b });
+        if (!data.success) return;
+
+        document.getElementById('comparisonResults').style.display = '';
+
+        const cmp = data.comparison || {};
+        document.getElementById('compareAName').textContent = a;
+        document.getElementById('compareBName').textContent = b;
+        document.getElementById('compareATotalAds').textContent = formatNumber(cmp.a?.total_ads);
+        document.getElementById('compareAActive').textContent = formatNumber(cmp.a?.active_ads);
+        document.getElementById('compareACountries').textContent = formatNumber(cmp.a?.countries);
+        document.getElementById('compareBTotalAds').textContent = formatNumber(cmp.b?.total_ads);
+        document.getElementById('compareBActive').textContent = formatNumber(cmp.b?.active_ads);
+        document.getElementById('compareBCountries').textContent = formatNumber(cmp.b?.countries);
+
+        renderCompareVolumeChart(cmp);
+        renderCompareTypeChart(cmp);
+        renderSharedCountries(cmp.shared_countries || []);
+        renderStrategyDiffs(cmp.differences || {});
+        renderRankings(data.rankings || []);
+    } catch (err) {
+        console.error('Comparison error:', err);
+    }
+}
+
+function renderCompareVolumeChart(cmp) {
+    const ctx = document.getElementById('compareVolumeChart');
+    if (!ctx) return;
+    if (window.compareVolumeChartInstance) window.compareVolumeChartInstance.destroy();
+
+    window.compareVolumeChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Total Ads', 'Active', 'Inactive'],
+            datasets: [
+                { label: cmp.a?.advertiser_id || 'A', data: [cmp.a?.total_ads || 0, cmp.a?.active_ads || 0, (cmp.a?.total_ads || 0) - (cmp.a?.active_ads || 0)], backgroundColor: 'rgba(67, 97, 238, 0.7)' },
+                { label: cmp.b?.advertiser_id || 'B', data: [cmp.b?.total_ads || 0, cmp.b?.active_ads || 0, (cmp.b?.total_ads || 0) - (cmp.b?.active_ads || 0)], backgroundColor: 'rgba(231, 29, 54, 0.7)' },
+            ]
+        },
+        options: { responsive: true, scales: { y: { beginAtZero: true } } }
+    });
+}
+
+function renderCompareTypeChart(cmp) {
+    const ctx = document.getElementById('compareTypeChart');
+    if (!ctx) return;
+    if (window.compareTypeChartInstance) window.compareTypeChartInstance.destroy();
+
+    const types = ['text', 'image', 'video'];
+    window.compareTypeChartInstance = new Chart(ctx, {
+        type: 'radar',
+        data: {
+            labels: types,
+            datasets: [
+                { label: cmp.a?.advertiser_id || 'A', data: types.map(t => cmp.a?.ad_types?.[t] || 0), borderColor: '#4361ee', backgroundColor: 'rgba(67, 97, 238, 0.2)' },
+                { label: cmp.b?.advertiser_id || 'B', data: types.map(t => cmp.b?.ad_types?.[t] || 0), borderColor: '#e71d36', backgroundColor: 'rgba(231, 29, 54, 0.2)' },
+            ]
+        },
+        options: { responsive: true }
+    });
+}
+
+function renderSharedCountries(countries) {
+    const el = document.getElementById('sharedCountries');
+    if (!el) return;
+    el.innerHTML = countries.length === 0
+        ? '<p class="text-muted">No shared countries</p>'
+        : countries.map(c => `<span class="badge bg-primary me-1 mb-1">${escapeHtml(c)}</span>`).join('');
+}
+
+function renderStrategyDiffs(diffs) {
+    const el = document.getElementById('strategyDiffs');
+    if (!el) return;
+    const entries = Object.entries(diffs);
+    el.innerHTML = entries.length === 0
+        ? '<p class="text-muted">No major differences</p>'
+        : `<ul class="list-unstyled">${entries.map(([k, v]) => `<li class="mb-2"><strong>${escapeHtml(k)}:</strong> ${escapeHtml(String(v))}</li>`).join('')}</ul>`;
+}
+
+function renderRankings(rankings) {
+    const tbody = document.getElementById('rankingsTable');
+    if (!tbody) return;
+    tbody.innerHTML = rankings.map((r, i) => `
+        <tr>
+            <td>${i + 1}</td>
+            <td><strong>${escapeHtml(r.advertiser_id)}</strong></td>
+            <td>${formatNumber(r.total_ads)}</td>
+            <td>${formatNumber(r.active_ads)}</td>
+            <td>${formatNumber(r.countries)}</td>
+            <td>
+                <div class="score-circle-sm ${r.score >= 70 ? 'score-high' : r.score >= 40 ? 'score-medium' : 'score-low'}">
+                    ${Math.round(r.score || 0)}
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// ============================================================
+// Intelligence Page
+// ============================================================
+
+async function loadIntelligence() {
+    try {
+        const advertiserId = document.getElementById('intelAdvertiser')?.value || null;
+        const data = await fetchAPI('intelligence.php', { advertiser_id: advertiserId });
+        if (!data.success) return;
+
+        document.getElementById('intelAnalyzed').textContent = formatNumber(data.analyzed_count);
+        document.getElementById('intelAbTests').textContent = formatNumber(data.ab_tests_count);
+        document.getElementById('intelClusters').textContent = formatNumber(data.clusters_count);
+        document.getElementById('intelAvgPerf').textContent = (data.avg_performance || 0).toFixed(1);
+
+        renderSentimentChart(data.sentiment_distribution || {});
+        renderHooksChart(data.hooks_distribution || {});
+        renderPatternsTable(data.patterns || []);
+        renderKeywordsCloud(data.top_keywords || []);
+        renderAbTestsTable(data.ab_tests || []);
+        renderPerformanceTable(data.top_performers || []);
+
+        // Populate advertiser filter
+        if (data.advertisers) {
+            const select = document.getElementById('intelAdvertiser');
+            if (select && select.options.length <= 1) {
+                data.advertisers.forEach(a => {
+                    const option = document.createElement('option');
+                    option.value = a.advertiser_id;
+                    option.textContent = a.advertiser_id;
+                    select.appendChild(option);
+                });
+            }
+        }
+    } catch (err) {
+        console.error('Intelligence load error:', err);
+    }
+}
+
+function renderSentimentChart(dist) {
+    const ctx = document.getElementById('sentimentChart');
+    if (!ctx) return;
+    if (window.sentimentChartInstance) window.sentimentChartInstance.destroy();
+
+    const labels = Object.keys(dist);
+    const values = Object.values(dist);
+    const colors = { aggressive: '#e71d36', moderate: '#ff9f1c', soft: '#2ec4b6', neutral: '#6c757d' };
+
+    window.sentimentChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{ data: values, backgroundColor: labels.map(l => colors[l] || '#4361ee') }]
+        },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+}
+
+function renderHooksChart(dist) {
+    const ctx = document.getElementById('hooksChart');
+    if (!ctx) return;
+    if (window.hooksChartInstance) window.hooksChartInstance.destroy();
+
+    const labels = Object.keys(dist);
+    const values = Object.values(dist);
+
+    window.hooksChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{ label: 'Count', data: values, backgroundColor: 'rgba(114, 9, 183, 0.7)', borderColor: '#7209b7', borderWidth: 1 }]
+        },
+        options: {
+            responsive: true,
+            indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
+}
+
+function renderPatternsTable(patterns) {
+    const tbody = document.getElementById('patternsTable');
+    if (!tbody) return;
+    if (patterns.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No patterns detected</td></tr>';
+        return;
+    }
+    tbody.innerHTML = patterns.map(p => `
+        <tr>
+            <td>${escapeHtml(p.advertiser_id)}</td>
+            <td><span class="badge bg-info">${escapeHtml(p.pattern_type)}</span></td>
+            <td>
+                <div class="progress" style="height: 6px; width: 80px;">
+                    <div class="progress-bar" style="width: ${(p.confidence * 100).toFixed(0)}%"></div>
+                </div>
+                <small>${(p.confidence * 100).toFixed(0)}%</small>
+            </td>
+            <td>${formatDate(p.detected_at)}</td>
+        </tr>
+    `).join('');
+}
+
+function renderKeywordsCloud(keywords) {
+    const el = document.getElementById('keywordsCloud');
+    if (!el) return;
+    if (keywords.length === 0) {
+        el.innerHTML = '<p class="text-muted">No keywords extracted</p>';
+        return;
+    }
+    const maxCount = Math.max(...keywords.map(k => k.count || 1));
+    el.innerHTML = keywords.map(k => {
+        const size = 0.7 + (k.count / maxCount) * 1.5;
+        return `<span class="badge bg-secondary me-1 mb-1" style="font-size: ${size}rem;">${escapeHtml(k.keyword)} (${k.count})</span>`;
+    }).join('');
+}
+
+function renderAbTestsTable(tests) {
+    const tbody = document.getElementById('abTestsTable');
+    if (!tbody) return;
+    if (tests.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No A/B tests detected</td></tr>';
+        return;
+    }
+    tbody.innerHTML = tests.map(t => `
+        <tr>
+            <td><a href="creative.php?id=${encodeURIComponent(t.creative_a)}">${escapeHtml((t.creative_a || '').substring(0, 12))}...</a></td>
+            <td><a href="creative.php?id=${encodeURIComponent(t.creative_b)}">${escapeHtml((t.creative_b || '').substring(0, 12))}...</a></td>
+            <td>${((1 - (t.distance || 0) / 64) * 100).toFixed(0)}%</td>
+            <td><span class="badge bg-warning">Detected</span></td>
+        </tr>
+    `).join('');
+}
+
+function renderPerformanceTable(performers) {
+    const tbody = document.getElementById('performanceTable');
+    if (!tbody) return;
+    if (performers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No performance data</td></tr>';
+        return;
+    }
+    tbody.innerHTML = performers.map(p => `
+        <tr>
+            <td><a href="creative.php?id=${encodeURIComponent(p.creative_id)}">${escapeHtml((p.creative_id || '').substring(0, 12))}...</a></td>
+            <td class="text-truncate" style="max-width: 200px;">${escapeHtml(p.headline || 'N/A')}</td>
+            <td><span class="badge ${p.estimated_score >= 70 ? 'bg-success' : p.estimated_score >= 40 ? 'bg-warning' : 'bg-danger'}">${(p.estimated_score || 0).toFixed(0)}</span></td>
+            <td>${p.longevity_days || 0}d</td>
+        </tr>
+    `).join('');
+}
+
+// ============================================================
+// Landing Pages
+// ============================================================
+
+async function loadLandingPages() {
+    try {
+        const advertiserId = document.getElementById('landingAdvertiser')?.value || null;
+        const data = await fetchAPI('landing.php', { advertiser_id: advertiserId });
+        if (!data.success) return;
+
+        const pages = data.pages || [];
+        const changes = data.recent_changes || [];
+
+        document.getElementById('lpTotalPages').textContent = formatNumber(pages.length);
+        document.getElementById('lpRecentChanges').textContent = formatNumber(changes.length);
+
+        const domains = new Set(pages.map(p => p.domain).filter(Boolean));
+        document.getElementById('lpUniqueDomains').textContent = formatNumber(domains.size);
+        document.getElementById('lpHasForms').textContent = formatNumber(pages.filter(p => p.has_form).length);
+
+        renderFunnelChart(data.funnel_distribution || {});
+        renderTechChart(data.technologies || {});
+        renderLandingPagesTable(pages);
+        renderLpChangesTable(changes);
+    } catch (err) {
+        console.error('Landing pages load error:', err);
+    }
+}
+
+function renderFunnelChart(dist) {
+    const ctx = document.getElementById('funnelChart');
+    if (!ctx) return;
+    if (window.funnelChartInstance) window.funnelChartInstance.destroy();
+
+    const labels = Object.keys(dist);
+    const values = Object.values(dist);
+    const colors = ['#4361ee', '#2ec4b6', '#ff9f1c', '#e71d36', '#7209b7', '#6c757d'];
+
+    window.funnelChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data: values, backgroundColor: colors.slice(0, labels.length) }] },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+    });
+}
+
+function renderTechChart(techs) {
+    const ctx = document.getElementById('techChart');
+    if (!ctx) return;
+    if (window.techChartInstance) window.techChartInstance.destroy();
+
+    const entries = Object.entries(techs).slice(0, 10);
+    window.techChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: entries.map(e => e[0]),
+            datasets: [{ label: 'Pages', data: entries.map(e => e[1]), backgroundColor: 'rgba(46, 196, 182, 0.7)' }]
+        },
+        options: {
+            responsive: true,
+            indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+    });
+}
+
+function renderLandingPagesTable(pages) {
+    const tbody = document.getElementById('landingPagesTable');
+    if (!tbody) return;
+    if (pages.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No landing pages tracked</td></tr>';
+        return;
+    }
+    tbody.innerHTML = pages.slice(0, 50).map(p => {
+        const techs = JSON.parse(p.technologies || '[]');
+        return `<tr>
+            <td class="text-truncate" style="max-width: 250px;">
+                <a href="${escapeHtml(p.url || '#')}" target="_blank" rel="noopener">${escapeHtml(p.url || 'N/A')}</a>
+            </td>
+            <td>${escapeHtml(p.domain || 'N/A')}</td>
+            <td><span class="badge bg-info">${escapeHtml(p.funnel_type || 'unknown')}</span></td>
+            <td>${techs.slice(0, 3).map(t => `<span class="badge bg-secondary me-1">${escapeHtml(t)}</span>`).join('')}</td>
+            <td>${formatDate(p.last_scraped_at)}</td>
+            <td><span class="badge bg-warning">${p.change_count || 0}</span></td>
+        </tr>`;
+    }).join('');
+}
+
+function renderLpChangesTable(changes) {
+    const tbody = document.getElementById('lpChangesTable');
+    if (!tbody) return;
+    if (changes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No recent changes</td></tr>';
+        return;
+    }
+    tbody.innerHTML = changes.map(c => `
+        <tr>
+            <td class="text-truncate" style="max-width: 200px;">${escapeHtml(c.url || c.domain || 'N/A')}</td>
+            <td><span class="badge bg-info">${escapeHtml(c.change_type || 'update')}</span></td>
+            <td class="text-truncate" style="max-width: 150px;">${escapeHtml(c.old_value || '-')}</td>
+            <td class="text-truncate" style="max-width: 150px;">${escapeHtml(c.new_value || '-')}</td>
+            <td>${formatDate(c.detected_at)}</td>
+        </tr>
+    `).join('');
+}
+
+// ============================================================
+// Advanced Search Page
+// ============================================================
+
+let searchCurrentPage = 1;
+
+async function runSearch(page = 1) {
+    searchCurrentPage = page;
+    try {
+        const params = {
+            q: document.getElementById('searchKeyword')?.value || '',
+            domain: document.getElementById('searchDomain')?.value || '',
+            cta: document.getElementById('searchCta')?.value || '',
+            country: document.getElementById('searchCountry')?.value || '',
+            platform: document.getElementById('searchPlatform')?.value || '',
+            ad_type: document.getElementById('searchAdType')?.value || '',
+            sentiment: document.getElementById('searchSentiment')?.value || '',
+            hook: document.getElementById('searchHook')?.value || '',
+            tag: document.getElementById('searchTag')?.value || '',
+            page: page,
+            per_page: 20,
+        };
+
+        const data = await fetchAPI('search.php', params);
+        if (!data.success) return;
+
+        document.getElementById('searchResultsInfo').style.display = '';
+        document.getElementById('searchResultCount').textContent = `${formatNumber(data.total)} results found (page ${data.page} of ${data.total_pages})`;
+
+        renderSearchResults(data.results || []);
+        renderSearchPagination(data.page, data.total_pages);
+    } catch (err) {
+        console.error('Search error:', err);
+    }
+}
+
+function renderSearchResults(results) {
+    const tbody = document.getElementById('searchResultsTable');
+    if (!tbody) return;
+    if (results.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No results found</td></tr>';
+        return;
+    }
+    tbody.innerHTML = results.map(r => `
+        <tr>
+            <td><a href="creative.php?id=${encodeURIComponent(r.creative_id)}">${escapeHtml((r.creative_id || '').substring(0, 12))}...</a></td>
+            <td class="text-truncate" style="max-width: 200px;">${escapeHtml(r.headline || 'N/A')}</td>
+            <td>${escapeHtml(r.cta || '-')}</td>
+            <td>${typeBadge(r.ad_type)}</td>
+            <td>${statusBadge(r.status)}</td>
+            <td>${escapeHtml(r.countries || '-')}</td>
+            <td>${escapeHtml(r.platforms || '-')}</td>
+            <td>${formatDate(r.last_seen)}</td>
+        </tr>
+    `).join('');
+}
+
+function renderSearchPagination(current, total) {
+    const container = document.getElementById('searchPagination');
+    if (!container || total <= 1) { if (container) container.innerHTML = ''; return; }
+
+    let html = '<nav class="mt-3"><ul class="pagination justify-content-center mb-0">';
+    if (current > 1) html += `<li class="page-item"><a class="page-link" href="#" onclick="runSearch(${current - 1}); return false;">Prev</a></li>`;
+
+    const startPage = Math.max(1, current - 2);
+    const endPage = Math.min(total, current + 2);
+    for (let i = startPage; i <= endPage; i++) {
+        html += `<li class="page-item ${i === current ? 'active' : ''}"><a class="page-link" href="#" onclick="runSearch(${i}); return false;">${i}</a></li>`;
+    }
+
+    if (current < total) html += `<li class="page-item"><a class="page-link" href="#" onclick="runSearch(${current + 1}); return false;">Next</a></li>`;
+    html += '</ul></nav>';
+    container.innerHTML = html;
+}
+
+function clearSearch() {
+    ['searchKeyword', 'searchDomain', 'searchCta', 'searchCountry'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    ['searchPlatform', 'searchAdType', 'searchSentiment', 'searchHook', 'searchTag'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    document.getElementById('searchResultsInfo').style.display = 'none';
+    document.getElementById('searchResultsTable').innerHTML = '<tr><td colspan="8" class="text-center text-muted">Enter search criteria and click Search</td></tr>';
+    document.getElementById('searchPagination').innerHTML = '';
+}
+
+async function loadSearchTags() {
+    try {
+        const data = await fetchAPI('tags.php', { action: 'list' });
+        if (!data.success) return;
+        const select = document.getElementById('searchTag');
+        if (!select) return;
+        (data.tags || []).forEach(t => {
+            const option = document.createElement('option');
+            option.value = t.name;
+            option.textContent = t.name;
+            select.appendChild(option);
+        });
+    } catch (err) {
+        console.error('Load tags error:', err);
+    }
+}
+
 // Country coordinates lookup (ISO 2-letter codes)
 function getCountryCoords(code) {
     const coords = {

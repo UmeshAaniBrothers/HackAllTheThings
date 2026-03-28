@@ -239,6 +239,57 @@ body {
     color: #fff;
 }
 
+/* Score circle (small inline) */
+.score-circle-sm {
+    display: inline-flex;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #fff;
+}
+
+.score-circle-sm.score-high {
+    background: linear-gradient(135deg, #2ec4b6, #4361ee);
+}
+
+.score-circle-sm.score-medium {
+    background: linear-gradient(135deg, #ff9f1c, #4361ee);
+}
+
+.score-circle-sm.score-low {
+    background: linear-gradient(135deg, #e71d36, #ff9f1c);
+}
+
+/* Alert / notification styles */
+.alert-rule-card {
+    border-left: 4px solid var(--ai-primary);
+    transition: border-color 0.2s;
+}
+
+.alert-rule-card.rule-new_ad { border-left-color: var(--ai-success); }
+.alert-rule-card.rule-ad_stopped { border-left-color: var(--ai-danger); }
+.alert-rule-card.rule-burst { border-left-color: var(--ai-warning); }
+
+/* Comparison highlight */
+.compare-winner {
+    background-color: rgba(46, 196, 182, 0.08);
+}
+
+/* Keyword cloud */
+.keyword-tag {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    margin: 0.15rem;
+    border-radius: 4px;
+    background: #e9ecef;
+    color: #495057;
+    font-size: 0.85rem;
+}
+
 /* Responsive tweaks */
 @media (max-width: 768px) {
     .kpi-card .kpi-value {
@@ -247,5 +298,10 @@ body {
 
     #geoMap {
         height: 300px;
+    }
+
+    .navbar-nav {
+        max-height: 300px;
+        overflow-y: auto;
     }
 }
