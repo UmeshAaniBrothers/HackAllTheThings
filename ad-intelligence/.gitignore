@@ -1,0 +1,10 @@
+# Secrets
+config/config.php
+
+# Media storage
+storage/media/*
+!storage/media/.gitkeep
+
+# Logs
+logs/*
+!logs/.gitkeep

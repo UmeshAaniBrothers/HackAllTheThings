@@ -1,0 +1,251 @@
+/* Ad Intelligence Dashboard - Custom Styles */
+
+:root {
+    --ai-primary: #4361ee;
+    --ai-success: #2ec4b6;
+    --ai-warning: #ff9f1c;
+    --ai-danger: #e71d36;
+    --ai-info: #7209b7;
+    --ai-dark: #1a1a2e;
+    --ai-light: #f8f9fa;
+}
+
+body {
+    background-color: #f0f2f5;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* KPI Cards */
+.kpi-card {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+.kpi-card .kpi-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.kpi-card .kpi-label {
+    font-size: 0.85rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.kpi-card .kpi-icon {
+    font-size: 2.5rem;
+    opacity: 0.2;
+}
+
+/* Chart containers */
+.chart-container {
+    background: #fff;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin-bottom: 1.5rem;
+}
+
+.chart-container h5 {
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: var(--ai-dark);
+}
+
+/* Data tables */
+.table-container {
+    background: #fff;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin-bottom: 1.5rem;
+}
+
+.table-container .table {
+    margin-bottom: 0;
+}
+
+.table-container .table th {
+    border-top: none;
+    font-weight: 600;
+    color: #495057;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+/* Status badges */
+.badge-active {
+    background-color: var(--ai-success);
+}
+
+.badge-inactive {
+    background-color: var(--ai-danger);
+}
+
+.badge-text {
+    background-color: var(--ai-primary);
+}
+
+.badge-image {
+    background-color: var(--ai-warning);
+}
+
+.badge-video {
+    background-color: var(--ai-info);
+}
+
+/* Ad preview cards */
+.ad-card {
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+    height: 100%;
+}
+
+.ad-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.ad-card .ad-media {
+    height: 180px;
+    background-color: #e9ecef;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.ad-card .ad-media img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: cover;
+}
+
+.ad-card .ad-media .no-media {
+    color: #adb5bd;
+    font-size: 3rem;
+}
+
+.ad-card .ad-body {
+    padding: 1rem;
+}
+
+.ad-card .ad-headline {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 0.5rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.ad-card .ad-description {
+    font-size: 0.85rem;
+    color: #6c757d;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.ad-card .ad-meta {
+    padding: 0.75rem 1rem;
+    background: #f8f9fa;
+    border-top: 1px solid #e9ecef;
+    font-size: 0.8rem;
+}
+
+/* Filter bar */
+.filter-bar {
+    background: #fff;
+    border-radius: 12px;
+    padding: 1.25rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    margin-bottom: 1.5rem;
+}
+
+/* Geo map */
+#geoMap {
+    height: 500px;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* Timeline chart */
+.timeline-item {
+    position: relative;
+    padding: 0.75rem 0;
+    border-left: 3px solid var(--ai-primary);
+    padding-left: 1.5rem;
+    margin-left: 1rem;
+}
+
+.timeline-item::before {
+    content: '';
+    width: 12px;
+    height: 12px;
+    background: var(--ai-primary);
+    border-radius: 50%;
+    position: absolute;
+    left: -7.5px;
+    top: 1rem;
+}
+
+/* Loading spinner */
+.loading-overlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+}
+
+/* Intelligence score */
+.score-circle {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0 auto;
+}
+
+.score-high {
+    background: linear-gradient(135deg, #2ec4b6, #4361ee);
+    color: #fff;
+}
+
+.score-medium {
+    background: linear-gradient(135deg, #ff9f1c, #4361ee);
+    color: #fff;
+}
+
+.score-low {
+    background: linear-gradient(135deg, #e71d36, #ff9f1c);
+    color: #fff;
+}
+
+/* Responsive tweaks */
+@media (max-width: 768px) {
+    .kpi-card .kpi-value {
+        font-size: 1.5rem;
+    }
+
+    #geoMap {
+        height: 300px;
+    }
+}
