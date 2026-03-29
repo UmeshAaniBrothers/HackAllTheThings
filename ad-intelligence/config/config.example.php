@@ -9,10 +9,10 @@
 
 return [
     'db' => [
-        'host'    => 'localhost',
-        'name'    => 'ad_intelligence',
-        'user'    => 'your_db_user',
-        'pass'    => 'your_db_password',
+        'host'    => '1170423.cloudwaysapps.com',
+        'name'    => 'okgtyacqrv',
+        'user'    => 'okgtyacqrv',
+        'pass'    => 'z8ruvbj9dX',
         'charset' => 'utf8mb4',
     ],
     'scraper' => [
@@ -32,7 +32,8 @@ return [
         'detect_interval'  => 900,   // 15 minutes
     ],
     'alerts' => [
-        'email_from' => 'alerts@ad-intelligence.local',
+        'email_from' => 'umesh@aanibrothers.in
+        ',
         'email_to'   => '',
         'telegram'   => [
             'bot_token' => '',
