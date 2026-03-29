@@ -18,7 +18,7 @@ return [
     'scraper' => [
         'max_retries' => 3,
         'advertisers' => [
-            // 'AR00000000000000000' => 'Advertiser Name',
+            'AR00744063166605950977' => 'NIRAJKUMAR KANUBHAI MANGUKIYA',
         ],
     ],
     'storage' => [
