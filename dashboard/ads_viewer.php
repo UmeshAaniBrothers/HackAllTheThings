@@ -1,0 +1,948 @@
+<?php require_once 'includes/header.php'; ?>
+
+<!-- Stats Cards -->
+<div class="row mb-4" id="statsCards">
+    <div class="col-6 col-md-3 mb-3">
+        <div class="card kpi-card p-3">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="kpi-label">Total Ads</div>
+                    <div class="kpi-value text-primary" id="vStatTotal">-</div>
+                </div>
+                <i class="bi bi-collection kpi-icon text-primary"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 mb-3">
+        <div class="card kpi-card p-3">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="kpi-label">Active</div>
+                    <div class="kpi-value text-success" id="vStatActive">-</div>
+                </div>
+                <i class="bi bi-check-circle kpi-icon text-success"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 mb-3">
+        <div class="card kpi-card p-3">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="kpi-label">Inactive</div>
+                    <div class="kpi-value text-danger" id="vStatInactive">-</div>
+                </div>
+                <i class="bi bi-x-circle kpi-icon text-danger"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 mb-3">
+        <div class="card kpi-card p-3">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="kpi-label">Shown Results</div>
+                    <div class="kpi-value text-info" id="vStatShown">-</div>
+                </div>
+                <i class="bi bi-funnel kpi-icon text-info"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filter Bar -->
+<div class="filter-bar mb-3" id="viewerFilterBar">
+    <div class="row g-2 align-items-end">
+        <!-- Row 1: Primary filters -->
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Advertiser</label>
+            <select id="vFilterAdvertiser" class="form-select form-select-sm">
+                <option value="">All Advertisers</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Country</label>
+            <select id="vFilterCountry" class="form-select form-select-sm">
+                <option value="">All Countries</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Platform</label>
+            <select id="vFilterPlatform" class="form-select form-select-sm">
+                <option value="">All Platforms</option>
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label small mb-1">Type</label>
+            <select id="vFilterType" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="text">Text</option>
+                <option value="image">Image</option>
+                <option value="video">Video</option>
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label small mb-1">Status</label>
+            <select id="vFilterStatus" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">From</label>
+            <input type="date" id="vFilterDateFrom" class="form-control form-control-sm">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">To</label>
+            <input type="date" id="vFilterDateTo" class="form-control form-control-sm">
+        </div>
+    </div>
+    <div class="row g-2 align-items-end mt-1">
+        <!-- Row 2: Advanced filters + search -->
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Domain</label>
+            <input type="text" id="vFilterDomain" class="form-control form-control-sm" placeholder="e.g. example.com">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">CTA</label>
+            <input type="text" id="vFilterCta" class="form-control form-control-sm" placeholder="e.g. Sign Up">
+        </div>
+        <div class="col-md-1">
+            <label class="form-label small mb-1">Sentiment</label>
+            <select id="vFilterSentiment" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="aggressive">Aggressive</option>
+                <option value="moderate">Moderate</option>
+                <option value="soft">Soft</option>
+                <option value="neutral">Neutral</option>
+            </select>
+        </div>
+        <div class="col-md-1">
+            <label class="form-label small mb-1">Hook</label>
+            <select id="vFilterHook" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="urgency">Urgency</option>
+                <option value="scarcity">Scarcity</option>
+                <option value="social_proof">Social Proof</option>
+                <option value="free_offer">Free Offer</option>
+                <option value="discount">Discount</option>
+                <option value="guarantee">Guarantee</option>
+                <option value="authority">Authority</option>
+                <option value="curiosity">Curiosity</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Tag</label>
+            <select id="vFilterTag" class="form-select form-select-sm">
+                <option value="">All Tags</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small mb-1">Search</label>
+            <input type="text" id="vFilterSearch" class="form-control form-control-sm" placeholder="Search headlines, descriptions...">
+        </div>
+        <div class="col-md-1 d-flex gap-1">
+            <button class="btn btn-primary btn-sm flex-grow-1" onclick="viewerLoad()" title="Apply filters">
+                <i class="bi bi-search"></i>
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="viewerClearFilters()" title="Clear all filters">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </div>
+    <!-- Active filter pills + view toggle -->
+    <div class="d-flex justify-content-between align-items-center mt-2" id="viewerToolbar">
+        <div id="vActiveFilters" class="d-flex flex-wrap gap-1"></div>
+        <div class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-primary active" id="vViewGrid" onclick="viewerSetView('grid')" title="Grid view">
+                <i class="bi bi-grid-3x3-gap-fill"></i>
+            </button>
+            <button type="button" class="btn btn-outline-primary" id="vViewTable" onclick="viewerSetView('table')" title="Table view">
+                <i class="bi bi-list-ul"></i>
+            </button>
+            <div class="dropdown d-inline-block ms-2">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <i class="bi bi-sort-down me-1"></i><span id="vSortLabel">Newest</span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#" onclick="viewerSetSort('newest'); return false;">Newest First</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="viewerSetSort('oldest'); return false;">Oldest First</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="viewerSetSort('last_seen'); return false;">Last Seen</a></li>
+                </ul>
+            </div>
+            <div class="dropdown d-inline-block ms-1">
+                <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <span id="vPerPageLabel">20</span>/page
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#" onclick="viewerSetPerPage(12); return false;">12</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="viewerSetPerPage(20); return false;">20</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="viewerSetPerPage(40); return false;">40</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="viewerSetPerPage(100); return false;">100</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Results container -->
+<div id="vResults">
+    <div class="loading-overlay"><div class="spinner-border text-primary" role="status"></div></div>
+</div>
+
+<!-- Pagination -->
+<div id="vPagination" class="mt-3"></div>
+
+<!-- Detail Modal -->
+<div class="modal fade" id="adDetailModal" tabindex="-1" aria-labelledby="adDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="adDetailModalLabel">Ad Detail</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="adDetailBody">
+                <div class="loading-overlay"><div class="spinner-border text-primary" role="status"></div></div>
+            </div>
+            <div class="modal-footer d-flex justify-content-between">
+                <div>
+                    <a id="modalOpenCreative" href="#" class="btn btn-outline-primary btn-sm" target="_blank">
+                        <i class="bi bi-box-arrow-up-right me-1"></i>Open Full Detail
+                    </a>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    // ── State ──────────────────────────────────────────────
+    const S = {
+        page: 1,
+        perPage: 20,
+        view: 'grid',       // 'grid' | 'table'
+        sort: 'newest',     // 'newest' | 'oldest' | 'last_seen'
+        filters: {},        // current applied filter key→value
+        filterOptions: null, // cached {advertisers, countries, platforms}
+        totalAds: 0,
+        activeAds: 0,
+        inactiveAds: 0,
+        debounceTimer: null,
+    };
+
+    // ── Hash ↔ State ───────────────────────────────────────
+    const FILTER_KEYS = [
+        'advertiser_id', 'country', 'platform', 'ad_type', 'status',
+        'date_from', 'date_to', 'domain', 'cta', 'sentiment',
+        'hook', 'tag', 'search'
+    ];
+    const ELEMENT_MAP = {
+        advertiser_id: 'vFilterAdvertiser',
+        country:       'vFilterCountry',
+        platform:      'vFilterPlatform',
+        ad_type:       'vFilterType',
+        status:        'vFilterStatus',
+        date_from:     'vFilterDateFrom',
+        date_to:       'vFilterDateTo',
+        domain:        'vFilterDomain',
+        cta:           'vFilterCta',
+        sentiment:     'vFilterSentiment',
+        hook:          'vFilterHook',
+        tag:           'vFilterTag',
+        search:        'vFilterSearch',
+    };
+
+    function readHash() {
+        const h = location.hash.substring(1);
+        if (!h) return {};
+        const obj = {};
+        h.split('&').forEach(pair => {
+            const [k, v] = pair.split('=').map(decodeURIComponent);
+            if (k && v) obj[k] = v;
+        });
+        return obj;
+    }
+
+    function writeHash() {
+        const parts = [];
+        FILTER_KEYS.forEach(k => {
+            if (S.filters[k]) parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(S.filters[k]));
+        });
+        if (S.page > 1) parts.push('page=' + S.page);
+        if (S.view !== 'grid') parts.push('view=' + S.view);
+        if (S.perPage !== 20) parts.push('per_page=' + S.perPage);
+        if (S.sort !== 'newest') parts.push('sort=' + S.sort);
+        const hash = parts.join('&');
+        history.replaceState(null, '', hash ? '#' + hash : location.pathname + location.search);
+    }
+
+    function applyHashToState() {
+        const h = readHash();
+        FILTER_KEYS.forEach(k => {
+            S.filters[k] = h[k] || '';
+        });
+        S.page = parseInt(h.page) || 1;
+        S.view = h.view === 'table' ? 'table' : 'grid';
+        S.perPage = [12,20,40,100].includes(parseInt(h.per_page)) ? parseInt(h.per_page) : 20;
+        S.sort = ['newest','oldest','last_seen'].includes(h.sort) ? h.sort : 'newest';
+    }
+
+    function syncFormFromState() {
+        FILTER_KEYS.forEach(k => {
+            const el = document.getElementById(ELEMENT_MAP[k]);
+            if (el) el.value = S.filters[k] || '';
+        });
+        document.getElementById('vViewGrid').classList.toggle('active', S.view === 'grid');
+        document.getElementById('vViewTable').classList.toggle('active', S.view === 'table');
+        document.getElementById('vPerPageLabel').textContent = S.perPage;
+        const sortLabels = { newest: 'Newest', oldest: 'Oldest', last_seen: 'Last Seen' };
+        document.getElementById('vSortLabel').textContent = sortLabels[S.sort] || 'Newest';
+    }
+
+    function readFormToState() {
+        FILTER_KEYS.forEach(k => {
+            const el = document.getElementById(ELEMENT_MAP[k]);
+            S.filters[k] = el ? el.value.trim() : '';
+        });
+    }
+
+    // ── Filter Pills ───────────────────────────────────────
+    const LABEL_MAP = {
+        advertiser_id: 'Advertiser', country: 'Country', platform: 'Platform',
+        ad_type: 'Type', status: 'Status', date_from: 'From', date_to: 'To',
+        domain: 'Domain', cta: 'CTA', sentiment: 'Sentiment', hook: 'Hook',
+        tag: 'Tag', search: 'Search',
+    };
+
+    function renderFilterPills() {
+        const container = document.getElementById('vActiveFilters');
+        const pills = [];
+        FILTER_KEYS.forEach(k => {
+            if (S.filters[k]) {
+                pills.push(`<span class="badge bg-primary d-inline-flex align-items-center gap-1 viewer-pill"
+                    >${LABEL_MAP[k]}: ${escapeHtml(S.filters[k])}
+                    <i class="bi bi-x-circle" role="button" data-filter="${k}" style="cursor:pointer"></i></span>`);
+            }
+        });
+        container.innerHTML = pills.length
+            ? pills.join('')
+            : '<small class="text-muted">No active filters</small>';
+
+        container.querySelectorAll('[data-filter]').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const key = this.dataset.filter;
+                S.filters[key] = '';
+                const el = document.getElementById(ELEMENT_MAP[key]);
+                if (el) el.value = '';
+                S.page = 1;
+                viewerLoad();
+            });
+        });
+    }
+
+    // ── Click-to-Filter (interlinked entities) ─────────────
+    function clickFilter(key, value) {
+        S.filters[key] = value;
+        const el = document.getElementById(ELEMENT_MAP[key]);
+        if (el) {
+            // If the option doesn't exist in the select, add it
+            if (el.tagName === 'SELECT' && !el.querySelector(`option[value="${CSS.escape(value)}"]`)) {
+                const opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = value;
+                el.appendChild(opt);
+            }
+            el.value = value;
+        }
+        S.page = 1;
+        viewerLoad();
+    }
+    window.viewerClickFilter = clickFilter;
+
+    // ── API call ───────────────────────────────────────────
+    async function loadData() {
+        const params = { page: S.page, per_page: S.perPage };
+
+        FILTER_KEYS.forEach(k => {
+            if (S.filters[k]) {
+                // The search API uses 'q' for keyword search
+                if (k === 'search') params.q = S.filters[k];
+                else params[k] = S.filters[k];
+            }
+        });
+
+        // Use search.php if advanced filters are used, ads.php otherwise
+        const hasAdvanced = S.filters.domain || S.filters.cta || S.filters.sentiment
+                         || S.filters.hook || S.filters.tag || S.filters.search;
+        const endpoint = hasAdvanced ? 'search.php' : 'ads.php';
+
+        const data = await fetchAPI(endpoint, params);
+        if (!data.success) throw new Error('API returned success=false');
+        return { data, endpoint };
+    }
+
+    async function loadStats() {
+        try {
+            const overview = await fetchAPI('overview.php', {
+                advertiser_id: S.filters.advertiser_id || null
+            });
+            if (overview.success && overview.stats) {
+                S.totalAds = overview.stats.total_ads || 0;
+                S.activeAds = overview.stats.active_ads || 0;
+                S.inactiveAds = S.totalAds - S.activeAds;
+                document.getElementById('vStatTotal').textContent = formatNumber(S.totalAds);
+                document.getElementById('vStatActive').textContent = formatNumber(S.activeAds);
+                document.getElementById('vStatInactive').textContent = formatNumber(S.inactiveAds);
+            }
+        } catch (e) { /* stats are non-critical */ }
+    }
+
+    // ── Main Load ──────────────────────────────────────────
+    async function load() {
+        writeHash();
+        renderFilterPills();
+        syncFormFromState();
+
+        const resultsEl = document.getElementById('vResults');
+        resultsEl.innerHTML = '<div class="loading-overlay"><div class="spinner-border text-primary" role="status"></div></div>';
+        document.getElementById('vPagination').innerHTML = '';
+
+        try {
+            const [{ data, endpoint }] = await Promise.all([loadData(), loadStats()]);
+
+            const ads = data.ads || data.results || [];
+            const total = data.total || 0;
+            const totalPages = data.total_pages || 1;
+            const page = data.page || 1;
+
+            document.getElementById('vStatShown').textContent = formatNumber(total);
+
+            // Populate filter dropdowns from ads.php filter_options (first load)
+            if (endpoint === 'ads.php' && data.filter_options && !S.filterOptions) {
+                S.filterOptions = data.filter_options;
+                populateViewerDropdowns(data.filter_options);
+            }
+
+            if (S.view === 'grid') {
+                renderGrid(ads);
+            } else {
+                renderTable(ads);
+            }
+
+            renderPag(page, totalPages, total);
+
+        } catch (err) {
+            console.error('Viewer load error:', err);
+            resultsEl.innerHTML = '<div class="text-center text-danger py-5"><i class="bi bi-exclamation-triangle me-2"></i>Failed to load ads. Please try again.</div>';
+        }
+    }
+    window.viewerLoad = load;
+
+    // ── Populate dropdowns ────────────────────────────────
+    function populateViewerDropdowns(options) {
+        addOptions('vFilterAdvertiser', options.advertisers || [], 'advertiser_id', 'advertiser_id');
+        addOptions('vFilterCountry', options.countries || [], 'country', 'country');
+        addOptions('vFilterPlatform', options.platforms || [], 'platform', 'platform');
+        // Restore selected values from state after populating
+        syncFormFromState();
+    }
+
+    function addOptions(selectId, items, valueKey, labelKey) {
+        const sel = document.getElementById(selectId);
+        if (!sel || sel.options.length > 1) return;
+        items.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item[valueKey];
+            opt.textContent = item[labelKey];
+            sel.appendChild(opt);
+        });
+    }
+
+    async function loadTags() {
+        try {
+            const data = await fetchAPI('tags.php', { action: 'list' });
+            if (!data.success) return;
+            const sel = document.getElementById('vFilterTag');
+            (data.tags || []).forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.name;
+                opt.textContent = t.name;
+                opt.style.borderLeft = `4px solid ${t.color || '#6c757d'}`;
+                sel.appendChild(opt);
+            });
+        } catch (e) {}
+    }
+
+    // ── Grid Render ────────────────────────────────────────
+    function renderGrid(ads) {
+        const container = document.getElementById('vResults');
+        if (ads.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-inbox" style="font-size:3rem"></i><h5 class="mt-2">No ads found</h5><p>Try adjusting your filters</p></div>';
+            return;
+        }
+
+        container.innerHTML = '<div class="row">' + ads.map(ad => {
+            const countries = (ad.countries || '').split(',').map(c => c.trim()).filter(Boolean);
+            const platforms = (ad.platforms || '').split(',').map(p => p.trim()).filter(Boolean);
+            const isVideo = ad.ad_type === 'video';
+
+            return `<div class="col-md-6 col-lg-4 col-xl-3 mb-4">
+                <div class="ad-card viewer-card" role="button" data-id="${escapeHtml(ad.creative_id)}">
+                    <div class="ad-media">
+                        ${ad.preview_image
+                            ? `<img src="${escapeHtml(ad.preview_image)}" alt="Ad preview" loading="lazy">`
+                            : isVideo
+                                ? '<i class="bi bi-play-circle no-media"></i>'
+                                : '<i class="bi bi-image no-media"></i>'
+                        }
+                        ${isVideo ? '<span class="viewer-video-badge"><i class="bi bi-play-fill"></i></span>' : ''}
+                    </div>
+                    <div class="ad-body">
+                        <div class="ad-headline">${escapeHtml(ad.headline || 'No headline')}</div>
+                        <div class="ad-description">${escapeHtml(ad.description || 'No description')}</div>
+                        ${ad.cta ? `<span class="badge bg-primary mt-2 viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
+                    </div>
+                    <div class="ad-meta">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <div>
+                                <span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type || 'text'}</span>
+                                <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span>
+                            </div>
+                            <small class="text-muted">${formatDate(ad.last_seen)}</small>
+                        </div>
+                        <div class="d-flex flex-wrap gap-1">
+                            ${countries.slice(0, 3).map(c =>
+                                `<span class="badge bg-secondary viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="font-size:.7rem">${escapeHtml(c)}</span>`
+                            ).join('')}
+                            ${countries.length > 3 ? `<span class="badge bg-light text-dark" style="font-size:.7rem">+${countries.length - 3}</span>` : ''}
+                            ${platforms.slice(0, 2).map(p =>
+                                `<span class="badge bg-dark viewer-clickable" data-filter="platform" data-value="${escapeHtml(p)}" style="font-size:.7rem">${escapeHtml(p)}</span>`
+                            ).join('')}
+                        </div>
+                        ${ad.advertiser_id ? `<div class="mt-1"><small class="text-muted viewer-clickable" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer;text-decoration:underline dotted"><i class="bi bi-person-fill me-1"></i>${escapeHtml(ad.advertiser_id)}</small></div>` : ''}
+                    </div>
+                </div>
+            </div>`;
+        }).join('') + '</div>';
+
+        bindCardEvents(container);
+    }
+
+    // ── Table Render ───────────────────────────────────────
+    function renderTable(ads) {
+        const container = document.getElementById('vResults');
+        if (ads.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-inbox" style="font-size:3rem"></i><h5 class="mt-2">No ads found</h5></div>';
+            return;
+        }
+
+        let html = `<div class="table-container"><div class="table-responsive"><table class="table table-hover mb-0">
+            <thead><tr>
+                <th></th><th>Headline</th><th>Advertiser</th><th>CTA</th>
+                <th>Type</th><th>Status</th><th>Countries</th><th>Platforms</th>
+                <th>First Seen</th><th>Last Seen</th>
+            </tr></thead><tbody>`;
+
+        ads.forEach(ad => {
+            const countries = (ad.countries || '').split(',').map(c => c.trim()).filter(Boolean);
+            const platforms = (ad.platforms || '').split(',').map(p => p.trim()).filter(Boolean);
+            html += `<tr class="viewer-row" role="button" data-id="${escapeHtml(ad.creative_id)}">
+                <td style="width:50px">
+                    ${ad.preview_image
+                        ? `<img src="${escapeHtml(ad.preview_image)}" style="width:40px;height:40px;object-fit:cover;border-radius:6px" loading="lazy">`
+                        : `<div style="width:40px;height:40px;border-radius:6px;background:#e9ecef;display:flex;align-items:center;justify-content:center"><i class="bi bi-${ad.ad_type === 'video' ? 'play-circle' : 'image'} text-muted"></i></div>`
+                    }
+                </td>
+                <td class="text-truncate" style="max-width:220px"><strong>${escapeHtml(ad.headline || 'No headline')}</strong><br><small class="text-muted">${escapeHtml((ad.description || '').substring(0, 80))}</small></td>
+                <td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer">${escapeHtml(ad.advertiser_id || '-')}</span></td>
+                <td>${ad.cta ? `<span class="badge bg-primary viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : '-'}</td>
+                <td><span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type}</span></td>
+                <td><span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span></td>
+                <td>${countries.slice(0, 3).map(c => `<span class="badge bg-secondary viewer-clickable me-1" data-filter="country" data-value="${escapeHtml(c)}" style="font-size:.7rem">${escapeHtml(c)}</span>`).join('')}${countries.length > 3 ? `<span class="badge bg-light text-dark" style="font-size:.7rem">+${countries.length-3}</span>` : ''}</td>
+                <td>${platforms.slice(0, 2).map(p => `<span class="badge bg-dark viewer-clickable me-1" data-filter="platform" data-value="${escapeHtml(p)}" style="font-size:.7rem">${escapeHtml(p)}</span>`).join('')}</td>
+                <td><small>${formatDate(ad.first_seen)}</small></td>
+                <td><small>${formatDate(ad.last_seen)}</small></td>
+            </tr>`;
+        });
+
+        html += '</tbody></table></div></div>';
+        container.innerHTML = html;
+        bindCardEvents(container);
+    }
+
+    // ── Card/Row click + click-to-filter delegation ───────
+    function bindCardEvents(container) {
+        // Click-to-filter badges (stop propagation so it doesn't open modal)
+        container.querySelectorAll('.viewer-clickable').forEach(el => {
+            el.style.cursor = 'pointer';
+            el.addEventListener('click', function(e) {
+                e.stopPropagation();
+                clickFilter(this.dataset.filter, this.dataset.value);
+            });
+        });
+
+        // Card/row click → open detail modal
+        container.querySelectorAll('[data-id].viewer-card, [data-id].viewer-row').forEach(el => {
+            el.addEventListener('click', function() {
+                openDetail(this.dataset.id);
+            });
+        });
+    }
+
+    // ── Detail Modal ───────────────────────────────────────
+    async function openDetail(creativeId) {
+        const body = document.getElementById('adDetailBody');
+        body.innerHTML = '<div class="loading-overlay"><div class="spinner-border text-primary" role="status"></div></div>';
+        document.getElementById('adDetailModalLabel').textContent = 'Loading...';
+        document.getElementById('modalOpenCreative').href = 'creative.php?id=' + encodeURIComponent(creativeId);
+
+        const modal = new bootstrap.Modal(document.getElementById('adDetailModal'));
+        modal.show();
+
+        try {
+            const [creative, intel] = await Promise.all([
+                fetchAPI('creative.php', { id: creativeId }),
+                fetchAPI('intelligence.php', { creative_id: creativeId }).catch(() => null),
+            ]);
+
+            if (!creative.success) {
+                body.innerHTML = '<div class="text-danger">Failed to load detail</div>';
+                return;
+            }
+
+            const ad = creative.ad;
+            const detail = creative.details[0] || {};
+            const assets = creative.assets || [];
+            const targeting = creative.targeting || [];
+            const analysis = intel?.analysis || {};
+
+            document.getElementById('adDetailModalLabel').textContent = escapeHtml(detail.headline || ad.creative_id);
+
+            let html = '';
+
+            // Header row
+            html += `<div class="row mb-3">
+                <div class="col-md-8">
+                    <h5>${escapeHtml(detail.headline || 'No headline')}</h5>
+                    <p class="text-muted">${escapeHtml(detail.description || 'No description')}</p>
+                    ${detail.cta ? `<span class="badge bg-primary viewer-clickable" data-filter="cta" data-value="${escapeHtml(detail.cta)}" style="cursor:pointer">${escapeHtml(detail.cta)}</span>` : ''}
+                    ${detail.landing_url ? `<a href="${escapeHtml(detail.landing_url)}" target="_blank" rel="noopener" class="btn btn-link btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>${escapeHtml(new URL(detail.landing_url).hostname)}</a>` : ''}
+                </div>
+                <div class="col-md-4 text-md-end">
+                    <span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}" style="cursor:pointer">${ad.ad_type}</span>
+                    <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}" style="cursor:pointer">${ad.status}</span>
+                    <br><small class="text-muted viewer-clickable" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer;text-decoration:underline dotted"><i class="bi bi-person me-1"></i>${escapeHtml(ad.advertiser_id)}</small>
+                </div>
+            </div>`;
+
+            // Stats mini-cards
+            html += `<div class="row mb-3">
+                <div class="col-3"><div class="card p-2 text-center"><small class="text-muted">Duration</small><br><strong>${creative.duration_days || 0}d</strong></div></div>
+                <div class="col-3"><div class="card p-2 text-center"><small class="text-muted">Versions</small><br><strong>${creative.version_count || 1}</strong></div></div>
+                <div class="col-3"><div class="card p-2 text-center"><small class="text-muted">First Seen</small><br><strong>${formatDate(ad.first_seen)}</strong></div></div>
+                <div class="col-3"><div class="card p-2 text-center"><small class="text-muted">Last Seen</small><br><strong>${formatDate(ad.last_seen)}</strong></div></div>
+            </div>`;
+
+            // Media assets (images + YouTube embeds for video)
+            if (assets.length > 0) {
+                html += '<h6 class="mt-3 mb-2"><i class="bi bi-images me-1"></i>Media Assets</h6><div class="row mb-3">';
+                assets.forEach(asset => {
+                    if (asset.type === 'image') {
+                        const src = asset.local_path || asset.original_url;
+                        html += `<div class="col-md-4 mb-2"><img src="${escapeHtml(src)}" class="img-fluid rounded shadow-sm" alt="Ad asset" loading="lazy" style="cursor:zoom-in" onclick="window.open(this.src)"></div>`;
+                    } else if (asset.type === 'video') {
+                        const url = asset.original_url || '';
+                        const ytId = extractYouTubeId(url);
+                        if (ytId) {
+                            html += `<div class="col-md-6 mb-2"><div class="ratio ratio-16x9"><iframe src="https://www.youtube.com/embed/${escapeHtml(ytId)}" allowfullscreen class="rounded"></iframe></div></div>`;
+                        } else {
+                            html += `<div class="col-md-6 mb-2"><video controls class="w-100 rounded"><source src="${escapeHtml(url)}" type="video/mp4"></video></div>`;
+                        }
+                    }
+                });
+                html += '</div>';
+            }
+
+            // Targeting
+            if (targeting.length > 0) {
+                html += '<h6 class="mt-3 mb-2"><i class="bi bi-geo-alt me-1"></i>Targeting</h6><div class="mb-3">';
+                const countries = [...new Set(targeting.map(t => t.country).filter(Boolean))];
+                const platforms = [...new Set(targeting.map(t => t.platform).filter(Boolean))];
+                html += countries.map(c => `<span class="badge bg-secondary me-1 mb-1 viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="cursor:pointer">${escapeHtml(c)}</span>`).join('');
+                html += platforms.map(p => `<span class="badge bg-dark me-1 mb-1 viewer-clickable" data-filter="platform" data-value="${escapeHtml(p)}" style="cursor:pointer">${escapeHtml(p)}</span>`).join('');
+                html += '</div>';
+            }
+
+            // AI Analysis (if available)
+            if (analysis.sentiment || analysis.hooks || analysis.score !== undefined) {
+                html += '<h6 class="mt-3 mb-2"><i class="bi bi-cpu me-1"></i>AI Analysis</h6><div class="row mb-3">';
+                if (analysis.sentiment) {
+                    const sentimentColors = { aggressive: 'danger', moderate: 'warning', soft: 'success', neutral: 'secondary' };
+                    html += `<div class="col-auto"><span class="badge bg-${sentimentColors[analysis.sentiment] || 'secondary'} viewer-clickable" data-filter="sentiment" data-value="${escapeHtml(analysis.sentiment)}" style="cursor:pointer">Sentiment: ${escapeHtml(analysis.sentiment)}</span></div>`;
+                }
+                if (analysis.score !== undefined) {
+                    const sc = Math.round(analysis.score);
+                    html += `<div class="col-auto"><span class="score-circle-sm ${sc >= 70 ? 'score-high' : sc >= 40 ? 'score-medium' : 'score-low'}">${sc}</span></div>`;
+                }
+                html += '</div>';
+                if (analysis.hooks && analysis.hooks.length > 0) {
+                    html += '<div class="mb-3">Hooks: ' + analysis.hooks.map(h =>
+                        `<span class="badge bg-info me-1 viewer-clickable" data-filter="hook" data-value="${escapeHtml(h)}" style="cursor:pointer">${escapeHtml(h)}</span>`
+                    ).join('') + '</div>';
+                }
+                if (analysis.keywords && analysis.keywords.length > 0) {
+                    html += '<div class="mb-3">Keywords: ' + analysis.keywords.map(k =>
+                        `<span class="keyword-tag">${escapeHtml(k)}</span>`
+                    ).join('') + '</div>';
+                }
+            }
+
+            // Version history
+            if (creative.details.length > 1) {
+                html += '<h6 class="mt-3 mb-2"><i class="bi bi-clock-history me-1"></i>Version History</h6>';
+                html += '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Date</th><th>Headline</th><th>CTA</th><th>Landing URL</th></tr></thead><tbody>';
+                creative.details.forEach(d => {
+                    html += `<tr>
+                        <td><small>${formatDate(d.snapshot_date)}</small></td>
+                        <td>${escapeHtml(d.headline || '-')}</td>
+                        <td>${escapeHtml(d.cta || '-')}</td>
+                        <td class="text-truncate" style="max-width:200px">${escapeHtml(d.landing_url || '-')}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table></div>';
+            }
+
+            // Related ads section (same advertiser)
+            html += `<h6 class="mt-3 mb-2"><i class="bi bi-collection me-1"></i>More from this Advertiser</h6>
+                <div id="modalRelatedAds"><div class="loading-overlay" style="min-height:80px"><div class="spinner-border spinner-border-sm text-primary" role="status"></div></div></div>`;
+
+            body.innerHTML = html;
+
+            // Bind click-to-filter in modal
+            body.querySelectorAll('.viewer-clickable').forEach(el => {
+                el.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    modal.hide();
+                    clickFilter(this.dataset.filter, this.dataset.value);
+                });
+            });
+
+            // Load related ads
+            loadRelatedAds(ad.advertiser_id, ad.creative_id);
+
+        } catch (err) {
+            console.error('Detail load error:', err);
+            body.innerHTML = '<div class="text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Failed to load ad detail.</div>';
+        }
+    }
+
+    async function loadRelatedAds(advertiserId, excludeId) {
+        try {
+            const data = await fetchAPI('ads.php', { advertiser_id: advertiserId, per_page: 6 });
+            const container = document.getElementById('modalRelatedAds');
+            if (!container || !data.success) return;
+
+            const related = (data.ads || []).filter(a => a.creative_id !== excludeId).slice(0, 5);
+            if (related.length === 0) {
+                container.innerHTML = '<small class="text-muted">No other ads from this advertiser</small>';
+                return;
+            }
+
+            container.innerHTML = '<div class="d-flex gap-2 overflow-auto pb-2">' + related.map(ad =>
+                `<div class="card flex-shrink-0 viewer-related-card" style="width:180px;cursor:pointer" data-related-id="${escapeHtml(ad.creative_id)}">
+                    <div style="height:90px;background:#e9ecef;display:flex;align-items:center;justify-content:center;border-radius:6px 6px 0 0;overflow:hidden">
+                        ${ad.preview_image ? `<img src="${escapeHtml(ad.preview_image)}" style="width:100%;height:100%;object-fit:cover" loading="lazy">` : `<i class="bi bi-image text-muted"></i>`}
+                    </div>
+                    <div class="p-2">
+                        <small class="fw-bold d-block text-truncate">${escapeHtml(ad.headline || 'No headline')}</small>
+                        <small>${typeBadge(ad.ad_type)} ${statusBadge(ad.status)}</small>
+                    </div>
+                </div>`
+            ).join('') + '</div>';
+
+            container.querySelectorAll('.viewer-related-card').forEach(card => {
+                card.addEventListener('click', function() {
+                    openDetail(this.dataset.relatedId);
+                });
+            });
+        } catch (e) {
+            const container = document.getElementById('modalRelatedAds');
+            if (container) container.innerHTML = '<small class="text-muted">Could not load related ads</small>';
+        }
+    }
+
+    function extractYouTubeId(url) {
+        if (!url) return null;
+        const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([\w-]{11})/);
+        return m ? m[1] : null;
+    }
+
+    // ── Pagination ─────────────────────────────────────────
+    function renderPag(currentPage, totalPages, total) {
+        const container = document.getElementById('vPagination');
+        if (!container) return;
+        if (totalPages <= 1 && total <= S.perPage) {
+            container.innerHTML = `<div class="text-center"><small class="text-muted">${formatNumber(total)} total results</small></div>`;
+            return;
+        }
+
+        let html = `<div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <small class="text-muted">Showing ${((currentPage - 1) * S.perPage) + 1}–${Math.min(currentPage * S.perPage, total)} of ${formatNumber(total)}</small>
+            <nav><ul class="pagination pagination-sm mb-0">`;
+
+        // First
+        if (currentPage > 2) html += `<li class="page-item"><a class="page-link" href="#" onclick="viewerGoPage(1); return false;">&laquo;</a></li>`;
+        // Prev
+        if (currentPage > 1) html += `<li class="page-item"><a class="page-link" href="#" onclick="viewerGoPage(${currentPage - 1}); return false;">Prev</a></li>`;
+
+        const startPage = Math.max(1, currentPage - 3);
+        const endPage = Math.min(totalPages, currentPage + 3);
+        if (startPage > 1) html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+
+        for (let i = startPage; i <= endPage; i++) {
+            html += `<li class="page-item ${i === currentPage ? 'active' : ''}"><a class="page-link" href="#" onclick="viewerGoPage(${i}); return false;">${i}</a></li>`;
+        }
+
+        if (endPage < totalPages) html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+        // Next
+        if (currentPage < totalPages) html += `<li class="page-item"><a class="page-link" href="#" onclick="viewerGoPage(${currentPage + 1}); return false;">Next</a></li>`;
+        // Last
+        if (currentPage < totalPages - 1) html += `<li class="page-item"><a class="page-link" href="#" onclick="viewerGoPage(${totalPages}); return false;">&raquo;</a></li>`;
+
+        html += '</ul></nav></div>';
+        container.innerHTML = html;
+    }
+
+    window.viewerGoPage = function(p) {
+        S.page = p;
+        load();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    // ── View / Sort / PerPage controls ────────────────────
+    window.viewerSetView = function(v) {
+        S.view = v;
+        document.getElementById('vViewGrid').classList.toggle('active', v === 'grid');
+        document.getElementById('vViewTable').classList.toggle('active', v === 'table');
+        load();
+    };
+
+    window.viewerSetSort = function(s) {
+        S.sort = s;
+        const labels = { newest: 'Newest', oldest: 'Oldest', last_seen: 'Last Seen' };
+        document.getElementById('vSortLabel').textContent = labels[s] || s;
+        S.page = 1;
+        load();
+    };
+
+    window.viewerSetPerPage = function(n) {
+        S.perPage = n;
+        document.getElementById('vPerPageLabel').textContent = n;
+        S.page = 1;
+        load();
+    };
+
+    window.viewerClearFilters = function() {
+        FILTER_KEYS.forEach(k => {
+            S.filters[k] = '';
+            const el = document.getElementById(ELEMENT_MAP[k]);
+            if (el) el.value = '';
+        });
+        S.page = 1;
+        load();
+    };
+
+    // ── Debounced search input ─────────────────────────────
+    function setupDebounce() {
+        const searchInput = document.getElementById('vFilterSearch');
+        if (!searchInput) return;
+        searchInput.addEventListener('input', function() {
+            clearTimeout(S.debounceTimer);
+            S.debounceTimer = setTimeout(() => {
+                readFormToState();
+                S.page = 1;
+                load();
+            }, 400);
+        });
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                clearTimeout(S.debounceTimer);
+                readFormToState();
+                S.page = 1;
+                load();
+            }
+        });
+    }
+
+    // Filter change handlers for dropdowns/date inputs
+    function setupFilterListeners() {
+        const onChange = () => {
+            readFormToState();
+            S.page = 1;
+            load();
+        };
+        ['vFilterAdvertiser', 'vFilterCountry', 'vFilterPlatform', 'vFilterType',
+         'vFilterStatus', 'vFilterDateFrom', 'vFilterDateTo', 'vFilterSentiment',
+         'vFilterHook', 'vFilterTag'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', onChange);
+        });
+
+        // Debounce for text inputs (domain, cta)
+        ['vFilterDomain', 'vFilterCta'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', function() {
+                clearTimeout(S.debounceTimer);
+                S.debounceTimer = setTimeout(onChange, 400);
+            });
+            el.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') { clearTimeout(S.debounceTimer); onChange(); }
+            });
+        });
+    }
+
+    // ── Hash change listener (back/forward) ───────────────
+    window.addEventListener('hashchange', function() {
+        applyHashToState();
+        syncFormFromState();
+        load();
+    });
+
+    // ── Init ───────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', function() {
+        applyHashToState();
+        syncFormFromState();
+        setupDebounce();
+        setupFilterListeners();
+        loadTags();
+        load();
+    });
+
+})();
+</script>
+
+<style>
+/* Viewer-specific styles */
+.viewer-card { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+.viewer-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.12); }
+.viewer-video-badge {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%;
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    font-size: 0.9rem;
+}
+.ad-media { position: relative; }
+.viewer-clickable:hover { opacity: 0.8; filter: brightness(1.1); }
+.viewer-pill { font-size: 0.78rem; }
+.viewer-related-card { transition: box-shadow 0.15s; }
+.viewer-related-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+#adDetailModal .modal-body { max-height: 80vh; }
+.viewer-row:hover td { background-color: rgba(67,97,238,0.04); }
+.viewer-row { cursor: pointer; }
+</style>
+
+<?php require_once 'includes/footer.php'; ?>

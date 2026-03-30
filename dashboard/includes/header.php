@@ -31,6 +31,11 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link <?= $currentPage === 'ads_viewer' ? 'active' : '' ?>" href="ads_viewer.php">
+                            <i class="bi bi-eye me-1"></i>Ads Viewer
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link <?= $currentPage === 'explorer' ? 'active' : '' ?>" href="explorer.php">
                             <i class="bi bi-layout-text-window me-1"></i>Explorer
                         </a>
@@ -73,6 +78,11 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                     <li class="nav-item">
                         <a class="nav-link <?= $currentPage === 'alerts' ? 'active' : '' ?>" href="alerts.php">
                             <i class="bi bi-bell me-1"></i>Alerts
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?= $currentPage === 'manage' ? 'active' : '' ?>" href="manage.php">
+                            <i class="bi bi-gear me-1"></i>Manage
                         </a>
                     </li>
                 </ul>

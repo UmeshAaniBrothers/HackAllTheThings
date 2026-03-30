@@ -26,8 +26,20 @@ try {
 
     $advertisers = $config['scraper']['advertisers'] ?? [];
 
+    // Also pull advertisers from the managed_advertisers table (managed via UI)
+    try {
+        $tracked = $db->fetchAll("SELECT advertiser_id, name FROM managed_advertisers WHERE status IN ('active', 'new')");
+        foreach ($tracked as $t) {
+            if (!isset($advertisers[$t['advertiser_id']])) {
+                $advertisers[$t['advertiser_id']] = $t['name'];
+            }
+        }
+    } catch (Exception $e) {
+        // Table may not exist yet — that's fine, use config only
+    }
+
     if (empty($advertisers)) {
-        echo "No advertisers configured. Add advertiser IDs to config.php\n";
+        echo "No advertisers configured. Add them via config.php or the Manage page.\n";
         exit(0);
     }
 
