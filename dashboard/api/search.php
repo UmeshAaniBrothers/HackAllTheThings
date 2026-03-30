@@ -64,7 +64,7 @@ try {
                      WHERE pm.creative_id = a.creative_id AND p.store_platform IN ('ios','playstore')) AS product_names,
                     (SELECT pm2.product_id FROM ad_product_map pm2 INNER JOIN ad_products p2 ON pm2.product_id = p2.id
                      WHERE pm2.creative_id = a.creative_id AND p2.store_platform IN ('ios','playstore') LIMIT 1) AS product_id,
-                    (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'image' AND ass.original_url LIKE '%ytimg.com%' LIMIT 1) AS preview_image,
+                    (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'image' AND ass.original_url NOT LIKE '%displayads-formats%' ORDER BY (ass.original_url LIKE '%ytimg.com%') DESC, ass.id DESC LIMIT 1) AS preview_image,
                     (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%' LIMIT 1) AS youtube_url,
                     (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.original_url LIKE '%displayads-formats%' LIMIT 1) AS preview_url
              FROM ads a

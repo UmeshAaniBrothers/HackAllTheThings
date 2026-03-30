@@ -284,22 +284,39 @@ class Processor
 
     /**
      * Insert ad content details (versioned snapshot).
+     * Only creates a new version when content actually changes (hash differs).
      */
     private function insertDetails(array $ad): void
     {
-        // Check if content has changed by comparing hash
+        // Fetch the PREVIOUS hash from the ads table BEFORE upsertAd updates it.
+        // Since upsertAd runs first and updates hash_signature, we need to compare
+        // the new hash against the latest ad_details content instead.
         $latestDetail = $this->db->fetchOne(
-            "SELECT id FROM ad_details WHERE creative_id = ? ORDER BY snapshot_date DESC LIMIT 1",
+            "SELECT id, headline, description, cta FROM ad_details WHERE creative_id = ? ORDER BY snapshot_date DESC LIMIT 1",
             [$ad['creative_id']]
         );
 
-        $existingHash = $this->db->fetchColumn(
-            "SELECT hash_signature FROM ads WHERE creative_id = ?",
-            [$ad['creative_id']]
+        if ($latestDetail === null) {
+            // First entry — always insert
+            $this->db->insert('ad_details', [
+                'creative_id' => $ad['creative_id'],
+                'headline'    => $ad['headline'],
+                'description' => $ad['description'],
+                'cta'         => $ad['cta'],
+                'landing_url' => $ad['landing_url'],
+            ]);
+            return;
+        }
+
+        // Compare actual content to detect real changes
+        $oldHash = $this->generateHash(
+            $latestDetail['headline'] ?? '',
+            $latestDetail['description'] ?? '',
+            $latestDetail['cta'] ?? ''
         );
 
-        // Only insert new detail if hash changed or first entry
-        if ($latestDetail === null || $existingHash !== $ad['hash_signature']) {
+        if ($oldHash !== $ad['hash_signature']) {
+            // Content changed — insert new version
             $this->db->insert('ad_details', [
                 'creative_id' => $ad['creative_id'],
                 'headline'    => $ad['headline'],
@@ -1106,6 +1123,9 @@ class Processor
                 ]);
             }
 
+            // Save to youtube_metadata table for reuse across profiles
+            $this->saveYouTubeMetadata($videoId, $meta);
+
             $enriched++;
             usleep(300000); // 300ms between YouTube requests
         }
@@ -1520,6 +1540,240 @@ class Processor
         ]);
 
         return $lastId ? (int) $lastId : null;
+    }
+
+    /**
+     * Save YouTube metadata to the youtube_metadata table.
+     */
+    private function saveYouTubeMetadata(string $videoId, array $meta): void
+    {
+        $existing = $this->db->fetchOne(
+            "SELECT id FROM youtube_metadata WHERE video_id = ?",
+            [$videoId]
+        );
+
+        $data = [
+            'video_id'      => $videoId,
+            'title'         => $meta['title'] ?? null,
+            'channel_name'  => $meta['author'] ?? null,
+            'view_count'    => $meta['view_count'] ?? 0,
+            'thumbnail_url' => $meta['thumbnail'] ?? ('https://i.ytimg.com/vi/' . $videoId . '/hqdefault.jpg'),
+            'fetched_at'    => date('Y-m-d H:i:s'),
+        ];
+
+        if ($existing) {
+            unset($data['video_id']);
+            $this->db->update('youtube_metadata', $data, 'id = ?', [$existing['id']]);
+        } else {
+            $this->db->insert('youtube_metadata', $data);
+        }
+    }
+
+    /**
+     * Fetch and save app metadata from App Store / Play Store.
+     * Populates the app_metadata table for products that don't have metadata yet.
+     */
+    public function enrichAppMetadata()
+    {
+        $products = $this->db->fetchAll(
+            "SELECT p.id AS product_id, p.store_platform, p.store_url, p.product_name
+             FROM ad_products p
+             LEFT JOIN app_metadata am ON am.product_id = p.id
+             WHERE p.store_platform IN ('ios', 'playstore')
+               AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found'
+               AND am.id IS NULL
+             ORDER BY (SELECT COUNT(*) FROM ad_product_map pm WHERE pm.product_id = p.id) DESC
+             LIMIT 50"
+        );
+
+        if (empty($products)) return 0;
+
+        $enriched = 0;
+
+        foreach ($products as $product) {
+            $meta = null;
+
+            if ($product['store_platform'] === 'ios') {
+                $meta = $this->fetchAppStoreMetadata($product['store_url']);
+            } elseif ($product['store_platform'] === 'playstore') {
+                $meta = $this->fetchPlayStoreMetadata($product['store_url']);
+            }
+
+            if (!$meta) {
+                // Insert minimal record to avoid retrying
+                $this->db->insert('app_metadata', [
+                    'product_id'     => $product['product_id'],
+                    'store_platform' => $product['store_platform'],
+                    'store_url'      => $product['store_url'],
+                    'app_name'       => $product['product_name'],
+                    'fetched_at'     => date('Y-m-d H:i:s'),
+                ]);
+                continue;
+            }
+
+            $this->db->insert('app_metadata', array_merge($meta, [
+                'product_id'     => $product['product_id'],
+                'store_platform' => $product['store_platform'],
+                'store_url'      => $product['store_url'],
+                'fetched_at'     => date('Y-m-d H:i:s'),
+            ]));
+
+            // Update product name if we got a better one
+            if (!empty($meta['app_name']) && $meta['app_name'] !== $product['product_name']) {
+                $this->db->update('ad_products', [
+                    'product_name' => $meta['app_name'],
+                ], 'id = ?', [$product['product_id']]);
+            }
+
+            $enriched++;
+            usleep(500000); // 500ms rate limit
+        }
+
+        $this->log("Enriched metadata for {$enriched} apps");
+        return $enriched;
+    }
+
+    /**
+     * Fetch iOS app metadata from iTunes Lookup API.
+     */
+    private function fetchAppStoreMetadata(string $storeUrl): ?array
+    {
+        if (!preg_match('/id(\d+)/', $storeUrl, $m)) return null;
+        $appId = $m[1];
+
+        $url = 'https://itunes.apple.com/lookup?id=' . $appId;
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_FOLLOWLOCATION => true,
+        ]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if (!$resp || $code !== 200) return null;
+        $data = json_decode($resp, true);
+        if (!$data || empty($data['results'][0])) return null;
+
+        $r = $data['results'][0];
+        $screenshots = [];
+        if (!empty($r['screenshotUrls'])) $screenshots = array_slice($r['screenshotUrls'], 0, 8);
+
+        return [
+            'bundle_id'      => $r['bundleId'] ?? null,
+            'app_name'       => $r['trackName'] ?? null,
+            'icon_url'       => $r['artworkUrl512'] ?? $r['artworkUrl100'] ?? null,
+            'developer_name' => $r['artistName'] ?? null,
+            'developer_url'  => $r['artistViewUrl'] ?? null,
+            'description'    => isset($r['description']) ? mb_substr($r['description'], 0, 5000) : null,
+            'category'       => $r['primaryGenreName'] ?? null,
+            'rating'         => $r['averageUserRating'] ?? null,
+            'rating_count'   => $r['userRatingCount'] ?? 0,
+            'price'          => isset($r['formattedPrice']) ? $r['formattedPrice'] : ($r['price'] == 0 ? 'Free' : '$' . $r['price']),
+            'release_date'   => isset($r['releaseDate']) ? date('Y-m-d', strtotime($r['releaseDate'])) : null,
+            'last_updated'   => isset($r['currentVersionReleaseDate']) ? date('Y-m-d', strtotime($r['currentVersionReleaseDate'])) : null,
+            'version'        => $r['version'] ?? null,
+            'screenshots'    => json_encode($screenshots),
+        ];
+    }
+
+    /**
+     * Fetch Android app metadata from Play Store page scraping.
+     */
+    private function fetchPlayStoreMetadata(string $storeUrl): ?array
+    {
+        if (!preg_match('/id=([a-zA-Z0-9._]+)/', $storeUrl, $m)) return null;
+        $packageName = $m[1];
+
+        $url = 'https://play.google.com/store/apps/details?id=' . $packageName . '&hl=en';
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        ]);
+        $html = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if (!$html || $code !== 200) return null;
+
+        $meta = [
+            'bundle_id'      => $packageName,
+            'app_name'       => null,
+            'icon_url'       => null,
+            'developer_name' => null,
+            'description'    => null,
+            'category'       => null,
+            'rating'         => null,
+            'rating_count'   => 0,
+            'price'          => 'Free',
+            'downloads'      => null,
+            'screenshots'    => null,
+        ];
+
+        // Title
+        if (preg_match('/<title>([^<]+?)(?:\s*-\s*Apps on Google Play)?<\/title>/i', $html, $tm)) {
+            $meta['app_name'] = trim($tm[1]);
+        }
+
+        // Icon (og:image or itemprop image)
+        if (preg_match('/property="og:image"\s+content="([^"]+)"/i', $html, $im)) {
+            $meta['icon_url'] = $im[1];
+        }
+
+        // Developer
+        if (preg_match('/class="Vbfug auoIOc"[^>]*><a[^>]*><span>([^<]+)<\/span>/i', $html, $dm)) {
+            $meta['developer_name'] = $dm[1];
+        }
+
+        // Rating
+        if (preg_match('/itemprop="starRating"[^>]*>.*?(\d+\.?\d*)/s', $html, $rm)) {
+            $meta['rating'] = floatval($rm[1]);
+        } elseif (preg_match('/"ratingValue":"(\d+\.?\d*)"/', $html, $rm)) {
+            $meta['rating'] = floatval($rm[1]);
+        }
+
+        // Downloads
+        if (preg_match('/(\d[\d,]*\+?)\s*downloads/i', $html, $dlm)) {
+            $meta['downloads'] = $dlm[1];
+        } elseif (preg_match('/"numDownloads":"([^"]+)"/', $html, $dlm)) {
+            $meta['downloads'] = $dlm[1];
+        }
+
+        // Category
+        if (preg_match('/itemprop="genre"[^>]*content="([^"]+)"/i', $html, $gm)) {
+            $meta['category'] = $gm[1];
+        } elseif (preg_match('/"genre":"([^"]+)"/', $html, $gm)) {
+            $meta['category'] = $gm[1];
+        }
+
+        // Description from meta
+        if (preg_match('/property="og:description"\s+content="([^"]+)"/i', $html, $descm)) {
+            $meta['description'] = html_entity_decode($descm[1], ENT_QUOTES, 'UTF-8');
+        }
+
+        // Screenshots from srcset of img[data-screenshot-item-index]
+        $screenshots = [];
+        if (preg_match_all('/img[^>]+srcset="([^"]+)"[^>]+data-screenshot/i', $html, $ssm)) {
+            foreach ($ssm[1] as $srcset) {
+                $parts = explode(',', $srcset);
+                $lastPart = trim(end($parts));
+                $imgUrl = preg_replace('/\s+\d+w$/', '', $lastPart);
+                if ($imgUrl) $screenshots[] = $imgUrl;
+            }
+        }
+        if (!empty($screenshots)) {
+            $meta['screenshots'] = json_encode(array_slice($screenshots, 0, 8));
+        }
+
+        return $meta;
     }
 
     /**

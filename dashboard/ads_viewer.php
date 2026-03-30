@@ -703,7 +703,9 @@
             const detail = creative.details[0] || {};
             const assets = creative.assets || [];
             const targeting = creative.targeting || [];
-            const analysis = intel?.analysis || {};
+            const products = creative.products || [];
+            const youtube = creative.youtube || null;
+            const countries = creative.countries || [];
 
             const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
             const advName = ad.advertiser_name || ad.advertiser_id;
@@ -716,20 +718,57 @@
                 <div class="col-md-8">
                     ${detail.headline ? `<h5>${escapeHtml(detail.headline)}</h5>` : ''}
                     ${detail.description ? `<p class="text-muted">${escapeHtml(detail.description)}</p>` : ''}
-                    ${detail.cta ? `<span class="badge bg-primary viewer-clickable" data-filter="cta" data-value="${escapeHtml(detail.cta)}" style="cursor:pointer">${escapeHtml(detail.cta)}</span>` : ''}
-                    <div class="mt-2">
+                    <div class="d-flex flex-wrap gap-1 mb-2">
+                        ${detail.cta ? `<span class="badge bg-primary viewer-clickable" data-filter="cta" data-value="${escapeHtml(detail.cta)}" style="cursor:pointer">${escapeHtml(detail.cta)}</span>` : ''}
+                        ${detail.landing_url ? `<a href="${escapeHtml(detail.landing_url)}" target="_blank" rel="noopener" class="badge bg-light text-dark text-decoration-none"><i class="bi bi-link-45deg me-1"></i>${escapeHtml((detail.landing_url || '').substring(0, 60))}</a>` : ''}
+                    </div>
+                    <div class="d-flex flex-wrap gap-1">
+                        <a href="advertiser_profile.php?id=${encodeURIComponent(ad.advertiser_id)}" class="btn btn-outline-info btn-sm">
+                            <i class="bi bi-building me-1"></i>${escapeHtml(advName)}
+                        </a>
                         <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">
-                            <i class="bi bi-box-arrow-up-right me-1"></i>View on Google Ads Transparency
+                            <i class="bi bi-box-arrow-up-right me-1"></i>Google Ads Transparency
                         </a>
                     </div>
                 </div>
                 <div class="col-md-4 text-md-end">
                     <span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}" style="cursor:pointer">${ad.ad_type}</span>
                     <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}" style="cursor:pointer">${ad.status}</span>
-                    <br><small class="text-muted viewer-clickable" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer;text-decoration:underline dotted"><i class="bi bi-person me-1"></i>${escapeHtml(advName)}</small>
+                    ${ad.view_count > 0 ? `<br><small class="text-muted"><i class="bi bi-eye me-1"></i>${formatNumber(ad.view_count)} views</small>` : ''}
                     <br><small class="text-muted">${escapeHtml(ad.creative_id)}</small>
                 </div>
             </div>`;
+
+            // Products / Apps linked to this ad
+            if (products.length > 0) {
+                html += '<h6 class="mt-3 mb-2"><i class="bi bi-phone me-1"></i>Promoted Apps</h6><div class="d-flex flex-wrap gap-2 mb-3">';
+                products.forEach(p => {
+                    const icon = p.icon_url ? `<img src="${escapeHtml(p.icon_url)}" style="width:32px;height:32px;border-radius:8px;" class="me-2" onerror="this.style.display='none'">` : '';
+                    const platform = p.store_platform === 'ios' ? '<i class="bi bi-apple"></i>' : '<i class="bi bi-google-play"></i>';
+                    html += `<a href="app_profile.php?id=${p.product_id}" class="d-flex align-items-center text-decoration-none card p-2" style="min-width:200px;">
+                        ${icon}
+                        <div>
+                            <div class="fw-bold small text-dark">${escapeHtml(p.app_name || p.product_name)}</div>
+                            <div class="text-muted" style="font-size:0.75rem;">${platform} ${p.category ? escapeHtml(p.category) : ''} ${p.rating ? '&middot; ' + parseFloat(p.rating).toFixed(1) + '<i class="bi bi-star-fill text-warning ms-1" style="font-size:0.65rem;"></i>' : ''}</div>
+                        </div>
+                    </a>`;
+                });
+                html += '</div>';
+            }
+
+            // YouTube metadata panel
+            if (youtube) {
+                html += `<div class="card bg-light p-2 mb-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-youtube text-danger fs-5"></i>
+                        <div>
+                            <div class="fw-bold small">${escapeHtml(youtube.title || '')}</div>
+                            <div class="text-muted" style="font-size:0.75rem;">${escapeHtml(youtube.channel_name || '')} &middot; ${formatNumber(youtube.view_count)} views ${youtube.duration ? '&middot; ' + escapeHtml(youtube.duration) : ''}</div>
+                        </div>
+                        <a href="youtube_profile.php?id=${encodeURIComponent(youtube.video_id)}" class="btn btn-outline-danger btn-sm ms-auto"><i class="bi bi-box-arrow-up-right"></i></a>
+                    </div>
+                </div>`;
+            }
 
             // Stats mini-cards
             html += `<div class="row mb-3">
@@ -776,38 +815,14 @@
                 html += '</div>';
             }
 
-            // Targeting
-            if (targeting.length > 0) {
+            // Targeting — countries + platforms
+            const ctryList = countries.length > 0 ? countries : [...new Set(targeting.map(t => t.country).filter(Boolean))];
+            const platList = [...new Set(targeting.map(t => t.platform).filter(Boolean))];
+            if (ctryList.length > 0 || platList.length > 0) {
                 html += '<h6 class="mt-3 mb-2"><i class="bi bi-geo-alt me-1"></i>Targeting</h6><div class="mb-3">';
-                const countries = [...new Set(targeting.map(t => t.country).filter(Boolean))];
-                const platforms = [...new Set(targeting.map(t => t.platform).filter(Boolean))];
-                html += countries.map(c => `<span class="badge bg-secondary me-1 mb-1 viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="cursor:pointer">${escapeHtml(c)}</span>`).join('');
-                html += platforms.map(p => `<span class="badge bg-dark me-1 mb-1 viewer-clickable" data-filter="platform" data-value="${escapeHtml(p)}" style="cursor:pointer">${escapeHtml(p)}</span>`).join('');
+                html += ctryList.map(c => `<span class="badge bg-secondary me-1 mb-1 viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="cursor:pointer">${escapeHtml(c)}</span>`).join('');
+                html += platList.map(p => `<span class="badge bg-dark me-1 mb-1">${escapeHtml(p)}</span>`).join('');
                 html += '</div>';
-            }
-
-            // AI Analysis (if available)
-            if (analysis.sentiment || analysis.hooks || analysis.score !== undefined) {
-                html += '<h6 class="mt-3 mb-2"><i class="bi bi-cpu me-1"></i>AI Analysis</h6><div class="row mb-3">';
-                if (analysis.sentiment) {
-                    const sentimentColors = { aggressive: 'danger', moderate: 'warning', soft: 'success', neutral: 'secondary' };
-                    html += `<div class="col-auto"><span class="badge bg-${sentimentColors[analysis.sentiment] || 'secondary'} viewer-clickable" data-filter="sentiment" data-value="${escapeHtml(analysis.sentiment)}" style="cursor:pointer">Sentiment: ${escapeHtml(analysis.sentiment)}</span></div>`;
-                }
-                if (analysis.score !== undefined) {
-                    const sc = Math.round(analysis.score);
-                    html += `<div class="col-auto"><span class="score-circle-sm ${sc >= 70 ? 'score-high' : sc >= 40 ? 'score-medium' : 'score-low'}">${sc}</span></div>`;
-                }
-                html += '</div>';
-                if (analysis.hooks && analysis.hooks.length > 0) {
-                    html += '<div class="mb-3">Hooks: ' + analysis.hooks.map(h =>
-                        `<span class="badge bg-info me-1 viewer-clickable" data-filter="hook" data-value="${escapeHtml(h)}" style="cursor:pointer">${escapeHtml(h)}</span>`
-                    ).join('') + '</div>';
-                }
-                if (analysis.keywords && analysis.keywords.length > 0) {
-                    html += '<div class="mb-3">Keywords: ' + analysis.keywords.map(k =>
-                        `<span class="keyword-tag">${escapeHtml(k)}</span>`
-                    ).join('') + '</div>';
-                }
             }
 
             // Version history
