@@ -1123,7 +1123,7 @@ class Processor
              ORDER BY
                CASE WHEN store_platform IN ('playstore','ios') THEN 0 ELSE 1 END,
                id DESC
-             LIMIT 20"
+             LIMIT 50"
         );
 
         if (empty($products)) {
@@ -1180,7 +1180,7 @@ class Processor
                 ], 'id = ?', [$product['id']]);
             }
 
-            usleep(500000); // 500ms between requests
+            usleep(300000); // 300ms between requests
         }
 
         $this->log("Enriched store URLs for {$enriched} of " . count($products) . " products");
