@@ -12,22 +12,41 @@ class Database
     private static $instance = null;
     /** @var PDO */
     private $pdo;
+    /** @var array */
+    private $config;
 
     private function __construct(array $config)
     {
+        $this->config = $config;
+        $this->connect();
+    }
+
+    private function connect()
+    {
         $dsn = sprintf(
             'mysql:host=%s;dbname=%s;charset=%s',
-            $config['host'],
-            $config['name'],
-            $config['charset']
+            $this->config['host'],
+            $this->config['name'],
+            $this->config['charset']
         );
 
-        $this->pdo = new PDO($dsn, $config['user'], $config['pass'], [
+        $this->pdo = new PDO($dsn, $this->config['user'], $this->config['pass'], [
             PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES   => false,
-            PDO::ATTR_PERSISTENT         => true,
         ]);
+    }
+
+    /**
+     * Reconnect if the connection has been lost.
+     */
+    public function reconnect()
+    {
+        try {
+            $this->pdo->query('SELECT 1');
+        } catch (PDOException $e) {
+            $this->connect();
+        }
     }
 
     public static function getInstance(array $config = []): self
@@ -51,9 +70,20 @@ class Database
      */
     public function query(string $sql, array $params = []): PDOStatement
     {
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($params);
-        return $stmt;
+        try {
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($params);
+            return $stmt;
+        } catch (PDOException $e) {
+            // Auto-reconnect on "MySQL server has gone away" or "Lost connection"
+            if (strpos($e->getMessage(), '2006') !== false || strpos($e->getMessage(), '2013') !== false) {
+                $this->connect();
+                $stmt = $this->pdo->prepare($sql);
+                $stmt->execute($params);
+                return $stmt;
+            }
+            throw $e;
+        }
     }
 
     /**

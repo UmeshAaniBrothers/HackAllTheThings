@@ -40,12 +40,14 @@ switch ($command) {
         searchAdvertisers($arg, $GOOGLE_BASE);
         break;
     case 'fetch':
-        if (empty($arg)) die("Usage: php cli/scrape.php fetch AR1234... [Name]\n");
-        fetchAdvertiser($arg, $arg2 ?: $arg, $GOOGLE_BASE, $SERVER_URL, $AUTH_TOKEN);
+        if (empty($arg)) die("Usage: php cli/scrape.php fetch AR1234... [Name] [region]\n");
+        $region = $argv[4] ?? 'anywhere';
+        fetchAdvertiser($arg, $arg2 ?: $arg, $GOOGLE_BASE, $SERVER_URL, $AUTH_TOKEN, $region);
         break;
     case 'add':
-        if (empty($arg)) die("Usage: php cli/scrape.php add AR1234... \"Company Name\"\n");
-        addAdvertiser($arg, $arg2 ?: $arg, $ADVERTISERS_FILE);
+        if (empty($arg)) die("Usage: php cli/scrape.php add AR1234... \"Company Name\" [region]\n");
+        $region = $argv[4] ?? 'IN';
+        addAdvertiser($arg, $arg2 ?: $arg, $region, $ADVERTISERS_FILE);
         break;
     case 'list':
         listAdvertisers($ADVERTISERS_FILE);
@@ -53,17 +55,22 @@ switch ($command) {
     case 'fetchall':
         fetchAllAdvertisers($ADVERTISERS_FILE, $GOOGLE_BASE, $SERVER_URL, $AUTH_TOKEN);
         break;
+    case 'enrich':
+        enrichYouTubeFromCli($SERVER_URL, $AUTH_TOKEN);
+        break;
     default:
         echo "Ads Intelligent - CLI Scraper\n";
         echo "==============================\n\n";
         echo "Scrapes Google locally, sends results to your server.\n\n";
         echo "Usage:\n";
-        echo "  php cli/scrape.php test                          Test connections\n";
-        echo "  php cli/scrape.php search \"Nike\"                 Search advertisers\n";
-        echo "  php cli/scrape.php fetch AR1234... [Name]        Fetch all ads\n";
-        echo "  php cli/scrape.php add AR1234... \"Name\"          Add to advertisers list\n";
-        echo "  php cli/scrape.php list                          Show all saved advertisers\n";
-        echo "  php cli/scrape.php fetchall                      Fetch ALL saved advertisers\n\n";
+        echo "  php cli/scrape.php test                              Test connections\n";
+        echo "  php cli/scrape.php search \"Nike\"                     Search advertisers\n";
+        echo "  php cli/scrape.php fetch AR1234... \"Name\" [region]   Fetch ads (region: IN,US,GB...)\n";
+        echo "  php cli/scrape.php add AR1234... \"Name\" [region]     Add to list (default: IN)\n";
+        echo "  php cli/scrape.php list                              Show saved advertisers\n";
+        echo "  php cli/scrape.php fetchall                          Fetch ALL saved advertisers\n";
+        echo "  php cli/scrape.php enrich                            Extract YouTube URLs locally\n\n";
+        echo "Regions: IN (India), US (USA), GB (UK), AU, CA, DE, FR, JP, BR, anywhere\n\n";
         echo "Server: {$SERVER_URL}\n";
         echo "Advertisers file: {$ADVERTISERS_FILE}\n";
         break;
@@ -147,11 +154,12 @@ function searchAdvertisers($keyword, $googleBase)
     echo "\nTo fetch ads: php cli/scrape.php fetch <ADVERTISER_ID> \"Name\"\n";
 }
 
-function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl, $token)
+function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl, $token, $region = 'anywhere')
 {
-    echo "Fetching ads for: {$advertiserId} ({$advertiserName})\n\n";
+    $region = strtoupper(trim($region));
+    echo "Fetching ads for: {$advertiserId} ({$advertiserName}) [Region: {$region}]\n\n";
 
-    $cookieFile = initGoogleSession($googleBase);
+    $cookieFile = initGoogleSession($googleBase, $region);
     $allPayloads = [];
     $totalAds = 0;
     $pageToken = null;
@@ -276,29 +284,42 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         echo " triggered (will complete in background)\n";
     }
 
-    echo "\nDone! Ads will appear on your dashboard shortly.\n";
-    echo "If ads don't appear immediately, the server is still processing.\n";
-    echo "Set up a cron job for automatic processing:\n";
-    echo "  */2 * * * * cd /path/to/app && php cron/process.php >> cron/process.log 2>&1\n";
+    // Step 4: Set country for all ads of this advertiser
+    if ($region !== 'ANYWHERE' && $region !== '') {
+        echo "Setting country '{$region}' for all ads of this advertiser...";
+        $countryUrl = $serverUrl . '/dashboard/api/ingest.php?action=set_country&token=' . urlencode($token);
+        $countryResult = postJson($countryUrl, [
+            'advertiser_id' => $advertiserId,
+            'country'       => $region,
+        ]);
+        if ($countryResult && !empty($countryResult['success'])) {
+            echo " OK ({$countryResult['updated']} ads)\n";
+        } else {
+            echo " " . ($countryResult['error'] ?? 'failed') . "\n";
+        }
+    }
+
+    echo "\nDone! Ads stored and processing triggered.\n";
 }
 
 // ── Advertiser list management ───────────────────────────
 
-function addAdvertiser($advertiserId, $advertiserName, $filePath)
+function addAdvertiser($advertiserId, $advertiserName, $region, $filePath)
 {
     // Check if already exists
     $lines = file_exists($filePath) ? file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
     foreach ($lines as $line) {
         if (strpos($line, '#') === 0) continue;
-        $parts = explode('|', $line, 2);
+        $parts = explode('|', $line, 3);
         if (trim($parts[0]) === $advertiserId) {
             echo "Already in list: {$advertiserId}\n";
             return;
         }
     }
 
-    file_put_contents($filePath, $advertiserId . '|' . $advertiserName . "\n", FILE_APPEND);
-    echo "Added: {$advertiserId} ({$advertiserName})\n";
+    $region = strtoupper(trim($region));
+    file_put_contents($filePath, $advertiserId . '|' . $advertiserName . '|' . $region . "\n", FILE_APPEND);
+    echo "Added: {$advertiserId} ({$advertiserName}) [Region: {$region}]\n";
     echo "File: {$filePath}\n";
     echo "Run 'php cli/scrape.php fetchall' to fetch all advertisers.\n";
 }
@@ -317,16 +338,17 @@ function listAdvertisers($filePath)
         return;
     }
 
-    echo str_pad("Advertiser ID", 28) . "Name\n";
-    echo str_repeat("-", 70) . "\n";
+    echo str_pad("Advertiser ID", 28) . str_pad("Region", 10) . "Name\n";
+    echo str_repeat("-", 80) . "\n";
 
     $count = 0;
     foreach ($lines as $line) {
         if (strpos($line, '#') === 0) continue;
-        $parts = explode('|', $line, 2);
+        $parts = explode('|', $line, 3);
         $id = trim($parts[0]);
         $name = isset($parts[1]) ? trim($parts[1]) : $id;
-        echo str_pad($id, 28) . $name . "\n";
+        $region = isset($parts[2]) ? trim($parts[2]) : 'IN';
+        echo str_pad($id, 28) . str_pad($region, 10) . $name . "\n";
         $count++;
     }
 
@@ -346,11 +368,12 @@ function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
     $advertisers = [];
     foreach ($lines as $line) {
         if (strpos($line, '#') === 0) continue;
-        $parts = explode('|', $line, 2);
+        $parts = explode('|', $line, 3);
         $id = trim($parts[0]);
         $name = isset($parts[1]) ? trim($parts[1]) : $id;
+        $region = isset($parts[2]) ? trim($parts[2]) : 'IN';
         if ($id !== '') {
-            $advertisers[] = ['id' => $id, 'name' => $name];
+            $advertisers[] = ['id' => $id, 'name' => $name, 'region' => $region];
         }
     }
 
@@ -367,10 +390,10 @@ function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
 
     foreach ($advertisers as $i => $adv) {
         $num = $i + 1;
-        echo "--- [{$num}/" . count($advertisers) . "] {$adv['name']} ({$adv['id']}) ---\n";
+        echo "--- [{$num}/" . count($advertisers) . "] {$adv['name']} ({$adv['id']}) [Region: {$adv['region']}] ---\n";
 
         try {
-            fetchAdvertiser($adv['id'], $adv['name'], $googleBase, $serverUrl, $token);
+            fetchAdvertiser($adv['id'], $adv['name'], $googleBase, $serverUrl, $token, $adv['region']);
             $success++;
         } catch (Exception $e) {
             echo "ERROR: " . $e->getMessage() . "\n";
@@ -387,16 +410,198 @@ function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
     echo "\n=== Batch Complete ===\n";
     echo "Success: {$success}, Failed: {$failed}\n";
     echo "Finished: " . date('Y-m-d H:i:s') . "\n";
+
+    // Auto-enrich YouTube URLs
+    echo "\n=== Enriching YouTube URLs ===\n";
+    enrichYouTubeFromCli($serverUrl, $token);
+}
+
+// ── YouTube enrichment (runs locally since server can't reach Google) ──
+
+function enrichYouTubeFromCli($serverUrl, $token)
+{
+    echo "Fetching ads that need YouTube extraction...\n";
+
+    // Get list of video ads missing YouTube URLs from server
+    $apiUrl = $serverUrl . '/dashboard/api/ads.php?ad_type=video&per_page=100&sort=newest';
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $apiUrl,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 30,
+    ]);
+    $resp = curl_exec($ch);
+    unset($ch);
+
+    $data = json_decode($resp, true);
+    if (!$data || empty($data['ads'])) {
+        echo "No video ads found.\n";
+        return;
+    }
+
+    // Find ads that have preview URLs but no YouTube URL
+    $needsExtraction = [];
+    foreach ($data['ads'] as $ad) {
+        if (empty($ad['youtube_url']) && !empty($ad['preview_image'])) {
+            $needsExtraction[] = $ad;
+        }
+    }
+
+    if (empty($needsExtraction)) {
+        echo "All video ads already have YouTube URLs.\n";
+        // Trigger server enrichment for view counts
+        echo "\nTriggering server-side enrichment (view counts + products)...\n";
+        $cronUrl = $serverUrl . '/cron/process.php?token=' . urlencode($token);
+        $cronResp = postJson($cronUrl, [], 300);
+        if ($cronResp && !empty($cronResp['success'])) {
+            echo "Enriched: {$cronResp['enriched']}, Products: {$cronResp['products']}\n";
+            if (!empty($cronResp['remaining_enrich'])) {
+                echo "Remaining: {$cronResp['remaining_enrich']} still need view counts. Run again.\n";
+            }
+        } else {
+            echo "Server processing triggered (may still be running).\n";
+        }
+        return;
+    }
+
+    echo "Found " . count($needsExtraction) . " ads needing YouTube extraction.\n";
+
+    // We need to get the preview/displayads URLs from the server
+    // These are stored in ad_assets but not returned by ads.php
+    // So we'll get them via the creative detail endpoint
+    $enrichments = [];
+
+    foreach ($needsExtraction as $i => $ad) {
+        $num = $i + 1;
+        echo "  [{$num}/" . count($needsExtraction) . "] {$ad['creative_id']}...";
+
+        // Fetch creative detail to get preview URL
+        $detailUrl = $serverUrl . '/dashboard/api/creative.php?id=' . urlencode($ad['creative_id']);
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $detailUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+        ]);
+        $detailResp = curl_exec($ch);
+        unset($ch);
+
+        $detail = json_decode($detailResp, true);
+        if (!$detail || empty($detail['assets'])) {
+            echo " no assets\n";
+            continue;
+        }
+
+        // Find displayads-formats preview URL
+        $previewUrl = null;
+        foreach ($detail['assets'] as $asset) {
+            if (isset($asset['original_url']) && strpos($asset['original_url'], 'displayads-formats') !== false) {
+                $previewUrl = $asset['original_url'];
+                break;
+            }
+        }
+
+        if (!$previewUrl) {
+            echo " no preview URL\n";
+            continue;
+        }
+
+        // Fetch the preview page and extract YouTube ID
+        $ytId = extractYouTubeIdFromPreview($previewUrl);
+        if ($ytId) {
+            $youtubeUrl = 'https://www.youtube.com/watch?v=' . $ytId;
+            $thumbnail = 'https://i.ytimg.com/vi/' . $ytId . '/hqdefault.jpg';
+            $enrichments[] = [
+                'creative_id' => $ad['creative_id'],
+                'youtube_url' => $youtubeUrl,
+                'thumbnail'   => $thumbnail,
+            ];
+            echo " YouTube: {$ytId}\n";
+        } else {
+            echo " no YouTube found\n";
+        }
+
+        usleep(300000); // 300ms between requests
+    }
+
+    if (empty($enrichments)) {
+        echo "\nNo YouTube URLs found in preview pages.\n";
+        return;
+    }
+
+    // Send enrichments to server
+    echo "\nSending " . count($enrichments) . " YouTube URLs to server...\n";
+    $enrichUrl = $serverUrl . '/dashboard/api/ingest.php?action=enrich_ads&token=' . urlencode($token);
+    $result = postJson($enrichUrl, ['enrichments' => $enrichments]);
+
+    if ($result && !empty($result['success'])) {
+        echo "OK: {$result['message']}\n";
+    } else {
+        echo "Failed: " . ($result['error'] ?? 'Unknown error') . "\n";
+    }
+
+    // Trigger server-side enrichment for view counts + products
+    echo "\nTriggering server-side enrichment (view counts + products)...\n";
+    $cronUrl = $serverUrl . '/cron/process.php?token=' . urlencode($token);
+    $cronResp = postJson($cronUrl, [], 300);
+    if ($cronResp && !empty($cronResp['success'])) {
+        echo "Enriched: {$cronResp['enriched']}, Products: {$cronResp['products']}\n";
+        if (!empty($cronResp['remaining_enrich'])) {
+            echo "Remaining: {$cronResp['remaining_enrich']} still need view counts. Run 'enrich' again.\n";
+        }
+    } else {
+        echo "Server processing triggered (may still be running).\n";
+    }
+}
+
+function extractYouTubeIdFromPreview($previewUrl)
+{
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $previewUrl,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 15,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        CURLOPT_HTTPHEADER     => [
+            'Referer: https://adstransparency.google.com/',
+            'Accept: */*',
+        ],
+        CURLOPT_ENCODING       => 'gzip, deflate',
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    unset($ch);
+
+    if ($response === false || $httpCode !== 200 || strlen($response) < 100) {
+        return null;
+    }
+
+    if (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $response, $matches)) {
+        return $matches[1];
+    }
+
+    if (preg_match('/youtube\.com\/(?:embed\/|watch\?v=)([a-zA-Z0-9_-]{11})/', $response, $matches)) {
+        return $matches[1];
+    }
+
+    return null;
 }
 
 // ── Google API helpers ───────────────────────────────────
 
-function initGoogleSession($googleBase)
+function initGoogleSession($googleBase, $region = 'anywhere')
 {
+    $regionParam = strtolower($region);
+    if ($regionParam === 'anywhere' || $regionParam === '') {
+        $regionParam = 'anywhere';
+    }
     $cookieFile = tempnam(sys_get_temp_dir(), 'gads_');
     $ch = curl_init();
     curl_setopt_array($ch, [
-        CURLOPT_URL            => $googleBase . '/?region=anywhere',
+        CURLOPT_URL            => $googleBase . '/?region=' . $regionParam,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_COOKIEJAR      => $cookieFile,
         CURLOPT_FOLLOWLOCATION => true,

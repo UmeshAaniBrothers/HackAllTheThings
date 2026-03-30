@@ -56,6 +56,9 @@ try {
         case 'enrich_ads':
             enrichAds($db);
             break;
+        case 'set_country':
+            setCountry($db);
+            break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -268,5 +271,50 @@ function enrichAds($db)
     echo json_encode([
         'success' => true,
         'message' => "Enriched {$updated} ads, added {$added} video assets",
+    ]);
+}
+
+/**
+ * Set country for all ads of an advertiser.
+ * Called by CLI after fetching with a specific region.
+ */
+function setCountry($db)
+{
+    $input = file_get_contents('php://input');
+    $data = json_decode($input, true);
+
+    if (!$data || empty($data['advertiser_id']) || empty($data['country'])) {
+        echo json_encode(['success' => false, 'error' => 'advertiser_id and country required']);
+        return;
+    }
+
+    $advertiserId = $data['advertiser_id'];
+    $country = strtoupper(trim($data['country']));
+
+    // Get all ads for this advertiser that don't have this country yet
+    $ads = $db->fetchAll(
+        "SELECT a.creative_id FROM ads a
+         WHERE a.advertiser_id = ?
+           AND NOT EXISTS (
+               SELECT 1 FROM ad_targeting t
+               WHERE t.creative_id = a.creative_id AND t.country = ?
+           )",
+        [$advertiserId, $country]
+    );
+
+    $updated = 0;
+    foreach ($ads as $ad) {
+        $db->insert('ad_targeting', [
+            'creative_id' => $ad['creative_id'],
+            'country'     => $country,
+            'platform'    => 'Google Ads',
+        ]);
+        $updated++;
+    }
+
+    echo json_encode([
+        'success' => true,
+        'updated' => $updated,
+        'message' => "Set country {$country} for {$updated} ads",
     ]);
 }
