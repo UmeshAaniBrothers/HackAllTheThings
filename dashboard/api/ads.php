@@ -127,7 +127,7 @@ try {
         'advertisers' => $db->fetchAll("SELECT DISTINCT advertiser_id FROM ads ORDER BY advertiser_id"),
         'countries'   => $db->fetchAll("SELECT DISTINCT country FROM ad_targeting ORDER BY country"),
         'platforms'   => $db->fetchAll("SELECT DISTINCT store_platform as platform FROM ad_products WHERE store_platform IS NOT NULL ORDER BY FIELD(store_platform, 'ios', 'playstore', 'web')"),
-        'products'    => $db->fetchAll("SELECT p.id as product_id, p.product_name, p.product_type, p.store_platform, p.store_url, p.advertiser_id, COUNT(pm.creative_id) as ad_count FROM ad_products p LEFT JOIN ad_product_map pm ON p.id = pm.product_id GROUP BY p.id ORDER BY ad_count DESC"),
+        'products'    => $db->fetchAll("SELECT p.id as product_id, p.product_name, p.product_type, p.store_platform, p.store_url, p.advertiser_id, COUNT(pm.creative_id) as ad_count FROM ad_products p LEFT JOIN ad_product_map pm ON p.id = pm.product_id WHERE p.store_platform IN ('ios', 'playstore') GROUP BY p.id ORDER BY ad_count DESC"),
     ];
 
     echo json_encode([

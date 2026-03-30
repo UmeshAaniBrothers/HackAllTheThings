@@ -476,6 +476,7 @@
             var platSymbols = { ios: '[iOS]', playstore: '[Play]', web: '[Web]' };
             (options.products || []).forEach(function(p) {
                 if (p.product_name === 'Unknown') return;
+                if (p.store_platform !== 'ios' && p.store_platform !== 'playstore') return;
                 var opt = document.createElement('option');
                 opt.value = p.product_id;
                 var platTag = platSymbols[p.store_platform] || '[Web]';
