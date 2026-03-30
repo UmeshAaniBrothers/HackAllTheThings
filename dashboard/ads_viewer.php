@@ -393,15 +393,13 @@
 
         FILTER_KEYS.forEach(k => {
             if (S.filters[k]) {
-                // The search API uses 'q' for keyword search
-                if (k === 'search') params.q = S.filters[k];
-                else params[k] = S.filters[k];
+                params[k] = S.filters[k];
             }
         });
 
         // Use search.php if advanced filters are used, ads.php otherwise
         const hasAdvanced = S.filters.domain || S.filters.cta || S.filters.sentiment
-                         || S.filters.hook || S.filters.tag || S.filters.search;
+                         || S.filters.hook || S.filters.tag;
         const endpoint = hasAdvanced ? 'search.php' : 'ads.php';
 
         const data = await fetchAPI(endpoint, params);
@@ -445,10 +443,15 @@
 
             document.getElementById('vStatShown').textContent = formatNumber(total);
 
-            // Populate filter dropdowns from ads.php filter_options (first load)
-            if (endpoint === 'ads.php' && data.filter_options && !S.filterOptions) {
+            // Populate filter dropdowns from ads.php filter_options
+            if (endpoint === 'ads.php' && data.filter_options) {
                 S.filterOptions = data.filter_options;
-                populateViewerDropdowns(data.filter_options);
+                if (!S._dropdownsInitialized) {
+                    populateViewerDropdowns(data.filter_options);
+                    S._dropdownsInitialized = true;
+                }
+                // Always refresh app dropdown based on current platform filter
+                refreshAppDropdown();
             }
 
             if (S.view === 'grid') {
@@ -470,22 +473,36 @@
     function populateViewerDropdowns(options) {
         addOptions('vFilterAdvertiser', options.advertisers || [], 'advertiser_id', 'advertiser_id');
         addOptions('vFilterCountry', options.countries || [], 'country', 'country');
-        // Products dropdown with ad count
-        var productSel = document.getElementById('vFilterProduct');
-        if (productSel && productSel.options.length <= 1 && options.products) {
-            var platSymbols = { ios: '[iOS]', playstore: '[Play]', web: '[Web]' };
-            (options.products || []).forEach(function(p) {
-                if (p.product_name === 'Unknown') return;
-                if (p.store_platform !== 'ios' && p.store_platform !== 'playstore') return;
-                var opt = document.createElement('option');
-                opt.value = p.product_id;
-                var platTag = platSymbols[p.store_platform] || '[Web]';
-                opt.textContent = platTag + ' ' + p.product_name + ' (' + (p.ad_count || 0) + ')';
-                productSel.appendChild(opt);
-            });
-        }
-        // Restore selected values from state after populating
+        refreshAppDropdown();
         syncFormFromState();
+    }
+
+    function refreshAppDropdown() {
+        var productSel = document.getElementById('vFilterProduct');
+        if (!productSel || !S.filterOptions || !S.filterOptions.products) return;
+        var currentVal = S.filters.product_id || '';
+        // Clear all options except "All Apps"
+        productSel.length = 1;
+        var platSymbols = { ios: '[iOS]', playstore: '[Play]' };
+        var selectedPlatform = S.filters.platform || '';
+        (S.filterOptions.products || []).forEach(function(p) {
+            if (p.product_name === 'Unknown') return;
+            if (p.store_platform !== 'ios' && p.store_platform !== 'playstore') return;
+            // Filter by selected platform
+            if (selectedPlatform && selectedPlatform !== 'web' && p.store_platform !== selectedPlatform) return;
+            var opt = document.createElement('option');
+            opt.value = p.product_id;
+            var platTag = platSymbols[p.store_platform] || '';
+            opt.textContent = platTag + ' ' + p.product_name + ' (' + (p.ad_count || 0) + ')';
+            productSel.appendChild(opt);
+        });
+        // Restore selection if still valid
+        productSel.value = currentVal;
+        if (productSel.value !== currentVal) {
+            // Selected app no longer in filtered list, clear it
+            S.filters.product_id = '';
+            productSel.value = '';
+        }
     }
 
     function addOptions(selectId, items, valueKey, labelKey) {
