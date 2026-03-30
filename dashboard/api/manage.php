@@ -21,6 +21,7 @@ $config = require $basePath . '/config/config.php';
 
 require_once $basePath . '/src/Database.php';
 require_once $basePath . '/src/Scraper.php';
+require_once $basePath . '/src/FreeProxyRotator.php';
 require_once $basePath . '/src/AssetManager.php';
 require_once $basePath . '/src/Processor.php';
 
@@ -53,6 +54,17 @@ try {
 }
 
 // ── Helper Functions ──────────────────────────────────────
+
+/**
+ * Create a Scraper instance with proxy rotation enabled.
+ */
+function createScraper(Database $db, array $config): Scraper
+{
+    $scraper = createScraper($db, $config);
+    // Always try proxy rotation on the server since direct requests get 429
+    $scraper->enableProxyRotation(2, 40);
+    return $scraper;
+}
 
 function addAdvertiser(Database $db): void
 {
@@ -110,7 +122,7 @@ function scrapeAdvertiser(Database $db, array $config): void
         [$advertiserId]
     );
 
-    $scraper = new Scraper($db, $config['scraper']);
+    $scraper = createScraper($db, $config);
 
     ob_start();
     try {
@@ -279,7 +291,7 @@ function runFullPipeline(Database $db, array $config, string $basePath): void
     }
 
     // Step 2: Scrape
-    $scraper = new Scraper($db, $config['scraper']);
+    $scraper = createScraper($db, $config);
     ob_start();
     try {
         $ads = $scraper->fetchAdvertiser($advertiserId);
@@ -444,7 +456,7 @@ function searchAdvertisers(Database $db, array $config): void
         return;
     }
 
-    $scraper = new Scraper($db, $config['scraper'] ?? []);
+    $scraper = createScraper($db, $config);
     ob_start();
     $results = $scraper->searchAdvertisers($keyword);
     $log = ob_get_clean();
@@ -468,7 +480,7 @@ function searchAdvertisers(Database $db, array $config): void
 
 function testApiConnection(Database $db, array $config): void
 {
-    $scraper = new Scraper($db, $config['scraper'] ?? []);
+    $scraper = createScraper($db, $config);
     ob_start();
     $result = $scraper->testConnection();
     ob_get_clean();

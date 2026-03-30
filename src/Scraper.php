@@ -25,11 +25,40 @@ class Scraper
     private $cookieFile = null;
     /** @var array */
     private $errors = [];
+    /** @var FreeProxyRotator|null */
+    private $proxyRotator = null;
+    /** @var bool */
+    private $useProxy = false;
 
     public function __construct($db, $config)
     {
         $this->db = $db;
         $this->config = $config;
+    }
+
+    /**
+     * Enable free proxy rotation for requests.
+     * Call this before fetchAdvertiser/searchAdvertisers if direct requests fail.
+     */
+    public function enableProxyRotation($minWorking = 2, $maxTest = 40)
+    {
+        $this->proxyRotator = new FreeProxyRotator();
+        $this->log("Loading free proxy lists...");
+        $total = $this->proxyRotator->loadProxies(['http', 'socks5']);
+        $this->log("Loaded {$total} proxies. Testing for working ones...");
+
+        $found = $this->proxyRotator->findWorkingProxies($minWorking, $maxTest);
+        $this->log("Found {$found} working proxies out of {$maxTest} tested");
+
+        if ($found > 0) {
+            $this->useProxy = true;
+            $this->log("Proxy rotation enabled");
+            return true;
+        }
+
+        $this->errors[] = "No working proxies found after testing {$maxTest}";
+        $this->log("No working proxies found");
+        return false;
     }
 
     public function __destruct()
@@ -283,10 +312,15 @@ class Scraper
     }
 
     /**
-     * Make an HTTP POST request with cookie session and retry logic.
+     * Make an HTTP POST request with optional proxy rotation and retry logic.
      */
     private function makeRequest($url, $body)
     {
+        // If proxy is enabled, use proxy-based request flow
+        if ($this->useProxy && $this->proxyRotator) {
+            return $this->makeProxyRequest($url, $body);
+        }
+
         $maxRetries = $this->config['max_retries'] ?? 3;
 
         for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
@@ -360,6 +394,74 @@ class Scraper
             }
         }
 
+        return null;
+    }
+
+    /**
+     * Make request through rotating free proxies.
+     * Tries multiple proxies until one works.
+     */
+    private function makeProxyRequest($url, $body)
+    {
+        $maxProxyAttempts = 10;
+
+        for ($attempt = 1; $attempt <= $maxProxyAttempts; $attempt++) {
+            $proxy = $this->proxyRotator->getNext();
+            if (!$proxy) {
+                $this->log("No more proxies available");
+                $this->errors[] = "No working proxies available";
+                return null;
+            }
+
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL            => $url,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $body,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_HTTPHEADER     => [
+                    'Content-Type: application/x-www-form-urlencoded',
+                    'Accept: */*',
+                    'Accept-Language: en-US,en;q=0.9',
+                    'Origin: https://adstransparency.google.com',
+                    'Referer: https://adstransparency.google.com/',
+                ],
+                CURLOPT_USERAGENT      => $this->getUserAgent(),
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_ENCODING       => 'gzip, deflate, br',
+            ]);
+
+            // Apply proxy settings
+            $this->proxyRotator->applyCurl($ch, $proxy);
+
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            curl_close($ch);
+
+            // Success?
+            if ($response !== false && $httpCode === 200) {
+                // Check not CAPTCHA
+                if (is_string($response) && strpos($response, '<!DOCTYPE') !== false) {
+                    $this->log("Proxy {$proxy['address']}: CAPTCHA, trying next...");
+                    $this->proxyRotator->markFailed($proxy);
+                    continue;
+                }
+                $this->log("Proxy {$proxy['address']}: OK");
+                $this->proxyRotator->markWorking($proxy);
+                return $response;
+            }
+
+            // Failed
+            $this->proxyRotator->markFailed($proxy);
+            if ($attempt <= 3) {
+                $this->log("Proxy {$proxy['address']}: failed (HTTP {$httpCode}), trying next...");
+            }
+        }
+
+        $this->log("All {$maxProxyAttempts} proxy attempts failed");
+        $this->errors[] = "All proxy attempts failed";
         return null;
     }
 
