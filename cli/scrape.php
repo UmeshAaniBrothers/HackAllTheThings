@@ -202,28 +202,61 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         return;
     }
 
-    // Send to server
-    echo "\nSending to server...\n";
+    // Send to server - one page at a time to avoid timeout
+    echo "\nSending to server (page by page)...\n";
 
-    $ingestUrl = $serverUrl . '/dashboard/api/ingest.php?action=store_and_process&token=' . urlencode($token);
-    $result = postJson($ingestUrl, [
-        'advertiser_id'   => $advertiserId,
-        'advertiser_name' => $advertiserName,
-        'ads_count'       => $totalAds,
-        'payloads'        => $allPayloads,
+    $storeUrl = $serverUrl . '/dashboard/api/ingest.php?action=store_payload&token=' . urlencode($token);
+    $updateUrl = $serverUrl . '/dashboard/api/ingest.php?action=update_advertiser&token=' . urlencode($token);
+    $processUrl = $serverUrl . '/dashboard/api/manage.php?action=process';
+
+    // Step 1: Ensure advertiser exists
+    $advResult = postJson($updateUrl, [
+        'advertiser_id' => $advertiserId,
+        'name'          => $advertiserName,
+        'status'        => 'active',
     ]);
+    if (!$advResult || empty($advResult['success'])) {
+        echo "WARNING: Could not update advertiser record\n";
+    }
 
-    if ($result && isset($result['success']) && $result['success']) {
-        echo "SUCCESS: " . $result['message'] . "\n";
-        echo "Total ads in DB: " . ($result['ads_total'] ?? '?') . "\n";
-        echo "Active ads: " . ($result['ads_active'] ?? '?') . "\n";
-    } else {
-        echo "FAILED to send to server: " . ($result['error'] ?? 'Unknown error') . "\n";
-        // Save locally as backup
+    // Step 2: Send each page separately
+    $sentPages = 0;
+    foreach ($allPayloads as $i => $payload) {
+        $pageNum = $i + 1;
+        echo "  Sending page {$pageNum}/" . count($allPayloads) . "...";
+
+        $result = postJson($storeUrl, [
+            'advertiser_id' => $advertiserId,
+            'payload'       => $payload,
+        ]);
+
+        if ($result && !empty($result['success'])) {
+            echo " OK\n";
+            $sentPages++;
+        } else {
+            echo " FAILED: " . ($result['error'] ?? 'Unknown') . "\n";
+        }
+    }
+
+    echo "\nSent {$sentPages}/" . count($allPayloads) . " pages to server.\n";
+
+    if ($sentPages === 0) {
         $backupFile = __DIR__ . '/backup_' . $advertiserId . '_' . date('Ymd_His') . '.json';
         file_put_contents($backupFile, json_encode($allPayloads));
         echo "Payloads saved locally: {$backupFile}\n";
+        return;
     }
+
+    // Step 3: Trigger processing on server
+    echo "Processing payloads on server...";
+    $procResult = postJson($processUrl, []);
+    if ($procResult && !empty($procResult['success'])) {
+        echo " OK: " . ($procResult['message'] ?? 'done') . "\n";
+    } else {
+        echo " Note: " . ($procResult['error'] ?? 'Processing may still be running') . "\n";
+    }
+
+    echo "\nDone! Refresh your Manage page to see the ads.\n";
 }
 
 // ── Google API helpers ───────────────────────────────────
