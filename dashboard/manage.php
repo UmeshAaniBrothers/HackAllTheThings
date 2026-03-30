@@ -2,65 +2,43 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-gear me-2"></i>Manage Advertisers</h4>
-    <div class="d-flex gap-2">
-        <button class="btn btn-outline-warning btn-sm" onclick="testApi()">
-            <i class="bi bi-plug me-1"></i>Test API
-        </button>
-        <button class="btn btn-outline-info btn-sm" onclick="loadStatus()">
-            <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-        </button>
-    </div>
+    <button class="btn btn-outline-info btn-sm" onclick="loadStatus()">
+        <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+    </button>
 </div>
 
-<!-- Search & Add Advertiser -->
+<!-- CLI Scraper Instructions -->
+<div class="alert alert-info mb-4">
+    <h6 class="alert-heading"><i class="bi bi-terminal me-1"></i>How to Scrape Ads</h6>
+    <p class="mb-2">Google blocks server-side scraping. Use the <strong>CLI tool from your Mac</strong> — it scrapes locally and sends data here automatically.</p>
+    <div class="bg-dark text-light rounded p-3 mb-2" style="font-family:monospace;font-size:0.85rem">
+        <div class="text-success mb-1"># Search for an advertiser</div>
+        <div class="mb-2">php cli/scrape.php search "Nike"</div>
+        <div class="text-success mb-1"># Fetch all ads (sends to this dashboard)</div>
+        <div class="mb-2">php cli/scrape.php fetch AR16735076323512287233 "Nike, Inc."</div>
+        <div class="text-success mb-1"># List managed advertisers</div>
+        <div>php cli/scrape.php list</div>
+    </div>
+    <small class="text-muted">Run from: <code>cd "/Users/aanibrothers/Workspace/Ads Intelligent" && /opt/homebrew/opt/php/bin/php cli/scrape.php</code></small>
+</div>
+
+<!-- Add Advertiser Manually -->
 <div class="filter-bar mb-4">
-    <h6 class="mb-3"><i class="bi bi-search me-1"></i>Search & Add Advertiser</h6>
-
-    <!-- Search by name -->
-    <div class="row g-3 align-items-end mb-3">
-        <div class="col-md-8">
-            <label class="form-label">Search by Company Name</label>
-            <div class="input-group">
-                <input type="text" id="searchKeyword" class="form-control" placeholder="e.g. Nike, Google, Amazon..." onkeydown="if(event.key==='Enter')searchAds()">
-                <button class="btn btn-primary" onclick="searchAds()" id="btnSearch">
-                    <i class="bi bi-search me-1"></i>Search
-                </button>
-            </div>
-            <small class="text-muted">Find advertiser IDs from Google Ads Transparency Center</small>
-        </div>
-    </div>
-
-    <!-- Search results -->
-    <div id="searchResults" class="mb-3" style="display:none">
-        <div class="card p-3">
-            <h6 class="mb-2"><i class="bi bi-list-ul me-1"></i>Search Results <small class="text-muted" id="searchCount"></small></h6>
-            <div id="searchResultsList" class="list-group list-group-flush" style="max-height:250px;overflow-y:auto"></div>
-        </div>
-    </div>
-
-    <hr class="my-3">
-
-    <!-- Manual add -->
-    <h6 class="mb-3"><i class="bi bi-plus-circle me-1"></i>Add Advertiser (Manual or from Search)</h6>
+    <h6 class="mb-3"><i class="bi bi-plus-circle me-1"></i>Add Advertiser to Track</h6>
     <div class="row g-3 align-items-end">
         <div class="col-md-4">
             <label class="form-label">Advertiser ID <span class="text-danger">*</span></label>
             <input type="text" id="newAdvId" class="form-control" placeholder="e.g. AR00744063166605950977">
-            <small class="text-muted">Google Ads Transparency Center advertiser ID</small>
+            <small class="text-muted">Get IDs from: <a href="https://adstransparency.google.com" target="_blank">adstransparency.google.com</a> or CLI search</small>
         </div>
         <div class="col-md-4">
             <label class="form-label">Advertiser Name</label>
             <input type="text" id="newAdvName" class="form-control" placeholder="e.g. Company Name">
         </div>
         <div class="col-md-4">
-            <div class="d-flex gap-2">
-                <button class="btn btn-success flex-grow-1" onclick="addAndScrape()" id="btnAddScrape">
-                    <i class="bi bi-lightning me-1"></i>Add & Fetch All Ads
-                </button>
-                <button class="btn btn-outline-primary" onclick="addOnly()" id="btnAddOnly">
-                    <i class="bi bi-plus me-1"></i>Add Only
-                </button>
-            </div>
+            <button class="btn btn-primary flex-grow-1" onclick="addOnly()" id="btnAddOnly">
+                <i class="bi bi-plus me-1"></i>Add Advertiser
+            </button>
         </div>
     </div>
 
