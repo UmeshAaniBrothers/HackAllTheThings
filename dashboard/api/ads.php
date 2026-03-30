@@ -53,13 +53,14 @@ try {
         $params[] = $dateTo;
     }
 
-    // Country/platform filter via subquery
+    // Country filter via ad_targeting subquery
     if ($country) {
         $where[] = 'EXISTS (SELECT 1 FROM ad_targeting t WHERE t.creative_id = a.creative_id AND t.country = ?)';
         $params[] = $country;
     }
-    if ($platform) {
-        $where[] = 'EXISTS (SELECT 1 FROM ad_targeting t WHERE t.creative_id = a.creative_id AND t.platform = ?)';
+    // Platform filter via ad_products store_platform (ios/playstore/web)
+    if ($platform && in_array($platform, ['ios', 'playstore', 'web'])) {
+        $where[] = 'EXISTS (SELECT 1 FROM ad_product_map pm INNER JOIN ad_products p ON pm.product_id = p.id WHERE pm.creative_id = a.creative_id AND p.store_platform = ?)';
         $params[] = $platform;
     }
 
@@ -108,7 +109,9 @@ try {
                 (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url,
                 adv.name as advertiser_name,
                 (SELECT GROUP_CONCAT(DISTINCT p.product_name SEPARATOR '||') FROM ad_product_map pm INNER JOIN ad_products p ON pm.product_id = p.id WHERE pm.creative_id = a.creative_id) as product_names,
-                (SELECT pm2.product_id FROM ad_product_map pm2 WHERE pm2.creative_id = a.creative_id LIMIT 1) as product_id
+                (SELECT pm2.product_id FROM ad_product_map pm2 WHERE pm2.creative_id = a.creative_id LIMIT 1) as product_id,
+                (SELECT p2.store_url FROM ad_product_map pm3 INNER JOIN ad_products p2 ON pm3.product_id = p2.id WHERE pm3.creative_id = a.creative_id AND p2.store_url IS NOT NULL LIMIT 1) as store_url,
+                (SELECT p3.store_platform FROM ad_product_map pm4 INNER JOIN ad_products p3 ON pm4.product_id = p3.id WHERE pm4.creative_id = a.creative_id LIMIT 1) as store_platform
          FROM ads a
          LEFT JOIN ad_details d ON a.creative_id = d.creative_id
              AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
@@ -123,8 +126,8 @@ try {
     $filterOptions = [
         'advertisers' => $db->fetchAll("SELECT DISTINCT advertiser_id FROM ads ORDER BY advertiser_id"),
         'countries'   => $db->fetchAll("SELECT DISTINCT country FROM ad_targeting ORDER BY country"),
-        'platforms'   => $db->fetchAll("SELECT DISTINCT platform FROM ad_targeting ORDER BY platform"),
-        'products'    => $db->fetchAll("SELECT p.id as product_id, p.product_name, p.product_type, p.advertiser_id, COUNT(pm.creative_id) as ad_count FROM ad_products p LEFT JOIN ad_product_map pm ON p.id = pm.product_id GROUP BY p.id ORDER BY ad_count DESC"),
+        'platforms'   => $db->fetchAll("SELECT DISTINCT store_platform as platform FROM ad_products WHERE store_platform IS NOT NULL ORDER BY FIELD(store_platform, 'ios', 'playstore', 'web')"),
+        'products'    => $db->fetchAll("SELECT p.id as product_id, p.product_name, p.product_type, p.store_platform, p.store_url, p.advertiser_id, COUNT(pm.creative_id) as ad_count FROM ad_products p LEFT JOIN ad_product_map pm ON p.id = pm.product_id GROUP BY p.id ORDER BY ad_count DESC"),
     ];
 
     echo json_encode([

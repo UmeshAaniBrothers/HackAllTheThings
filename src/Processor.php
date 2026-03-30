@@ -772,6 +772,7 @@ class Processor
         foreach ($ads as $ad) {
             $productName = null;
             $productType = 'other';
+            $storePlatform = 'web';
             $storeUrl = null;
 
             $headline = isset($ad['headline']) ? trim($ad['headline']) : '';
@@ -782,11 +783,13 @@ class Processor
                 $packageName = $m[1];
                 $productName = $this->packageToAppName($packageName);
                 $productType = 'app';
+                $storePlatform = 'playstore';
                 $storeUrl = 'https://play.google.com/store/apps/details?id=' . $packageName;
             } elseif ($landingUrl && preg_match('/apps\.apple\.com\/[^\/]+\/app\/([^\/]+)/', $landingUrl, $m)) {
                 $productName = str_replace('-', ' ', $m[1]);
                 $productName = ucwords($productName);
                 $productType = 'app';
+                $storePlatform = 'ios';
                 $storeUrl = $landingUrl;
             }
 
@@ -827,6 +830,7 @@ class Processor
                 $ad['advertiser_id'],
                 $productName,
                 $productType,
+                $storePlatform,
                 $storeUrl
             );
 
@@ -905,7 +909,7 @@ class Processor
     /**
      * Find existing product or create a new one.
      */
-    private function findOrCreateProduct($advertiserId, $productName, $productType, $storeUrl)
+    private function findOrCreateProduct($advertiserId, $productName, $productType, $storePlatform, $storeUrl)
     {
         $existing = $this->db->fetchOne(
             "SELECT id FROM ad_products WHERE advertiser_id = ? AND product_name = ?",
@@ -913,21 +917,23 @@ class Processor
         );
 
         if ($existing) {
-            // Update store_url if we now have one
+            // Update store_url/platform if we now have one
             if ($storeUrl) {
                 $this->db->update('ad_products', [
-                    'store_url'    => $storeUrl,
-                    'product_type' => $productType,
+                    'store_url'      => $storeUrl,
+                    'product_type'   => $productType,
+                    'store_platform' => $storePlatform,
                 ], 'id = ?', [$existing['id']]);
             }
             return $existing['id'];
         }
 
         $lastId = $this->db->insert('ad_products', [
-            'advertiser_id' => $advertiserId,
-            'product_name'  => $productName,
-            'product_type'  => $productType,
-            'store_url'     => $storeUrl,
+            'advertiser_id'  => $advertiserId,
+            'product_name'   => $productName,
+            'product_type'   => $productType,
+            'store_platform' => $storePlatform,
+            'store_url'      => $storeUrl,
         ]);
 
         return $lastId ? (int) $lastId : null;

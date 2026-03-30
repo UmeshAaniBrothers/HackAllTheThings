@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS ad_products (
     advertiser_id VARCHAR(64) NOT NULL,
     product_name VARCHAR(255) NOT NULL,
     product_type ENUM('app','website','game','service','other') DEFAULT 'other',
+    store_platform ENUM('ios','playstore','web') DEFAULT 'web',
     store_url TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_advertiser (advertiser_id),
