@@ -71,23 +71,7 @@ try {
         logMsg("YouTube enrichment error: " . $e->getMessage());
     }
 
-    // Step 4: Detect products/apps from headlines and landing URLs
-    $productsDetected = 0;
-    try {
-        $productsDetected = $processor->detectProducts();
-    } catch (Exception $e) {
-        logMsg("Product detection error: " . $e->getMessage());
-    }
-
-    // Step 4b: Re-detect products previously classified as 'web' (may now find app store links)
-    $redetected = 0;
-    try {
-        $redetected = $processor->redetectWebProducts();
-    } catch (Exception $e) {
-        logMsg("Product re-detection error: " . $e->getMessage());
-    }
-
-    // Step 4c: Enrich store URLs from Google Ads Transparency preview content
+    // Step 4: Detect apps from Google Ads Transparency preview content only
     $storeEnriched = 0;
     try {
         $storeEnriched = $processor->enrichStoreUrlsFromPreview();
@@ -120,11 +104,7 @@ try {
            AND NOT EXISTS (SELECT 1 FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%')"
     );
 
-    // Count remaining work
-    $remainingWebProducts = (int) $db->fetchColumn(
-        "SELECT COUNT(*) FROM ad_product_map pm
-         INNER JOIN ad_products p ON pm.product_id = p.id AND p.store_platform = 'web'"
-    );
+    // Count remaining ads without app store link
     $remainingStoreUrls = (int) $db->fetchColumn(
         "SELECT COUNT(*) FROM ads a
          INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
@@ -143,19 +123,16 @@ try {
         'processed' => $processed,
         'youtube'   => $ytExtracted,
         'enriched'  => $ytEnriched,
-        'products'  => $productsDetected,
-        'redetected' => $redetected,
-        'store_urls_enriched' => $storeEnriched,
+        'apps_detected' => $storeEnriched,
         'remaining_extract' => $remainingExtract,
         'remaining_enrich'  => $remainingEnrich,
-        'remaining_web_products' => $remainingWebProducts,
         'remaining_store_urls' => $remainingStoreUrls,
         'message'   => ($remainingExtract > 0 || $remainingEnrich > 0 || $remainingStoreUrls > 0) ? 'Call again to process more.' : 'All done!',
     ];
 
     if ($isCli) {
-        if ($processed > 0 || $ytExtracted > 0 || $ytEnriched > 0 || $productsDetected > 0 || $redetected > 0 || $storeEnriched > 0) {
-            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs, enriched {$ytEnriched} videos, detected {$productsDetected} products, re-detected {$redetected} web->app, enriched {$storeEnriched} store URLs");
+        if ($processed > 0 || $ytExtracted > 0 || $ytEnriched > 0 || $storeEnriched > 0) {
+            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs, enriched {$ytEnriched} videos, detected {$storeEnriched} apps from preview");
         }
     } else {
         echo json_encode($result);
