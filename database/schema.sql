@@ -98,6 +98,23 @@ CREATE TABLE IF NOT EXISTS ad_product_map (
     FOREIGN KEY (product_id) REFERENCES ad_products(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Managed advertisers (tracked via UI/CLI)
+CREATE TABLE IF NOT EXISTS managed_advertisers (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    advertiser_id VARCHAR(64) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    status ENUM('new','active','fetching','paused','error','deleted') DEFAULT 'new',
+    total_ads INT DEFAULT 0,
+    active_ads INT DEFAULT 0,
+    last_fetch_ads INT DEFAULT 0,
+    last_fetched_at DATETIME NULL,
+    fetch_count INT DEFAULT 0,
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Scrape activity logging
 CREATE TABLE IF NOT EXISTS scrape_logs (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

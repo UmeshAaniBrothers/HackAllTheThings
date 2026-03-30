@@ -1,20 +1,33 @@
-# Ads-Intelligent
-Ads Intelligent
+# Ads Intelligent
 
-## About
-Cheatsheets, References and notes on various red teaming/pentesting topics.
+Google Ads Transparency Center scraper and dashboard. Scrapes ad data locally via CLI, processes on server, and displays in a web dashboard.
 
-<br>
+## Architecture
 
-## Advisable approach for best experience
-Built using [Obsidian](https://obsidian.md/). For the best experience and to be able to use the graph functionality and links, I highly recommend using [Obsidian](https://obsidian.md/) to navigate this repo.
+- **CLI Scraper** (`cli/scrape.php`) — Run from your Mac to scrape Google Ads Transparency API (Google blocks server IPs)
+- **Server Ingest** (`dashboard/api/ingest.php`) — Receives and stores raw scraped data
+- **Background Processor** (`cron/process.php`) — Processes raw payloads, extracts YouTube URLs, enriches metadata, detects products
+- **Dashboard** — Web UI for viewing and filtering ads
 
-<br>
+## Setup
 
-## Credits
-- [HackTricks - HackTricks](https://book.hacktricks.xyz/)
-- [Windows & Active Directory Exploitation Cheat Sheet and Command Reference](https://casvancooten.com/posts/2020/11/windows-active-directory-exploitation-cheat-sheet-and-command-reference/)
-- [IppSec - YouTube](https://www.youtube.com/channel/UCa6eh7gCkpPo5XXUDfygQQA)
-- [John Hammond - YouTube](https://www.youtube.com/channel/UCVeW9qkBjo3zosnqUbG7CFw)
-- [Web Security Academy - PortSwigger](https://portswigger.net/web-security/dashboard)
-- [OWASP Mobile Security Testing Guide](https://owasp.org/www-project-mobile-security-testing-guide/)
+1. Import `database/schema.sql` into your MySQL database
+2. Copy `config/config.example.php` to `config/config.php` and fill in DB credentials
+3. Set up cron for background processing:
+   ```
+   */2 * * * * cd /path/to/app && php cron/process.php >> cron/process.log 2>&1
+   ```
+
+## CLI Usage
+
+```bash
+php cli/scrape.php test                          # Test connections
+php cli/scrape.php search "Nike"                 # Search advertisers
+php cli/scrape.php fetch AR1234... "Name"        # Fetch all ads
+```
+
+## Stack
+
+- PHP 7.4+ (server), PHP 8.x (CLI)
+- MySQL/MariaDB
+- Bootstrap 5 frontend

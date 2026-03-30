@@ -35,7 +35,6 @@ if ($providedToken !== $authToken) {
 }
 
 require_once $basePath . '/src/Database.php';
-require_once $basePath . '/src/Scraper.php';
 require_once $basePath . '/src/AssetManager.php';
 require_once $basePath . '/src/Processor.php';
 

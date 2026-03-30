@@ -35,10 +35,10 @@
         <div class="card kpi-card p-3">
             <div class="d-flex justify-content-between">
                 <div>
-                    <div class="kpi-label">New Today</div>
-                    <div class="kpi-value text-warning" id="newToday">-</div>
+                    <div class="kpi-label">Video Ads</div>
+                    <div class="kpi-value text-warning" id="videoAds">-</div>
                 </div>
-                <div class="kpi-icon text-warning"><i class="bi bi-plus-circle"></i></div>
+                <div class="kpi-icon text-warning"><i class="bi bi-play-circle"></i></div>
             </div>
         </div>
     </div>
@@ -46,27 +46,11 @@
         <div class="card kpi-card p-3">
             <div class="d-flex justify-content-between">
                 <div>
-                    <div class="kpi-label">Avg Duration</div>
-                    <div class="kpi-value text-info" id="avgDuration">-</div>
+                    <div class="kpi-label">Pending Payloads</div>
+                    <div class="kpi-value text-info" id="pendingPayloads">-</div>
                 </div>
-                <div class="kpi-icon text-info"><i class="bi bi-clock"></i></div>
+                <div class="kpi-icon text-info"><i class="bi bi-hourglass-split"></i></div>
             </div>
-        </div>
-    </div>
-</div>
-
-<!-- Charts Row -->
-<div class="row mb-4">
-    <div class="col-md-8">
-        <div class="chart-container">
-            <h5>Ad Creation Velocity (30 Days)</h5>
-            <canvas id="velocityChart" height="100"></canvas>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="chart-container">
-            <h5>Ad Type Distribution</h5>
-            <canvas id="typeChart"></canvas>
         </div>
     </div>
 </div>
@@ -82,7 +66,7 @@
                     <th>Headline</th>
                     <th>Type</th>
                     <th>Status</th>
-                    <th>Date</th>
+                    <th>Last Seen</th>
                 </tr>
             </thead>
             <tbody id="activityTable">

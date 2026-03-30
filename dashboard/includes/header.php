@@ -9,9 +9,6 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
     <title>Ad Intelligence Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <?php if ($currentPage === 'geo'): ?>
-    <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
-    <?php endif; ?>
     <link href="assets/css/dashboard.css" rel="stylesheet">
 </head>
 <body>
@@ -33,51 +30,6 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                     <li class="nav-item">
                         <a class="nav-link <?= $currentPage === 'ads_viewer' ? 'active' : '' ?>" href="ads_viewer.php">
                             <i class="bi bi-eye me-1"></i>Ads Viewer
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $currentPage === 'explorer' ? 'active' : '' ?>" href="explorer.php">
-                            <i class="bi bi-layout-text-window me-1"></i>Explorer
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $currentPage === 'search' ? 'active' : '' ?>" href="search.php">
-                            <i class="bi bi-search me-1"></i>Search
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $currentPage === 'timeline' ? 'active' : '' ?>" href="timeline.php">
-                            <i class="bi bi-clock-history me-1"></i>Timeline
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $currentPage === 'geo' ? 'active' : '' ?>" href="geo.php">
-                            <i class="bi bi-globe me-1"></i>Geo
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $currentPage === 'intelligence' ? 'active' : '' ?>" href="intelligence.php">
-                            <i class="bi bi-cpu me-1"></i>AI Intel
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $currentPage === 'landing' ? 'active' : '' ?>" href="landing.php">
-                            <i class="bi bi-browser-chrome me-1"></i>Landing
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $currentPage === 'compare' ? 'active' : '' ?>" href="compare.php">
-                            <i class="bi bi-arrow-left-right me-1"></i>Compare
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $currentPage === 'watchlists' ? 'active' : '' ?>" href="watchlists.php">
-                            <i class="bi bi-binoculars me-1"></i>Watchlists
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?= $currentPage === 'alerts' ? 'active' : '' ?>" href="alerts.php">
-                            <i class="bi bi-bell me-1"></i>Alerts
                         </a>
                     </li>
                     <li class="nav-item">
