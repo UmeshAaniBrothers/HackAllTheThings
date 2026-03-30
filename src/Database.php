@@ -8,8 +8,10 @@
  */
 class Database
 {
-    private static ?Database $instance = null;
-    private PDO $pdo;
+    /** @var Database|null */
+    private static $instance = null;
+    /** @var PDO */
+    private $pdo;
 
     private function __construct(array $config)
     {
