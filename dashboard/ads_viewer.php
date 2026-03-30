@@ -593,13 +593,13 @@
                     <div class="ad-body">
                         <div class="ad-headline">${escapeHtml(headline)}</div>
                         ${productName && productName !== 'Unknown' ? `<div class="mt-1">
-                            <span class="badge bg-warning text-dark me-1 viewer-clickable" data-filter="product_id" data-value="${escapeHtml(productIdVal)}" title="App"><i class="bi bi-app-indicator me-1"></i>${escapeHtml(productName)}</span>
+                            <a href="app_profile.php?id=${escapeHtml(productIdVal)}" class="badge bg-warning text-dark me-1 text-decoration-none" onclick="event.stopPropagation()" title="View App Profile"><i class="bi bi-app-indicator me-1"></i>${escapeHtml(productName)}</a>
                             <span class="badge ${platformColors[storePlatform] || 'bg-info'} viewer-clickable" data-filter="platform" data-value="${escapeHtml(storePlatform)}" title="Platform"><i class="bi ${platformIcons[storePlatform] || 'bi-globe'} me-1"></i>${platformLabels[storePlatform] || 'Web'}</span>
                             ${storeUrl ? `<a href="${escapeHtml(storeUrl)}" target="_blank" rel="noopener" class="badge ${storePlatform === 'ios' ? 'bg-dark' : 'bg-success'} text-decoration-none" onclick="event.stopPropagation()" title="${storePlatform === 'ios' ? 'App Store' : 'Play Store'}"><i class="bi ${storePlatform === 'ios' ? 'bi-apple' : 'bi-google-play'} me-1"></i>${storePlatform === 'ios' ? 'App Store' : 'Play Store'}</a>` : ''}
                         </div>` : ''}
                         ${ad.cta ? `<span class="badge bg-primary mt-1 viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
                         <div class="mt-2">
-                            ${isVideo && ad.youtube_url ? `<a href="${escapeHtml(ad.youtube_url)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()">
+                            ${isVideo && ad.youtube_url ? `<a href="youtube_profile.php?id=${escapeHtml(extractYouTubeId(ad.youtube_url))}" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()">
                                 <i class="bi bi-youtube me-1"></i>YouTube
                             </a>` : ''}
                             <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()">
@@ -615,7 +615,7 @@
                             ${countries.length > 3 ? `<span class="badge bg-light text-dark" style="font-size:.7rem">+${countries.length - 3}</span>` : ''}
                         </div>
                         <div class="d-flex justify-content-between align-items-center">
-                            <small class="text-muted viewer-clickable" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer;text-decoration:underline dotted"><i class="bi bi-person-fill me-1"></i>${escapeHtml(advName)}</small>
+                            <a href="advertiser_profile.php?id=${encodeURIComponent(ad.advertiser_id)}" class="small text-muted text-decoration-none" onclick="event.stopPropagation()" title="View Advertiser Profile"><i class="bi bi-person-fill me-1"></i>${escapeHtml(advName)}</a>
                             <small class="text-muted">${formatDate(ad.first_seen)} - ${formatDate(ad.last_seen)}</small>
                         </div>
                     </div>

@@ -6,7 +6,10 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ad Intelligence Dashboard</title>
+    <title>Ad Intelligence Dashboard<?php
+        $pageTitles = ['app_profile' => ' - App Profile', 'advertiser_profile' => ' - Advertiser Profile', 'youtube_profile' => ' - Video Profile'];
+        echo $pageTitles[$currentPage] ?? '';
+    ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link href="assets/css/dashboard.css" rel="stylesheet">

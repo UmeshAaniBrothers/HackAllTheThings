@@ -118,6 +118,53 @@ CREATE TABLE IF NOT EXISTS managed_advertisers (
     INDEX idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- App metadata cache (from App Store / Play Store APIs)
+CREATE TABLE IF NOT EXISTS app_metadata (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    product_id BIGINT UNSIGNED NOT NULL,
+    store_platform ENUM('ios','playstore') NOT NULL,
+    store_url TEXT,
+    bundle_id VARCHAR(255),
+    app_name VARCHAR(255),
+    icon_url TEXT,
+    developer_name VARCHAR(255),
+    developer_url TEXT,
+    description TEXT,
+    category VARCHAR(128),
+    rating DECIMAL(3,2),
+    rating_count INT UNSIGNED DEFAULT 0,
+    price VARCHAR(32),
+    release_date DATE,
+    last_updated DATE,
+    version VARCHAR(32),
+    screenshots TEXT,
+    downloads VARCHAR(64),
+    fetched_at DATETIME NOT NULL,
+    UNIQUE KEY uk_product (product_id),
+    INDEX idx_store_platform (store_platform),
+    FOREIGN KEY (product_id) REFERENCES ad_products(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- YouTube video metadata cache
+CREATE TABLE IF NOT EXISTS youtube_metadata (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    video_id VARCHAR(16) NOT NULL,
+    title VARCHAR(512),
+    description TEXT,
+    channel_name VARCHAR(255),
+    channel_id VARCHAR(64),
+    channel_url TEXT,
+    view_count BIGINT UNSIGNED DEFAULT 0,
+    like_count BIGINT UNSIGNED DEFAULT 0,
+    comment_count BIGINT UNSIGNED DEFAULT 0,
+    publish_date DATETIME,
+    duration VARCHAR(32),
+    thumbnail_url TEXT,
+    fetched_at DATETIME NOT NULL,
+    UNIQUE KEY uk_video (video_id),
+    INDEX idx_channel (channel_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Scrape activity logging
 CREATE TABLE IF NOT EXISTS scrape_logs (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
