@@ -12,9 +12,36 @@
     </div>
 </div>
 
-<!-- Add New Advertiser -->
+<!-- Search & Add Advertiser -->
 <div class="filter-bar mb-4">
-    <h6 class="mb-3"><i class="bi bi-plus-circle me-1"></i>Add New Advertiser</h6>
+    <h6 class="mb-3"><i class="bi bi-search me-1"></i>Search & Add Advertiser</h6>
+
+    <!-- Search by name -->
+    <div class="row g-3 align-items-end mb-3">
+        <div class="col-md-8">
+            <label class="form-label">Search by Company Name</label>
+            <div class="input-group">
+                <input type="text" id="searchKeyword" class="form-control" placeholder="e.g. Nike, Google, Amazon..." onkeydown="if(event.key==='Enter')searchAds()">
+                <button class="btn btn-primary" onclick="searchAds()" id="btnSearch">
+                    <i class="bi bi-search me-1"></i>Search
+                </button>
+            </div>
+            <small class="text-muted">Find advertiser IDs from Google Ads Transparency Center</small>
+        </div>
+    </div>
+
+    <!-- Search results -->
+    <div id="searchResults" class="mb-3" style="display:none">
+        <div class="card p-3">
+            <h6 class="mb-2"><i class="bi bi-list-ul me-1"></i>Search Results <small class="text-muted" id="searchCount"></small></h6>
+            <div id="searchResultsList" class="list-group list-group-flush" style="max-height:250px;overflow-y:auto"></div>
+        </div>
+    </div>
+
+    <hr class="my-3">
+
+    <!-- Manual add -->
+    <h6 class="mb-3"><i class="bi bi-plus-circle me-1"></i>Add Advertiser (Manual or from Search)</h6>
     <div class="row g-3 align-items-end">
         <div class="col-md-4">
             <label class="form-label">Advertiser ID <span class="text-danger">*</span></label>
@@ -395,6 +422,55 @@
         }
     }
     window.removeAdv = removeAdv;
+
+    // ── Search advertisers ─────────────────────────────
+    async function searchAds() {
+        const keyword = document.getElementById('searchKeyword').value.trim();
+        if (!keyword) { alert('Enter a company name to search'); return; }
+
+        const btn = document.getElementById('btnSearch');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Searching...';
+
+        try {
+            const data = await fetchAPI('manage.php', { action: 'search_advertisers', keyword: keyword });
+            const container = document.getElementById('searchResults');
+            const list = document.getElementById('searchResultsList');
+            const count = document.getElementById('searchCount');
+
+            if (data.success && data.results && data.results.length > 0) {
+                count.textContent = `(${data.results.length} found)`;
+                list.innerHTML = data.results.map(r => `
+                    <a href="#" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                       onclick="selectAdvertiser('${escapeHtml(r.advertiser_id)}', '${escapeHtml(r.name || '')}'); return false;">
+                        <div>
+                            <strong>${escapeHtml(r.name || 'Unknown')}</strong>
+                            <br><code class="small text-muted">${escapeHtml(r.advertiser_id)}</code>
+                        </div>
+                        <span class="badge bg-primary">Select</span>
+                    </a>
+                `).join('');
+                container.style.display = '';
+            } else {
+                count.textContent = '(0 found)';
+                list.innerHTML = '<div class="text-muted text-center py-3">No advertisers found for "' + escapeHtml(keyword) + '"</div>';
+                container.style.display = '';
+            }
+        } catch (err) {
+            alert('Search error: ' + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search me-1"></i>Search';
+        }
+    }
+    window.searchAds = searchAds;
+
+    function selectAdvertiser(id, name) {
+        document.getElementById('newAdvId').value = id;
+        document.getElementById('newAdvName').value = name;
+        document.getElementById('searchResults').style.display = 'none';
+    }
+    window.selectAdvertiser = selectAdvertiser;
 
     // ── Test API connection ─────────────────────────────
     async function testApi() {

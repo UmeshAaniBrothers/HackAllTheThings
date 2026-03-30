@@ -40,6 +40,7 @@ try {
         case 'status':          getStatus($db); break;
         case 'remove_advertiser': removeAdvertiser($db); break;
         case 'test_connection':   testApiConnection($db, $config); break;
+        case 'search_advertisers': searchAdvertisers($db, $config); break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -430,6 +431,24 @@ function getStatus(Database $db): void
         'global_stats' => $globalStats,
         'recent_logs'  => $recentLogs,
         'fetch_logs'   => $fetchLogs,
+    ]);
+}
+
+function searchAdvertisers(Database $db, array $config): void
+{
+    $keyword = trim($_GET['keyword'] ?? $_POST['keyword'] ?? '');
+    if (empty($keyword)) {
+        echo json_encode(['success' => false, 'error' => 'keyword is required']);
+        return;
+    }
+
+    $scraper = new Scraper($db, $config['scraper']);
+    $results = $scraper->searchAdvertisers($keyword);
+
+    echo json_encode([
+        'success' => true,
+        'results' => $results,
+        'count'   => count($results),
     ]);
 }
 
