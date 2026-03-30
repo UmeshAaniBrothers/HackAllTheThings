@@ -536,7 +536,7 @@ class Processor
     public function extractYouTubeUrls()
     {
         $ads = $this->db->fetchAll(
-            "SELECT a.creative_id, ass.original_url as preview_url
+            "SELECT a.creative_id, a.advertiser_id, ass.original_url as preview_url
              FROM ads a
              INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
                 AND ass.original_url LIKE '%displayads-formats%'
@@ -562,8 +562,10 @@ class Processor
             $previewUrl = $ad['preview_url'];
             if (empty($previewUrl)) continue;
 
-            $ytId = $this->fetchYouTubeIdFromPreview($previewUrl);
+            $data = $this->fetchPreviewData($previewUrl);
+            if (!$data) continue;
 
+            $ytId = $data['youtube_id'];
             if ($ytId) {
                 $youtubeUrl = 'https://www.youtube.com/watch?v=' . $ytId;
                 $thumbnail = 'https://i.ytimg.com/vi/' . $ytId . '/hqdefault.jpg';
@@ -597,6 +599,11 @@ class Processor
                 $extracted++;
             }
 
+            // Save store URL if found in the preview content
+            if ($data['store_url'] && $data['store_platform']) {
+                $this->saveStoreUrlForAd($ad['creative_id'], $ad['advertiser_id'], $data['store_url'], $data['store_platform']);
+            }
+
             usleep(300000); // 300ms rate limit
         }
 
@@ -605,9 +612,83 @@ class Processor
     }
 
     /**
-     * Fetch a Google preview content.js URL and extract YouTube video ID.
+     * Enrich store URLs by fetching preview content.js for ads that already have
+     * YouTube URLs but are missing store URLs.
+     * Returns number of store URLs found.
      */
-    private function fetchYouTubeIdFromPreview($previewUrl)
+    public function enrichStoreUrlsFromPreview()
+    {
+        // Get ads that have a preview URL but no store URL in their product
+        $ads = $this->db->fetchAll(
+            "SELECT a.creative_id, a.advertiser_id, ass.original_url as preview_url
+             FROM ads a
+             INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
+                AND ass.original_url LIKE '%displayads-formats%'
+             INNER JOIN ad_product_map pm ON a.creative_id = pm.creative_id
+             INNER JOIN ad_products p ON pm.product_id = p.id
+             WHERE (p.store_url IS NULL OR p.store_url = '' OR p.store_url = 'not_found' OR p.store_platform = 'web')
+               AND p.product_name != 'Unknown'
+             GROUP BY a.creative_id
+             ORDER BY a.last_seen DESC
+             LIMIT 50"
+        );
+
+        if (empty($ads)) {
+            return 0;
+        }
+
+        $enriched = 0;
+
+        foreach ($ads as $ad) {
+            $previewUrl = $ad['preview_url'];
+            if (empty($previewUrl)) continue;
+
+            $data = $this->fetchPreviewData($previewUrl);
+            if (!$data || !$data['store_url']) continue;
+
+            $this->saveStoreUrlForAd($ad['creative_id'], $ad['advertiser_id'], $data['store_url'], $data['store_platform']);
+            $enriched++;
+
+            usleep(300000); // 300ms rate limit
+        }
+
+        $this->log("Enriched {$enriched} store URLs from preview content");
+        return $enriched;
+    }
+
+    /**
+     * Save a store URL for an ad by updating or creating the product record.
+     */
+    private function saveStoreUrlForAd($creativeId, $advertiserId, $storeUrl, $storePlatform)
+    {
+        // Check if this ad already has a product mapping
+        $mapping = $this->db->fetchOne(
+            "SELECT pm.product_id, p.product_name, p.store_url, p.store_platform
+             FROM ad_product_map pm
+             INNER JOIN ad_products p ON pm.product_id = p.id
+             WHERE pm.creative_id = ?
+             LIMIT 1",
+            [$creativeId]
+        );
+
+        if ($mapping) {
+            // Update existing product with the store URL
+            $currentUrl = $mapping['store_url'] ?? '';
+            if (empty($currentUrl) || $currentUrl === 'not_found' || $mapping['store_platform'] === 'web') {
+                $this->db->update('ad_products', [
+                    'store_url'      => $storeUrl,
+                    'store_platform' => $storePlatform,
+                    'product_type'   => 'app',
+                ], 'id = ?', [$mapping['product_id']]);
+            }
+        }
+    }
+
+    /**
+     * Fetch a Google preview content.js URL and extract YouTube video ID + store URL.
+     * Returns ['youtube_id' => '...', 'store_url' => '...', 'store_platform' => '...'] or null.
+     */
+    private function fetchPreviewData($previewUrl)
     {
         $ch = curl_init();
         curl_setopt_array($ch, array(
@@ -632,15 +713,30 @@ class Processor
             return null;
         }
 
+        $result = ['youtube_id' => null, 'store_url' => null, 'store_platform' => null];
+
+        // Extract YouTube ID
         if (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $response, $matches)) {
-            return $matches[1];
+            $result['youtube_id'] = $matches[1];
+        } elseif (preg_match('/youtube\.com\/(?:embed\/|watch\?v=)([a-zA-Z0-9_-]{11})/', $response, $matches)) {
+            $result['youtube_id'] = $matches[1];
         }
 
-        if (preg_match('/youtube\.com\/(?:embed\/|watch\?v=)([a-zA-Z0-9_-]{11})/', $response, $matches)) {
-            return $matches[1];
+        // Extract App Store URL (itunes.apple.com or apps.apple.com) - may be URL-encoded
+        if (preg_match('/(?:itunes\.apple\.com|apps\.apple\.com)(?:%2F|\/)+app(?:%2F|\/)+(?:[^%"\'\\\\&\s]*(?:%2F|\/)+)?id(\d+)/', $response, $matches)) {
+            $appId = $matches[1];
+            $result['store_url'] = 'https://apps.apple.com/app/id' . $appId;
+            $result['store_platform'] = 'ios';
         }
 
-        return null;
+        // Extract Play Store URL - may be URL-encoded
+        if (preg_match('/play\.google\.com(?:%2F|\/)+store(?:%2F|\/)+apps(?:%2F|\/)+details(?:%3F|\?)id(?:%3D|=)([a-zA-Z0-9._]+)/', $response, $matches)) {
+            $packageId = $matches[1];
+            $result['store_url'] = 'https://play.google.com/store/apps/details?id=' . $packageId;
+            $result['store_platform'] = 'playstore';
+        }
+
+        return $result;
     }
 
     /**
@@ -1106,176 +1202,6 @@ class Processor
         return ucwords($name);
     }
 
-    /**
-     * Enrich products that have no store_url by searching Play Store / App Store.
-     * Uses product_name to search and find the actual store URL.
-     * Returns number of products enriched.
-     */
-    public function enrichStoreUrls()
-    {
-        // Get ALL products missing store_url (including 'web' — they might be real apps)
-        // Exclude 'Unknown' and already-searched products (store_url = '')
-        $products = $this->db->fetchAll(
-            "SELECT id, product_name, store_platform, advertiser_id
-             FROM ad_products
-             WHERE (store_url IS NULL OR store_url = '')
-               AND product_name != 'Unknown'
-             ORDER BY
-               CASE WHEN store_platform IN ('playstore','ios') THEN 0 ELSE 1 END,
-               id DESC
-             LIMIT 50"
-        );
-
-        if (empty($products)) {
-            return 0;
-        }
-
-        $enriched = 0;
-
-        foreach ($products as $product) {
-            $storeUrl = null;
-            $appName = null;
-            $detectedPlatform = null;
-
-            // Try Play Store first (most ads are Android app install ads)
-            $result = $this->searchPlayStore($product['product_name']);
-            if ($result) {
-                $storeUrl = $result['url'];
-                $appName = $result['name'];
-                $detectedPlatform = 'playstore';
-            }
-
-            // If not found on Play Store, try App Store
-            if (!$storeUrl) {
-                $result = $this->searchAppStore($product['product_name']);
-                if ($result) {
-                    $storeUrl = $result['url'];
-                    $appName = $result['name'];
-                    $detectedPlatform = 'ios';
-                }
-            }
-
-            if ($storeUrl) {
-                $updateData = [
-                    'store_url'      => $storeUrl,
-                    'store_platform' => $detectedPlatform,
-                    'product_type'   => 'app',
-                ];
-                // Update product name to the official app name if found
-                if ($appName && $appName !== $product['product_name']) {
-                    $existing = $this->db->fetchOne(
-                        "SELECT id FROM ad_products WHERE advertiser_id = ? AND product_name = ?",
-                        [$product['advertiser_id'], $appName]
-                    );
-                    if (!$existing) {
-                        $updateData['product_name'] = $appName;
-                    }
-                }
-                $this->db->update('ad_products', $updateData, 'id = ?', [$product['id']]);
-                $enriched++;
-            } else {
-                // Mark as searched so we don't re-search next run
-                $this->db->update('ad_products', [
-                    'store_url' => 'not_found',
-                ], 'id = ?', [$product['id']]);
-            }
-
-            usleep(300000); // 300ms between requests
-        }
-
-        $this->log("Enriched store URLs for {$enriched} of " . count($products) . " products");
-        return $enriched;
-    }
-
-    /**
-     * Search Google Play Store for an app by name.
-     * Returns ['url' => '...', 'name' => '...'] or null.
-     */
-    private function searchPlayStore($appName)
-    {
-        $searchUrl = 'https://play.google.com/store/search?q=' . urlencode($appName) . '&c=apps&hl=en';
-
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => $searchUrl,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 15,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            CURLOPT_ENCODING       => 'gzip, deflate',
-            CURLOPT_HTTPHEADER     => ['Accept-Language: en-US,en;q=0.9'],
-        ]);
-        $html = curl_exec($ch);
-        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if (!$html || $code !== 200) return null;
-
-        // Extract first app link: /store/apps/details?id=com.example.app
-        if (preg_match('/\/store\/apps\/details\?id=([a-zA-Z0-9._]+)/', $html, $m)) {
-            $packageId = $m[1];
-            $url = 'https://play.google.com/store/apps/details?id=' . $packageId;
-
-            // Try to extract the official app name from the page
-            $officialName = null;
-            // Look for the app title near the matched link
-            if (preg_match('/details\?id=' . preg_quote($packageId, '/') . '[^>]*>.*?<[^>]*>([^<]{2,80})</', $html, $nameMatch)) {
-                $officialName = trim(html_entity_decode($nameMatch[1], ENT_QUOTES, 'UTF-8'));
-            }
-
-            return [
-                'url'  => $url,
-                'name' => $officialName ?: $this->packageToAppName($packageId),
-            ];
-        }
-
-        return null;
-    }
-
-    /**
-     * Search Apple App Store for an app by name using iTunes Search API.
-     * Returns ['url' => '...', 'name' => '...'] or null.
-     */
-    private function searchAppStore($appName)
-    {
-        $searchUrl = 'https://itunes.apple.com/search?term=' . urlencode($appName) . '&entity=software&limit=3&country=us';
-
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL            => $searchUrl,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 10,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_USERAGENT      => 'Mozilla/5.0',
-            CURLOPT_ENCODING       => 'gzip, deflate',
-        ]);
-        $resp = curl_exec($ch);
-        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        if (!$resp || $code !== 200) return null;
-
-        $data = json_decode($resp, true);
-        if (!$data || empty($data['results'])) return null;
-
-        // Return the first result
-        $app = $data['results'][0];
-        $trackUrl = isset($app['trackViewUrl']) ? $app['trackViewUrl'] : null;
-        $trackName = isset($app['trackName']) ? $app['trackName'] : null;
-
-        if ($trackUrl) {
-            // Clean the URL (remove tracking params)
-            $trackUrl = preg_replace('/\?.*/', '', $trackUrl);
-            return [
-                'url'  => $trackUrl,
-                'name' => $trackName,
-            ];
-        }
-
-        return null;
-    }
 
     /**
      * Find existing product or create a new one.

@@ -87,10 +87,10 @@ try {
         logMsg("Product re-detection error: " . $e->getMessage());
     }
 
-    // Step 4c: Enrich store URLs by searching Play Store / App Store
+    // Step 4c: Enrich store URLs from Google Ads Transparency preview content
     $storeEnriched = 0;
     try {
-        $storeEnriched = $processor->enrichStoreUrls();
+        $storeEnriched = $processor->enrichStoreUrlsFromPreview();
     } catch (Exception $e) {
         logMsg("Store URL enrichment error: " . $e->getMessage());
     }
@@ -126,9 +126,15 @@ try {
          INNER JOIN ad_products p ON pm.product_id = p.id AND p.store_platform = 'web'"
     );
     $remainingStoreUrls = (int) $db->fetchColumn(
-        "SELECT COUNT(*) FROM ad_products
-         WHERE (store_url IS NULL OR store_url = '')
-           AND product_name != 'Unknown'"
+        "SELECT COUNT(*) FROM ad_products p
+         INNER JOIN ad_product_map pm ON p.id = pm.product_id
+         WHERE (p.store_url IS NULL OR p.store_url = '' OR p.store_url = 'not_found' OR p.store_platform = 'web')
+           AND p.product_name != 'Unknown'
+           AND EXISTS (
+               SELECT 1 FROM ad_assets ass
+               WHERE ass.creative_id = pm.creative_id
+                 AND ass.original_url LIKE '%displayads-formats%'
+           )"
     );
 
     $result = [
