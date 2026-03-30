@@ -214,6 +214,7 @@ class Processor
             if (preg_match('/^(AR|CR)\d/', $t)) continue; // advertiser/creative IDs
             if (preg_match('/^\d+$/', $t)) continue; // pure numbers
             if (preg_match('/^[a-f0-9]{32,}$/i', $t)) continue; // hashes
+            if (preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(|var |const |let |return |throw /i', $t)) continue; // JS code/errors
             $cleanTexts[] = $t;
         }
         $cleanTexts = array_values(array_unique($cleanTexts));
@@ -910,6 +911,9 @@ class Processor
                  SELECT 1 FROM ad_details d
                  WHERE d.creative_id = a.creative_id
                    AND d.headline IS NOT NULL AND d.headline != ''
+                   AND d.headline NOT LIKE '%Cannot find%'
+                   AND d.headline NOT LIKE '%global object%'
+                   AND d.headline NOT LIKE '%Error%'
              )
              GROUP BY a.creative_id
              ORDER BY a.last_seen DESC
@@ -960,7 +964,10 @@ class Processor
 
             if ($existing) {
                 $updateFields = [];
-                if (!empty($detailData['headline']) && empty($existing['headline'])) {
+                $existingHeadlineBad = empty($existing['headline'])
+                    || stripos($existing['headline'], 'Cannot find') !== false
+                    || stripos($existing['headline'], 'global object') !== false;
+                if (!empty($detailData['headline']) && $existingHeadlineBad) {
                     $updateFields['headline'] = $detailData['headline'];
                 }
                 // Always update these if we have new data
@@ -1313,7 +1320,10 @@ class Processor
         }
 
         // ── YouTube ID ──
-        if (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $decoded, $m)) {
+        // Google preview uses 'video_videoId': 'XXXXXXXXXXX' (single quotes)
+        if (preg_match('/[\'"]video_videoId[\'"]\s*:\s*[\'"]([a-zA-Z0-9_-]{11})[\'"]/', $decoded, $m)) {
+            $result['youtube_id'] = $m[1];
+        } elseif (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $decoded, $m)) {
             $result['youtube_id'] = $m[1];
         } elseif (preg_match('/youtube\.com\/(?:embed\/|watch\?v=|v\/)([a-zA-Z0-9_-]{11})/', $decoded, $m)) {
             $result['youtube_id'] = $m[1];
@@ -1322,19 +1332,42 @@ class Processor
         }
 
         // ── App Store URL ──
-        if (preg_match('/(?:itunes\.apple\.com|apps\.apple\.com)(?:%2F|\/)+(?:[a-z]{2}(?:%2F|\/)+)?app(?:%2F|\/)+(?:[^%"\'\\\\&\s]*(?:%2F|\/)+)?id(\d+)/', $decoded, $m)) {
-            $result['store_url'] = 'https://apps.apple.com/app/id' . $m[1];
+        // Google preview uses 'appId': 'com.package.name' and 'appStore': '2' (Play) or '1' (iOS)
+        $appId = null;
+        $appStoreType = null;
+        if (preg_match('/[\'"]appId[\'"]\s*:\s*[\'"]([a-zA-Z0-9._]+)[\'"]/', $decoded, $ai)) {
+            $appId = $ai[1];
+        }
+        if (preg_match('/[\'"]appStore[\'"]\s*:\s*[\'"]?(\d+)[\'"]?/', $decoded, $as)) {
+            $appStoreType = $as[1];
+        }
+
+        // Build store URL from appId + appStore type
+        if ($appId && $appStoreType === '2') {
+            $result['store_url'] = 'https://play.google.com/store/apps/details?id=' . $appId;
+            $result['store_platform'] = 'playstore';
+        } elseif ($appId && $appStoreType === '1') {
+            // iOS apps use numeric IDs — appId might be numeric or bundle ID
+            if (preg_match('/^\d+$/', $appId)) {
+                $result['store_url'] = 'https://apps.apple.com/app/id' . $appId;
+            } else {
+                $result['store_url'] = 'https://apps.apple.com/app/' . $appId;
+            }
             $result['store_platform'] = 'ios';
         }
 
-        // ── Play Store URL ──
-        if (preg_match('/play\.google\.com(?:%2F|\/)+store(?:%2F|\/)+apps(?:%2F|\/)+details(?:%3F|\?)id(?:%3D|=)([a-zA-Z0-9._]+)/', $decoded, $m)) {
+        // Fallback: direct URL patterns
+        if (!$result['store_url'] && preg_match('/(?:itunes\.apple\.com|apps\.apple\.com)(?:%2F|\/)+(?:[a-z]{2}(?:%2F|\/)+)?app(?:%2F|\/)+(?:[^%"\'\\\\&\s]*(?:%2F|\/)+)?id(\d+)/', $decoded, $m)) {
+            $result['store_url'] = 'https://apps.apple.com/app/id' . $m[1];
+            $result['store_platform'] = 'ios';
+        }
+        if (!$result['store_url'] && preg_match('/play\.google\.com(?:%2F|\/)+store(?:%2F|\/)+apps(?:%2F|\/)+details(?:%3F|\?)id(?:%3D|=)([a-zA-Z0-9._]+)/', $decoded, $m)) {
             $result['store_url'] = 'https://play.google.com/store/apps/details?id=' . $m[1];
             $result['store_platform'] = 'playstore';
         }
 
         // ── Ad Dimensions (width x height) ──
-        if (preg_match('/(?:width|w)["\s:=]+(\d{2,4}).*?(?:height|h)["\s:=]+(\d{2,4})/', $decoded, $dm)) {
+        if (preg_match('/(?:width|w)["\'\s:=]+(\d{2,4}).*?(?:height|h)["\'\s:=]+(\d{2,4})/', $decoded, $dm)) {
             $result['ad_width'] = (int)$dm[1];
             $result['ad_height'] = (int)$dm[2];
         } elseif (preg_match('/(\d{2,4})\s*[xX×]\s*(\d{2,4})/', $decoded, $dm)) {
@@ -1344,7 +1377,7 @@ class Processor
 
         // ── Landing URL (final destination) ──
         // Pattern 1: adurl or clickurl parameter
-        if (preg_match('/(?:adurl|clickurl|click_url|redirect|landing_?url|finalUrl|final_url|destinationUrl|destination_url)["\s:=]+["\']?(https?[^"\'\\\\&\s]{10,500})/', $decoded, $lm)) {
+        if (preg_match('/(?:adurl|clickurl|click_url|redirect|landing_?url|finalUrl|final_url|destinationUrl|destination_url)["\'\s:=]+["\']?(https?[^"\'\\\\&\s]{10,500})/', $decoded, $lm)) {
             $result['landing_url'] = urldecode($lm[1]);
         }
         // Pattern 2: googleadservices redirect — extract final URL
@@ -1352,8 +1385,7 @@ class Processor
             $result['landing_url'] = urldecode($lm[1]);
         }
         // Pattern 3: Any https URL that's not google/youtube/doubleclick (likely landing page)
-        if (!$result['landing_url'] && preg_match_all('/https?:\/\/(?!(?:www\.)?(?:google|youtube|doubleclick|googlesyndication|googleapis|gstatic|ytimg)\b)[a-zA-Z0-9][-a-zA-Z0-9.]+\.[a-z]{2,}[^\s"\'\\\\,;)]{0,300}/', $decoded, $urls)) {
-            // Pick the longest non-tracker URL
+        if (!$result['landing_url'] && preg_match_all('/https?:\/\/(?!(?:www\.)?(?:google|youtube|doubleclick|googlesyndication|googleapis|gstatic|ytimg|rr\d+---)\b)[a-zA-Z0-9][-a-zA-Z0-9.]+\.[a-z]{2,}[^\s"\'\\\\,;)]{0,300}/', $decoded, $urls)) {
             usort($urls[0], function($a, $b) { return strlen($b) - strlen($a); });
             foreach ($urls[0] as $url) {
                 if (strlen($url) > 15 && !preg_match('/\.(js|css|png|jpg|gif|svg|woff|ttf)(\?|$)/i', $url)) {
@@ -1364,54 +1396,57 @@ class Processor
         }
 
         // ── Display URL ──
-        if (preg_match('/"(?:displayUrl|display_url|visible_url)"[:\s]+"([^"]{5,100})"/', $decoded, $du)) {
+        if (preg_match('/[\'"](?:displayUrl|display_url|visible_url)[\'"]\s*:\s*[\'"]([^"\']{5,100})[\'"]/', $decoded, $du)) {
             $result['display_url'] = $du[1];
         }
 
-        // ── Headlines (multiple for responsive ads) ──
+        // ══════════════════════════════════════════════════
+        // ── Headlines — Google Ads preview uses SINGLE QUOTES ──
+        // ══════════════════════════════════════════════════
         $headlines = [];
 
-        // P1: JSON "headline" / "headlines" fields
-        if (preg_match_all('/"headlines?":\s*"([^"]{3,200})"/', $decoded, $hm)) {
+        // H1: Google UAC preview format: 'appName': 'App Name Here'
+        if (preg_match('/[\'"]appName[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $an)) {
+            $headlines[] = $an[1];
+        }
+        // H2: 'shortAppName' (may differ from appName)
+        if (preg_match('/[\'"]shortAppName[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $san)) {
+            $headlines[] = $san[1];
+        }
+        // H3: JSON double-quote "headline"/"headlines" fields
+        if (preg_match_all('/[\'"]headlines?[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $hm)) {
             $headlines = array_merge($headlines, $hm[1]);
         }
-        // P2: Array of headlines
-        if (preg_match('/"headlines?":\s*\[([^\]]+)\]/', $decoded, $hArr)) {
-            if (preg_match_all('/"([^"]{3,200})"/', $hArr[1], $hItems)) {
+        // H4: Array of headlines
+        if (preg_match('/[\'"]headlines?[\'"]\s*:\s*\[([^\]]+)\]/', $decoded, $hArr)) {
+            if (preg_match_all('/[\'"]([^"\']{3,200})[\'"]/', $hArr[1], $hItems)) {
                 $headlines = array_merge($headlines, $hItems[1]);
             }
         }
-        // P3: "title" field
-        if (preg_match_all('/"title":\s*"([^"]{3,200})"/', $decoded, $tm)) {
+        // H5: "title" / 'title' field
+        if (preg_match_all('/[\'"]title[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $tm)) {
             $headlines = array_merge($headlines, $tm[1]);
         }
-        // P4: HTML heading tags
+        // H6: HTML heading tags
         if (preg_match_all('/<h[1-3][^>]*>([^<]{3,200})<\/h[1-3]>/i', $decoded, $hTags)) {
             $headlines = array_merge($headlines, array_map('trim', $hTags[1]));
         }
-        // P5: Div/span with headline-like classes
+        // H7: Div/span with headline-like classes
         if (preg_match_all('/<(?:div|span)[^>]*class="[^"]*(?:headline|title|header)[^"]*"[^>]*>([^<]{3,200})/i', $decoded, $hCls)) {
             $headlines = array_merge($headlines, array_map('trim', $hCls[1]));
         }
-        // P6: Google Ads text ad format — look for text between common separators
-        if (preg_match_all('/(?:^|[\[,])\s*"([A-Z][^"]{5,150})"(?:\s*[,\]])/m', $decoded, $quoted)) {
-            foreach ($quoted[1] as $q) {
-                if (preg_match('/[a-zA-Z]{3,}/', $q) && !preg_match('/^(https?:|function |var |const |let |if |for |return )/', $q)) {
-                    $headlines[] = $q;
-                }
-            }
-        }
-        // P7: Bold text or emphasized text
+        // H8: Bold text or emphasized text
         if (preg_match_all('/<(?:b|strong|em)[^>]*>([^<]{5,150})<\/(?:b|strong|em)>/i', $decoded, $bTags)) {
             $headlines = array_merge($headlines, array_map('trim', $bTags[1]));
         }
 
-        // Deduplicate and clean
+        // Deduplicate and clean — exclude JS error messages and code artifacts
         $headlines = array_values(array_unique(array_filter($headlines, function($h) {
             $h = trim($h);
             return strlen($h) >= 3 && strlen($h) <= 200
                 && !preg_match('/^https?:/', $h)
                 && !preg_match('/^\{|\}$/', $h)
+                && !preg_match('/Cannot find|Error|undefined|function|var |const |let |null|true|false|^\d+$/i', $h)
                 && preg_match('/[a-zA-Z]{2,}/', $h);
         })));
         $result['headlines'] = array_slice($headlines, 0, 10);
@@ -1419,52 +1454,82 @@ class Processor
             $result['headline'] = $headlines[0];
         }
 
-        // ── Descriptions (multiple for responsive ads) ──
+        // ══════════════════════════════════════════════════
+        // ── Descriptions — Google Ads preview format ──
+        // ══════════════════════════════════════════════════
         $descriptions = [];
 
-        // D1: JSON "description" / "descriptions" fields
-        if (preg_match_all('/"descriptions?":\s*"([^"]{8,500})"/', $decoded, $dm)) {
+        // D1: Google UAC: 'shortDescription': 'text' or 'longDescription'
+        if (preg_match('/[\'"]shortDescription[\'"]\s*:\s*[\'"]([^"\']{5,500})[\'"]/', $decoded, $sd)) {
+            $descriptions[] = $sd[1];
+        }
+        if (preg_match('/[\'"]longDescription[\'"]\s*:\s*[\'"]([^"\']{5,2000})[\'"]/', $decoded, $ld)) {
+            $descriptions[] = $ld[1];
+        }
+        // D2: JSON "description"/"descriptions" (single or double quotes)
+        if (preg_match_all('/[\'"]descriptions?[\'"]\s*:\s*[\'"]([^"\']{8,500})[\'"]/', $decoded, $dm)) {
             $descriptions = array_merge($descriptions, $dm[1]);
         }
-        // D2: Array of descriptions
-        if (preg_match('/"descriptions?":\s*\[([^\]]+)\]/', $decoded, $dArr)) {
-            if (preg_match_all('/"([^"]{8,500})"/', $dArr[1], $dItems)) {
+        // D3: Array of descriptions
+        if (preg_match('/[\'"]descriptions?[\'"]\s*:\s*\[([^\]]+)\]/', $decoded, $dArr)) {
+            if (preg_match_all('/[\'"]([^"\']{8,500})[\'"]/', $dArr[1], $dItems)) {
                 $descriptions = array_merge($descriptions, $dItems[1]);
             }
         }
-        // D3: "body" or "text" or "content" fields
-        if (preg_match_all('/"(?:body|bodyText|body_text|longDescription|long_description)":\s*"([^"]{8,500})"/', $decoded, $bm)) {
+        // D4: "body" / "bodyText" fields
+        if (preg_match_all('/[\'"](?:body|bodyText|body_text)[\'"]\s*:\s*[\'"]([^"\']{8,500})[\'"]/', $decoded, $bm)) {
             $descriptions = array_merge($descriptions, $bm[1]);
         }
-        // D4: Paragraph tags
+        // D5: Paragraph tags
         if (preg_match_all('/<p[^>]*>([^<]{8,500})<\/p>/i', $decoded, $pTags)) {
             $descriptions = array_merge($descriptions, array_map('trim', $pTags[1]));
         }
-        // D5: Div with description-like class
-        if (preg_match_all('/<div[^>]*class="[^"]*(?:description|body|text|content)[^"]*"[^>]*>([^<]{8,500})/i', $decoded, $dCls)) {
-            $descriptions = array_merge($descriptions, array_map('trim', $dCls[1]));
-        }
 
         $descriptions = array_values(array_unique(array_filter($descriptions, function($d) {
-            return strlen(trim($d)) >= 8 && preg_match('/[a-zA-Z]{3,}/', $d) && !preg_match('/^https?:/', $d);
+            $d = trim($d);
+            return strlen($d) >= 8 && preg_match('/[a-zA-Z]{3,}/', $d)
+                && !preg_match('/^https?:/', $d)
+                && !preg_match('/Cannot find|Error|undefined|function/i', $d);
         })));
         $result['descriptions'] = array_slice($descriptions, 0, 5);
         if (empty($result['description']) && !empty($descriptions)) {
             $result['description'] = $descriptions[0];
         }
 
-        // ── CTA (Call to Action) ──
-        // C1: JSON CTA fields
-        if (preg_match('/"(?:cta|callToAction|call_to_action|buttonText|button_text|actionText|action_text)":\s*"([^"]{2,50})"/', $decoded, $cm)) {
+        // ══════════════════════════════════════════════════
+        // ── CTA (Call to Action) — Google uses 'callToAction' / 'callToActionInstall' ──
+        // ══════════════════════════════════════════════════
+        // C1: Google UAC format: 'callToAction': 'INSTALL' or 'callToActionInstall'
+        if (preg_match('/[\'"](?:callToAction|callToActionInstall)[\'"]\s*:\s*[\'"]([^"\']{2,50})[\'"]/', $decoded, $cm)) {
             $result['cta'] = $cm[1];
         }
-        // C2: Button/anchor text
-        if (!$result['cta'] && preg_match('/<(?:button|a)[^>]*(?:class="[^"]*(?:cta|btn|button|action)[^"]*"|)[^>]*>([^<]{2,40})<\/(?:button|a)>/i', $decoded, $bt)) {
+        // C2: JSON CTA fields (double quotes)
+        if (!$result['cta'] && preg_match('/[\'"](?:cta|call_to_action|buttonText|button_text|actionText|action_text)[\'"]\s*:\s*[\'"]([^"\']{2,50})[\'"]/', $decoded, $cm)) {
+            $result['cta'] = $cm[1];
+        }
+        // C3: Button/anchor text
+        if (!$result['cta'] && preg_match('/<(?:button|a)[^>]*(?:class=["\'][^"\']*(?:cta|btn|button|action)[^"\']*["\']|)[^>]*>([^<]{2,40})<\/(?:button|a)>/i', $decoded, $bt)) {
             $result['cta'] = trim($bt[1]);
         }
-        // C3: Common CTA patterns anywhere in text
-        if (!$result['cta'] && preg_match('/\b(Learn More|Sign Up|Download|Install|Shop Now|Get Started|Buy Now|Try Free|Subscribe|Apply Now|Book Now|Contact Us|Get Offer|Play Now|Watch Now|Order Now|See More|Read More|Try Now|Start Free|Claim Offer|Save Now|Register|Join Free|Explore|Discover)\b/i', $decoded, $cm)) {
+        // C4: Common CTA patterns in text
+        if (!$result['cta'] && preg_match('/\b(Learn More|Sign Up|Download|Install|Shop Now|Get Started|Buy Now|Try Free|Subscribe|Apply Now|Book Now|Contact Us|Get Offer|Play Now|Watch Now|Order Now|See More|Read More|Try Now|Start Free|Claim Offer|Save Now|Register|Join Free|Explore|Discover|Open App|Pre-Register)\b/i', $decoded, $cm)) {
             $result['cta'] = $cm[1];
+        }
+
+        // ── App metadata from preview (developer, category, icon) ──
+        if (preg_match('/[\'"]developer[\'"]\s*:\s*[\'"]([^"\']{2,200})[\'"]/', $decoded, $dev)) {
+            $result['developer'] = $dev[1];
+        }
+        if (preg_match('/[\'"]appCategory[\'"]\s*:\s*[\'"]([^"\']{2,100})[\'"]/', $decoded, $cat)) {
+            $result['app_category'] = $cat[1];
+        }
+        if (preg_match('/[\'"]appIconHighRes[\'"]\s*:\s*[\'"]([^"\']{10,500})[\'"]/', $decoded, $ico)) {
+            $iconUrl = $ico[1];
+            if (strpos($iconUrl, '//') === 0) $iconUrl = 'https:' . $iconUrl;
+            $result['app_icon'] = $iconUrl;
+        }
+        if (preg_match('/[\'"]appStoreName[\'"]\s*:\s*[\'"]([^"\']{2,50})[\'"]/', $decoded, $sn)) {
+            $result['store_name'] = $sn[1];
         }
 
         // ── Tracking IDs ──
