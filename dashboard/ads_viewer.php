@@ -471,7 +471,7 @@
 
     // ── Populate dropdowns ────────────────────────────────
     function populateViewerDropdowns(options) {
-        addOptions('vFilterAdvertiser', options.advertisers || [], 'advertiser_id', 'advertiser_id');
+        addOptions('vFilterAdvertiser', options.advertisers || [], 'advertiser_id', 'name');
         addOptions('vFilterCountry', options.countries || [], 'country', 'country');
         refreshAppDropdown();
         syncFormFromState();
@@ -483,7 +483,6 @@
         var currentVal = S.filters.product_id || '';
         // Clear all options except "All Apps"
         productSel.length = 1;
-        var platSymbols = { ios: '[iOS]', playstore: '[Play]' };
         var selectedPlatform = S.filters.platform || '';
         var selectedAdvertiser = S.filters.advertiser_id || '';
         (S.filterOptions.products || []).forEach(function(p) {
@@ -495,8 +494,7 @@
             if (selectedAdvertiser && p.advertiser_id !== selectedAdvertiser) return;
             var opt = document.createElement('option');
             opt.value = p.product_id;
-            var platTag = platSymbols[p.store_platform] || '';
-            opt.textContent = platTag + ' ' + p.product_name + ' (' + (p.ad_count || 0) + ')';
+            opt.textContent = p.product_name + ' (' + (p.ad_count || 0) + ')';
             productSel.appendChild(opt);
         });
         // Restore selection if still valid
