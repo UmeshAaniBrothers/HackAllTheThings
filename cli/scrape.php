@@ -202,12 +202,11 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         return;
     }
 
-    // Send to server - one page at a time to avoid timeout
-    echo "\nSending to server (page by page)...\n";
+    // Send to server - each page is stored + processed immediately
+    echo "\nSending to server (store + process per page)...\n";
 
     $storeUrl = $serverUrl . '/dashboard/api/ingest.php?action=store_payload&token=' . urlencode($token);
     $updateUrl = $serverUrl . '/dashboard/api/ingest.php?action=update_advertiser&token=' . urlencode($token);
-    $processUrl = $serverUrl . '/dashboard/api/manage.php?action=process';
 
     // Step 1: Ensure advertiser exists
     $advResult = postJson($updateUrl, [
@@ -219,11 +218,11 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         echo "WARNING: Could not update advertiser record\n";
     }
 
-    // Step 2: Send each page separately
+    // Step 2: Send each page — server processes it immediately
     $sentPages = 0;
     foreach ($allPayloads as $i => $payload) {
         $pageNum = $i + 1;
-        echo "  Sending page {$pageNum}/" . count($allPayloads) . "...";
+        echo "  Page {$pageNum}/" . count($allPayloads) . "...";
 
         $result = postJson($storeUrl, [
             'advertiser_id' => $advertiserId,
@@ -231,14 +230,14 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         ]);
 
         if ($result && !empty($result['success'])) {
-            echo " OK\n";
+            echo " OK (" . ($result['message'] ?? 'stored') . ")\n";
             $sentPages++;
         } else {
             echo " FAILED: " . ($result['error'] ?? 'Unknown') . "\n";
         }
     }
 
-    echo "\nSent {$sentPages}/" . count($allPayloads) . " pages to server.\n";
+    echo "\nProcessed {$sentPages}/" . count($allPayloads) . " pages.\n";
 
     if ($sentPages === 0) {
         $backupFile = __DIR__ . '/backup_' . $advertiserId . '_' . date('Ymd_His') . '.json';
@@ -247,23 +246,14 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         return;
     }
 
-    // Step 3: Trigger processing on server
-    echo "Processing payloads on server...";
-    $procResult = postJson($processUrl, [], 300);
-    if ($procResult && !empty($procResult['success'])) {
-        echo " OK: " . ($procResult['message'] ?? 'done') . "\n";
-    } else {
-        echo " Note: " . ($procResult['error'] ?? 'Processing may still be running') . "\n";
-    }
-
-    // Step 4: Trigger YouTube URL extraction on server (separate request)
+    // Step 3: Extract YouTube URLs
     $ytUrl = $serverUrl . '/dashboard/api/manage.php?action=extract_youtube';
     echo "Extracting YouTube URLs on server...";
     $ytResult = postJson($ytUrl, [], 600);
     if ($ytResult && !empty($ytResult['success'])) {
         echo " OK: " . ($ytResult['message'] ?? 'done') . "\n";
     } else {
-        echo " Note: " . ($ytResult['error'] ?? 'Extraction may still be running') . "\n";
+        echo " Note: " . ($ytResult['error'] ?? 'May still be running') . "\n";
     }
 
     echo "\nDone! Refresh your dashboard to see the ads.\n";
