@@ -91,7 +91,7 @@ try {
          FROM ads a
          LEFT JOIN ad_details d ON a.creative_id = d.creative_id
              AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
-         LEFT JOIN advertisers adv ON a.advertiser_id = adv.advertiser_id
+         LEFT JOIN managed_advertisers adv ON a.advertiser_id = adv.advertiser_id
          WHERE {$whereClause}
          ORDER BY a.last_seen DESC
          LIMIT ? OFFSET ?",
