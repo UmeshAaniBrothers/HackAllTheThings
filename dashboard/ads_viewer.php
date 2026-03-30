@@ -713,6 +713,14 @@
 
             let html = '';
 
+            // Parse JSON fields
+            let headlinesArr = [];
+            let descriptionsArr = [];
+            let trackingArr = [];
+            try { if (detail.headlines_json) headlinesArr = JSON.parse(detail.headlines_json); } catch(e) {}
+            try { if (detail.descriptions_json) descriptionsArr = JSON.parse(detail.descriptions_json); } catch(e) {}
+            try { if (detail.tracking_ids_json) trackingArr = JSON.parse(detail.tracking_ids_json); } catch(e) {}
+
             // Header row
             html += `<div class="row mb-3">
                 <div class="col-md-8">
@@ -721,6 +729,8 @@
                     <div class="d-flex flex-wrap gap-1 mb-2">
                         ${detail.cta ? `<span class="badge bg-primary viewer-clickable" data-filter="cta" data-value="${escapeHtml(detail.cta)}" style="cursor:pointer">${escapeHtml(detail.cta)}</span>` : ''}
                         ${detail.landing_url ? `<a href="${escapeHtml(detail.landing_url)}" target="_blank" rel="noopener" class="badge bg-light text-dark text-decoration-none"><i class="bi bi-link-45deg me-1"></i>${escapeHtml((detail.landing_url || '').substring(0, 60))}</a>` : ''}
+                        ${detail.display_url ? `<span class="badge bg-light text-muted"><i class="bi bi-globe2 me-1"></i>${escapeHtml(detail.display_url)}</span>` : ''}
+                        ${detail.ad_width && detail.ad_height ? `<span class="badge bg-light text-dark"><i class="bi bi-aspect-ratio me-1"></i>${detail.ad_width}x${detail.ad_height}</span>` : ''}
                     </div>
                     <div class="d-flex flex-wrap gap-1">
                         <a href="advertiser_profile.php?id=${encodeURIComponent(ad.advertiser_id)}" class="btn btn-outline-info btn-sm">
@@ -738,6 +748,35 @@
                     <br><small class="text-muted">${escapeHtml(ad.creative_id)}</small>
                 </div>
             </div>`;
+
+            // Headline variations (responsive ads)
+            if (headlinesArr.length > 1) {
+                html += '<div class="mb-3"><h6 class="mb-2"><i class="bi bi-card-text me-1"></i>Headline Variations (' + headlinesArr.length + ')</h6><div class="d-flex flex-wrap gap-1">';
+                headlinesArr.forEach(h => {
+                    html += `<span class="badge bg-info bg-opacity-10 text-dark border">${escapeHtml(h)}</span>`;
+                });
+                html += '</div></div>';
+            }
+
+            // Description variations
+            if (descriptionsArr.length > 1) {
+                html += '<div class="mb-3"><h6 class="mb-2"><i class="bi bi-text-paragraph me-1"></i>Description Variations (' + descriptionsArr.length + ')</h6>';
+                descriptionsArr.forEach(d => {
+                    html += `<p class="small text-muted mb-1 border-start ps-2">${escapeHtml(d)}</p>`;
+                });
+                html += '</div>';
+            }
+
+            // Tracking IDs
+            if (trackingArr.length > 0) {
+                html += '<div class="mb-3"><h6 class="mb-2"><i class="bi bi-fingerprint me-1"></i>Tracking IDs</h6><div class="d-flex flex-wrap gap-1">';
+                trackingArr.forEach(t => {
+                    const colors = {ga_ua: 'warning', ga4: 'success', gtm: 'info', fb_pixel: 'primary'};
+                    const labels = {ga_ua: 'GA', ga4: 'GA4', gtm: 'GTM', fb_pixel: 'FB Pixel'};
+                    html += `<span class="badge bg-${colors[t.type] || 'secondary'} bg-opacity-75">${labels[t.type] || t.type}: ${escapeHtml(t.id)}</span>`;
+                });
+                html += '</div></div>';
+            }
 
             // Products / Apps linked to this ad
             if (products.length > 0) {

@@ -129,6 +129,11 @@ class Processor
         $creativeId = $this->extractStringVal($c, ['2']);
         $advertiserName = $this->extractStringVal($c, ['12']);
 
+        // Auto-save advertiser name to managed_advertisers if we have one
+        if ($advertiserName && $advertiserId) {
+            $this->autoSaveAdvertiserName($advertiserId, $advertiserName);
+        }
+
         // Format: 1=text, 2=image, 3=video
         $format = $c['4'] ?? $c[4] ?? null;
         $typeMap = [1 => 'text', 2 => 'image', 3 => 'video'];
@@ -137,36 +142,92 @@ class Processor
             $adType = $typeMap[(int)$format];
         }
 
-        // Timestamps
-        $firstSeen = null;
-        $lastSeen = null;
-        $f6 = $c['6'] ?? $c[6] ?? null;
-        $f7 = $c['7'] ?? $c[7] ?? null;
-        if (is_array($f6)) $firstSeen = $f6['1'] ?? $f6[1] ?? null;
-        elseif (is_scalar($f6)) $firstSeen = $f6;
-        if (is_array($f7)) $lastSeen = $f7['1'] ?? $f7[1] ?? null;
-        elseif (is_scalar($f7)) $lastSeen = $f7;
+        // Timestamps — try multiple nested positions
+        $firstSeen = $this->extractTimestampFromField($c['6'] ?? $c[6] ?? null);
+        $lastSeen = $this->extractTimestampFromField($c['7'] ?? $c[7] ?? null);
 
-        $firstSeen = $this->parseTimestamp($firstSeen);
-        $lastSeen = $this->parseTimestamp($lastSeen);
-
-        // Content from field 3
+        // ── Content from field 3 (DEEP extraction) ──
         $content = $c['3'] ?? $c[3] ?? [];
         $headline = null;
+        $description = null;
+        $cta = null;
         $previewUrl = null;
         $imageUrl = null;
+        $allTextStrings = []; // collect all readable text from field 3
 
         if (is_array($content)) {
+            // Field 3.1 — primary content block
             $f31 = $content['1'] ?? $content[1] ?? null;
             if (is_array($f31)) {
                 $previewUrl = $this->extractStringVal($f31, ['4']);
-                $headline = $this->extractStringVal($f31, ['1', '2', '3']);
+                // Try all subkeys for text content
+                foreach (['1', '2', '3', '5', '6', '7', '8'] as $k) {
+                    $val = $f31[$k] ?? $f31[(int)$k] ?? null;
+                    if (is_string($val) && strlen($val) >= 3 && !preg_match('/^https?:/', $val) && !preg_match('/^[A-Z]{2}$/', $val)) {
+                        $allTextStrings[] = $val;
+                    } elseif (is_array($val)) {
+                        $this->collectAllStrings($val, $allTextStrings, 3);
+                    }
+                }
+            } elseif (is_string($f31) && strlen($f31) >= 3) {
+                $allTextStrings[] = $f31;
             }
+
+            // Field 3.2 — structured text content (often has headline/desc/CTA)
+            $f32 = $content['2'] ?? $content[2] ?? null;
+            if (is_array($f32)) {
+                $this->collectAllStrings($f32, $allTextStrings, 3);
+            } elseif (is_string($f32) && strlen($f32) >= 3) {
+                $allTextStrings[] = $f32;
+            }
+
+            // Field 3.3 — image/HTML content
             $f33 = $content['3'] ?? $content[3] ?? null;
             if (is_array($f33)) {
                 $imgHtml = $f33['2'] ?? $f33[2] ?? null;
                 if (is_string($imgHtml) && preg_match('/src=["\']([^"\']+)/', $imgHtml, $m)) {
                     $imageUrl = $m[1];
+                }
+                // Also collect text from field 3.3
+                $this->collectAllStrings($f33, $allTextStrings, 3);
+            }
+
+            // Field 3.4, 3.5+ — additional content blocks
+            foreach (['4', '5', '6', '7', '8'] as $ck) {
+                $fExtra = $content[$ck] ?? $content[(int)$ck] ?? null;
+                if (is_array($fExtra)) {
+                    $this->collectAllStrings($fExtra, $allTextStrings, 3);
+                } elseif (is_string($fExtra) && strlen($fExtra) >= 3) {
+                    $allTextStrings[] = $fExtra;
+                }
+            }
+        }
+
+        // Assign headline/description/cta from collected text
+        // Filter out URLs, short codes, and obvious non-text
+        $cleanTexts = [];
+        foreach ($allTextStrings as $t) {
+            $t = trim($t);
+            if (strlen($t) < 3) continue;
+            if (preg_match('/^https?:\/\//', $t)) continue;
+            if (preg_match('/^[A-Z]{2}$/', $t)) continue; // country codes
+            if (preg_match('/^(AR|CR)\d/', $t)) continue; // advertiser/creative IDs
+            if (preg_match('/^\d+$/', $t)) continue; // pure numbers
+            if (preg_match('/^[a-f0-9]{32,}$/i', $t)) continue; // hashes
+            $cleanTexts[] = $t;
+        }
+        $cleanTexts = array_values(array_unique($cleanTexts));
+
+        if (!empty($cleanTexts)) {
+            $headline = $cleanTexts[0];
+            if (isset($cleanTexts[1])) $description = $cleanTexts[1];
+            if (isset($cleanTexts[2])) {
+                // If third text is short (< 30 chars), it's likely a CTA
+                if (strlen($cleanTexts[2]) <= 30) {
+                    $cta = $cleanTexts[2];
+                } else {
+                    // Append to description
+                    $description = ($description ? $description . ' ' : '') . $cleanTexts[2];
                 }
             }
         }
@@ -176,34 +237,64 @@ class Processor
         if ($previewUrl) $assets[] = ['type' => 'preview', 'url' => $previewUrl];
         if ($imageUrl) $assets[] = ['type' => 'image', 'url' => $imageUrl];
 
-        // Platform
+        // Platform — try field 13, also check if it's an array
         $platformId = $c['13'] ?? $c[13] ?? null;
         $platforms = [];
         if (is_numeric($platformId)) {
             $pMap = [1 => 'Google Search', 2 => 'YouTube', 3 => 'Google Display', 4 => 'Google Shopping', 5 => 'Google Maps', 6 => 'Google Play'];
             $platforms[] = $pMap[(int)$platformId] ?? 'Platform_' . $platformId;
+        } elseif (is_array($platformId)) {
+            // Could be an array of platform IDs
+            $pMap = [1 => 'Google Search', 2 => 'YouTube', 3 => 'Google Display', 4 => 'Google Shopping', 5 => 'Google Maps', 6 => 'Google Play'];
+            foreach ($platformId as $pid) {
+                if (is_numeric($pid)) {
+                    $platforms[] = $pMap[(int)$pid] ?? 'Platform_' . $pid;
+                }
+            }
         }
 
-        // Country/region targeting — extract from fields 8, 9, 10, 11
+        // Country/region targeting — DEEP extraction from fields 8, 9, 10, 11
         $countries = $this->extractCountries($c);
 
+        // Field 5 — device/audience targeting (discover and log)
+        $field5 = $c['5'] ?? $c[5] ?? null;
+        $extraMeta = [];
+        if ($field5 !== null) {
+            $extraMeta['field_5'] = $field5;
+        }
+
+        // Discover unknown fields (14+) — log first time only
+        $knownFields = ['1','2','3','4','5','6','7','8','9','10','11','12','13'];
+        foreach ($c as $key => $val) {
+            $skey = (string)$key;
+            if (!in_array($skey, $knownFields) && $val !== null) {
+                $extraMeta['field_' . $skey] = is_scalar($val) ? $val : '(complex)';
+            }
+        }
+        if (!empty($extraMeta)) {
+            $this->logDiscoveredFields($creativeId, $extraMeta);
+        }
+
         $hashHeadline = is_string($headline) ? $headline : '';
-        $hashSig = $this->generateHash($hashHeadline, '', '');
+        $hashDesc = is_string($description) ? $description : '';
+        $hashCta = is_string($cta) ? $cta : '';
+        $hashSig = $this->generateHash($hashHeadline, $hashDesc, $hashCta);
 
         return [
-            'creative_id'    => $creativeId,
-            'advertiser_id'  => $advertiserId ?: $fallbackAdvertiserId,
-            'ad_type'        => $adType,
-            'headline'       => is_string($headline) ? $headline : null,
-            'description'    => null,
-            'cta'            => null,
-            'landing_url'    => $previewUrl,
-            'first_seen'     => $firstSeen,
-            'last_seen'      => $lastSeen,
-            'hash_signature' => $hashSig,
-            'assets'         => $assets,
-            'countries'      => $countries,
-            'platforms'      => $platforms,
+            'creative_id'     => $creativeId,
+            'advertiser_id'   => $advertiserId ?: $fallbackAdvertiserId,
+            'advertiser_name' => $advertiserName,
+            'ad_type'         => $adType,
+            'headline'        => is_string($headline) ? $headline : null,
+            'description'     => is_string($description) ? $description : null,
+            'cta'             => is_string($cta) ? $cta : null,
+            'landing_url'     => $previewUrl,
+            'first_seen'      => $firstSeen,
+            'last_seen'       => $lastSeen,
+            'hash_signature'  => $hashSig,
+            'assets'          => $assets,
+            'countries'       => $countries,
+            'platforms'       => $platforms,
         ];
     }
 
@@ -462,6 +553,14 @@ class Processor
      * Google Ads Transparency encodes geographic targeting in these fields.
      * Countries appear as 2-letter ISO codes (e.g. "US", "IN", "GB")
      * nested at various depths in the protobuf structure.
+     *
+     * Known structures:
+     *   Field 8: Often contains [{1: "US"}, {1: "CA"}] or {"1": {"1": "US"}}
+     *   Field 9: May contain region-level targeting
+     *   Field 10: May contain [{1: 2356}] (numeric geo IDs from Google Ads API)
+     *   Field 11: Additional geo constraints
+     *
+     * We also map Google Ads geographic criterion IDs to country codes.
      */
     private function extractCountries(array $c): array
     {
@@ -475,19 +574,57 @@ class Processor
             $this->collectCountryCodes($field, $countries);
         }
 
+        // Also check field 3 content for country context (some ads embed region in content)
+        // And check if any collected numeric IDs can be mapped
+        $numericIds = [];
+        foreach (['8', '9', '10', '11'] as $fieldKey) {
+            $field = $c[$fieldKey] ?? $c[(int)$fieldKey] ?? null;
+            if ($field === null) continue;
+            $this->collectNumericGeoIds($field, $numericIds);
+        }
+
+        // Map Google Ads geo criterion IDs to country codes
+        foreach ($numericIds as $geoId) {
+            $mapped = $this->mapGeoIdToCountry($geoId);
+            if ($mapped) {
+                $countries[] = $mapped;
+            }
+        }
+
         return array_values(array_unique($countries));
     }
 
     /**
      * Recursively collect 2-letter country codes from a protobuf field value.
+     * Also handles 3-letter region codes and longer location strings.
      */
     private function collectCountryCodes($value, array &$countries, int $depth = 0): void
     {
-        if ($depth > 5) return; // prevent infinite recursion
+        if ($depth > 8) return; // deeper recursion for complex nesting
 
-        if (is_string($value) && preg_match('/^[A-Z]{2}$/', $value)) {
-            $countries[] = $value;
-            return;
+        if (is_string($value)) {
+            // Exact 2-letter uppercase = country code
+            if (preg_match('/^[A-Z]{2}$/', $value)) {
+                $countries[] = $value;
+                return;
+            }
+            // Some responses have lowercase country codes
+            if (preg_match('/^[a-z]{2}$/', $value)) {
+                $countries[] = strtoupper($value);
+                return;
+            }
+            // Region codes like "US-CA" — extract the country part
+            if (preg_match('/^([A-Z]{2})-[A-Z0-9]{1,3}$/', $value, $m)) {
+                $countries[] = $m[1];
+                return;
+            }
+            // Full country names — map common ones
+            $nameMap = $this->getCountryNameMap();
+            $lower = strtolower(trim($value));
+            if (isset($nameMap[$lower])) {
+                $countries[] = $nameMap[$lower];
+                return;
+            }
         }
 
         if (is_array($value)) {
@@ -495,6 +632,175 @@ class Processor
                 $this->collectCountryCodes($item, $countries, $depth + 1);
             }
         }
+    }
+
+    /**
+     * Collect numeric geographic IDs from protobuf fields.
+     * Google Ads uses criterion IDs (e.g., 2356 = India, 2840 = United States).
+     */
+    private function collectNumericGeoIds($value, array &$ids, int $depth = 0): void
+    {
+        if ($depth > 8) return;
+
+        if (is_numeric($value)) {
+            $num = (int)$value;
+            // Google geo criterion IDs are typically in range 1000-9999 for countries
+            if ($num >= 1000 && $num <= 9999) {
+                $ids[] = $num;
+            }
+        }
+
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                $this->collectNumericGeoIds($item, $ids, $depth + 1);
+            }
+        }
+    }
+
+    /**
+     * Map Google Ads geographic criterion ID to ISO country code.
+     * These are the official Google Ads geo target constants for countries.
+     */
+    private function mapGeoIdToCountry(int $id): ?string
+    {
+        $map = [
+            2004 => 'AF', 2008 => 'AL', 2012 => 'DZ', 2020 => 'AD', 2024 => 'AO',
+            2032 => 'AR', 2036 => 'AU', 2040 => 'AT', 2050 => 'BD', 2056 => 'BE',
+            2076 => 'BR', 2100 => 'BG', 2116 => 'KH', 2120 => 'CM', 2124 => 'CA',
+            2152 => 'CL', 2156 => 'CN', 2170 => 'CO', 2188 => 'CR', 2191 => 'HR',
+            2196 => 'CY', 2203 => 'CZ', 2208 => 'DK', 2218 => 'EC', 2818 => 'EG',
+            2233 => 'EE', 2231 => 'ET', 2246 => 'FI', 2250 => 'FR', 2268 => 'GE',
+            2276 => 'DE', 2288 => 'GH', 2300 => 'GR', 2320 => 'GT', 2344 => 'HK',
+            2348 => 'HU', 2352 => 'IS', 2356 => 'IN', 2360 => 'ID', 2364 => 'IR',
+            2368 => 'IQ', 2372 => 'IE', 2376 => 'IL', 2380 => 'IT', 2392 => 'JP',
+            2400 => 'JO', 2398 => 'KZ', 2404 => 'KE', 2410 => 'KR', 2414 => 'KW',
+            2422 => 'LB', 2434 => 'LY', 2440 => 'LT', 2442 => 'LU', 2458 => 'MY',
+            2484 => 'MX', 2504 => 'MA', 2508 => 'MZ', 2524 => 'NP', 2528 => 'NL',
+            2554 => 'NZ', 2566 => 'NG', 2578 => 'NO', 2586 => 'PK', 2604 => 'PE',
+            2608 => 'PH', 2616 => 'PL', 2620 => 'PT', 2634 => 'QA', 2642 => 'RO',
+            2643 => 'RU', 2682 => 'SA', 2688 => 'RS', 2702 => 'SG', 2703 => 'SK',
+            2710 => 'ZA', 2724 => 'ES', 2144 => 'LK', 2752 => 'SE', 2756 => 'CH',
+            2158 => 'TW', 2764 => 'TH', 2792 => 'TR', 2804 => 'UA', 2784 => 'AE',
+            2826 => 'GB', 2840 => 'US', 2858 => 'UY', 2860 => 'UZ', 2704 => 'VN',
+        ];
+        return $map[$id] ?? null;
+    }
+
+    /**
+     * Map of common country name strings to ISO codes.
+     */
+    private function getCountryNameMap(): array
+    {
+        return [
+            'india' => 'IN', 'united states' => 'US', 'united kingdom' => 'GB',
+            'canada' => 'CA', 'australia' => 'AU', 'germany' => 'DE', 'france' => 'FR',
+            'japan' => 'JP', 'brazil' => 'BR', 'spain' => 'ES', 'italy' => 'IT',
+            'mexico' => 'MX', 'indonesia' => 'ID', 'turkey' => 'TR', 'south korea' => 'KR',
+            'russia' => 'RU', 'netherlands' => 'NL', 'saudi arabia' => 'SA',
+            'united arab emirates' => 'AE', 'pakistan' => 'PK', 'bangladesh' => 'BD',
+            'nigeria' => 'NG', 'philippines' => 'PH', 'vietnam' => 'VN', 'thailand' => 'TH',
+            'egypt' => 'EG', 'malaysia' => 'MY', 'singapore' => 'SG', 'south africa' => 'ZA',
+            'colombia' => 'CO', 'argentina' => 'AR', 'poland' => 'PL', 'israel' => 'IL',
+            'new zealand' => 'NZ', 'ireland' => 'IE', 'sweden' => 'SE', 'switzerland' => 'CH',
+            'norway' => 'NO', 'denmark' => 'DK', 'finland' => 'FI', 'portugal' => 'PT',
+            'hong kong' => 'HK', 'taiwan' => 'TW', 'chile' => 'CL', 'peru' => 'PE',
+            'kenya' => 'KE', 'ghana' => 'GH', 'nepal' => 'NP', 'sri lanka' => 'LK',
+        ];
+    }
+
+    /**
+     * Recursively collect all readable strings from a nested structure.
+     * Used to extract text from deeply nested protobuf content fields.
+     */
+    private function collectAllStrings($value, array &$strings, int $maxDepth, int $depth = 0): void
+    {
+        if ($depth > $maxDepth) return;
+
+        if (is_string($value) && strlen($value) >= 3 && strlen($value) <= 500) {
+            $strings[] = $value;
+            return;
+        }
+
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                $this->collectAllStrings($item, $strings, $maxDepth, $depth + 1);
+            }
+        }
+    }
+
+    /**
+     * Extract timestamp from a protobuf field that might be nested.
+     * Handles: scalar, {1: ts}, {1: {1: ts}}, [ts]
+     */
+    private function extractTimestampFromField($field): ?string
+    {
+        if ($field === null) return null;
+
+        if (is_scalar($field)) {
+            return $this->parseTimestamp($field);
+        }
+
+        if (is_array($field)) {
+            // Try common nested positions
+            foreach (['1', 1, '2', 2, 0] as $k) {
+                if (isset($field[$k])) {
+                    if (is_scalar($field[$k]) && is_numeric($field[$k])) {
+                        return $this->parseTimestamp($field[$k]);
+                    }
+                    if (is_array($field[$k])) {
+                        // One more level deep
+                        foreach (['1', 1, 0] as $k2) {
+                            if (isset($field[$k][$k2]) && is_scalar($field[$k][$k2]) && is_numeric($field[$k][$k2])) {
+                                return $this->parseTimestamp($field[$k][$k2]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Auto-save advertiser name from protobuf field 12 to managed_advertisers.
+     */
+    private function autoSaveAdvertiserName(string $advertiserId, string $name): void
+    {
+        $existing = $this->db->fetchOne(
+            "SELECT id, name FROM managed_advertisers WHERE advertiser_id = ?",
+            [$advertiserId]
+        );
+
+        if (!$existing) {
+            try {
+                $this->db->insert('managed_advertisers', [
+                    'advertiser_id' => $advertiserId,
+                    'name'          => $name,
+                    'status'        => 'active',
+                ]);
+            } catch (\Exception $e) { /* duplicate key — ok */ }
+        } elseif ($existing['name'] === $existing['name'] && ($existing['name'] === $advertiserId || $existing['name'] === '')) {
+            // Update name only if it's currently set to the ID itself or empty
+            $this->db->update('managed_advertisers', ['name' => $name], 'advertiser_id = ?', [$advertiserId]);
+        }
+    }
+
+    /**
+     * Log discovered unknown protobuf fields to a file for analysis.
+     */
+    private function logDiscoveredFields(string $creativeId, array $fields): void
+    {
+        static $loggedCount = 0;
+        if ($loggedCount > 50) return; // limit per run
+        $loggedCount++;
+
+        $logDir = dirname(__DIR__) . '/logs';
+        if (!is_dir($logDir)) @mkdir($logDir, 0755, true);
+
+        $logFile = $logDir . '/discovered_fields.log';
+        $line = date('Y-m-d H:i:s') . " | {$creativeId} | " . json_encode($fields) . "\n";
+        @file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
     }
 
     /**
@@ -620,37 +926,73 @@ class Processor
             $data = $this->fetchPreviewData($ad['preview_url']);
             if (!$data) continue;
 
-            $headline = $data['headline'] ?? null;
+            $headline    = $data['headline'] ?? null;
             $description = $data['description'] ?? null;
-            $cta = $data['cta'] ?? null;
+            $cta         = $data['cta'] ?? null;
+            $landingUrl  = $data['landing_url'] ?? null;
+            $displayUrl  = $data['display_url'] ?? null;
+            $adWidth     = $data['ad_width'] ?? null;
+            $adHeight    = $data['ad_height'] ?? null;
+            $headlines   = $data['headlines'] ?? [];
+            $descriptions = $data['descriptions'] ?? [];
+            $trackingIds = $data['tracking_ids'] ?? [];
+            $imageUrls   = $data['image_urls'] ?? [];
 
             if (!$headline && !$description) continue;
 
             // Check if detail row exists
             $existing = $this->db->fetchOne(
-                "SELECT id, headline FROM ad_details WHERE creative_id = ? ORDER BY id DESC LIMIT 1",
+                "SELECT id, headline, landing_url FROM ad_details WHERE creative_id = ? ORDER BY id DESC LIMIT 1",
                 [$ad['creative_id']]
             );
 
+            $detailData = [];
+            if ($headline) $detailData['headline'] = $headline;
+            if ($description) $detailData['description'] = $description;
+            if ($cta) $detailData['cta'] = $cta;
+            if ($landingUrl) $detailData['landing_url'] = $landingUrl;
+            if ($displayUrl) $detailData['display_url'] = $displayUrl;
+            if ($adWidth) $detailData['ad_width'] = (int)$adWidth;
+            if ($adHeight) $detailData['ad_height'] = (int)$adHeight;
+            if (!empty($headlines)) $detailData['headlines_json'] = json_encode(array_slice($headlines, 0, 10));
+            if (!empty($descriptions)) $detailData['descriptions_json'] = json_encode(array_slice($descriptions, 0, 5));
+            if (!empty($trackingIds)) $detailData['tracking_ids_json'] = json_encode($trackingIds);
+
             if ($existing) {
-                $updateData = [];
-                if ($headline && (empty($existing['headline']))) {
-                    $updateData['headline'] = $headline;
+                $updateFields = [];
+                if (!empty($detailData['headline']) && empty($existing['headline'])) {
+                    $updateFields['headline'] = $detailData['headline'];
                 }
-                if ($description) $updateData['description'] = $description;
-                if ($cta) $updateData['cta'] = $cta;
-                if (!empty($updateData)) {
-                    $this->db->update('ad_details', $updateData, 'id = ?', [$existing['id']]);
+                // Always update these if we have new data
+                foreach (['description', 'cta', 'landing_url', 'display_url', 'ad_width', 'ad_height', 'headlines_json', 'descriptions_json', 'tracking_ids_json'] as $field) {
+                    if (!empty($detailData[$field])) {
+                        $updateFields[$field] = $detailData[$field];
+                    }
+                }
+                if (!empty($updateFields)) {
+                    $this->db->update('ad_details', $updateFields, 'id = ?', [$existing['id']]);
                     $enriched++;
                 }
             } else {
-                $this->db->insert('ad_details', [
-                    'creative_id' => $ad['creative_id'],
-                    'headline'    => $headline,
-                    'description' => $description,
-                    'cta'         => $cta,
-                ]);
+                $detailData['creative_id'] = $ad['creative_id'];
+                $this->db->insert('ad_details', $detailData);
                 $enriched++;
+            }
+
+            // Save discovered image URLs as ad_assets
+            foreach ($imageUrls as $imgUrl) {
+                $existsImg = $this->db->fetchOne(
+                    "SELECT id FROM ad_assets WHERE creative_id = ? AND original_url = ?",
+                    [$ad['creative_id'], $imgUrl]
+                );
+                if (!$existsImg) {
+                    $this->db->insert('ad_assets', [
+                        'creative_id'  => $ad['creative_id'],
+                        'type'         => 'image',
+                        'original_url' => $imgUrl,
+                        'local_path'   => null,
+                    ]);
+                }
             }
 
             usleep(300000);
@@ -920,8 +1262,9 @@ class Processor
     }
 
     /**
-     * Fetch a Google preview content.js URL and extract YouTube video ID + store URL.
-     * Returns ['youtube_id' => '...', 'store_url' => '...', 'store_platform' => '...'] or null.
+     * Fetch a Google preview content.js URL and extract ALL available data:
+     * YouTube video ID, store URLs, headline, description, CTA, landing URL,
+     * ad dimensions, tracking IDs, multiple headline variations.
      */
     private function fetchPreviewData($previewUrl)
     {
@@ -942,80 +1285,218 @@ class Processor
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
         curl_close($ch);
 
-        if ($response === false || $httpCode !== 200 || strlen($response) < 100) {
+        if ($response === false || $httpCode !== 200 || strlen($response) < 50) {
             return null;
         }
 
-        $result = ['youtube_id' => null, 'store_url' => null, 'store_platform' => null, 'headline' => null, 'description' => null, 'cta' => null];
+        $result = [
+            'youtube_id' => null, 'store_url' => null, 'store_platform' => null,
+            'headline' => null, 'description' => null, 'cta' => null,
+            'landing_url' => null, 'display_url' => null,
+            'headlines' => [], 'descriptions' => [],
+            'ad_width' => null, 'ad_height' => null,
+            'tracking_ids' => [],
+            'image_urls' => [],
+        ];
 
-        // Extract YouTube ID
-        if (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $response, $matches)) {
-            $result['youtube_id'] = $matches[1];
-        } elseif (preg_match('/youtube\.com\/(?:embed\/|watch\?v=)([a-zA-Z0-9_-]{11})/', $response, $matches)) {
-            $result['youtube_id'] = $matches[1];
+        // Prepare decoded content (original + URL-decoded version)
+        $decoded = $response;
+        if (strpos($response, '%20') !== false || strpos($response, '%3A') !== false) {
+            $decoded .= "\n" . urldecode($response);
+        }
+        // Also try unicode-unescaping
+        if (strpos($response, '\\u') !== false) {
+            $decoded .= "\n" . json_decode('"' . str_replace('"', '\\"', $response) . '"') ?: '';
         }
 
-        // Extract App Store URL (itunes.apple.com or apps.apple.com) - may be URL-encoded
-        if (preg_match('/(?:itunes\.apple\.com|apps\.apple\.com)(?:%2F|\/)+app(?:%2F|\/)+(?:[^%"\'\\\\&\s]*(?:%2F|\/)+)?id(\d+)/', $response, $matches)) {
-            $appId = $matches[1];
-            $result['store_url'] = 'https://apps.apple.com/app/id' . $appId;
+        // ── YouTube ID ──
+        if (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $decoded, $m)) {
+            $result['youtube_id'] = $m[1];
+        } elseif (preg_match('/youtube\.com\/(?:embed\/|watch\?v=|v\/)([a-zA-Z0-9_-]{11})/', $decoded, $m)) {
+            $result['youtube_id'] = $m[1];
+        } elseif (preg_match('/youtu\.be\/([a-zA-Z0-9_-]{11})/', $decoded, $m)) {
+            $result['youtube_id'] = $m[1];
+        }
+
+        // ── App Store URL ──
+        if (preg_match('/(?:itunes\.apple\.com|apps\.apple\.com)(?:%2F|\/)+(?:[a-z]{2}(?:%2F|\/)+)?app(?:%2F|\/)+(?:[^%"\'\\\\&\s]*(?:%2F|\/)+)?id(\d+)/', $decoded, $m)) {
+            $result['store_url'] = 'https://apps.apple.com/app/id' . $m[1];
             $result['store_platform'] = 'ios';
         }
 
-        // Extract Play Store URL - may be URL-encoded
-        if (preg_match('/play\.google\.com(?:%2F|\/)+store(?:%2F|\/)+apps(?:%2F|\/)+details(?:%3F|\?)id(?:%3D|=)([a-zA-Z0-9._]+)/', $response, $matches)) {
-            $packageId = $matches[1];
-            $result['store_url'] = 'https://play.google.com/store/apps/details?id=' . $packageId;
+        // ── Play Store URL ──
+        if (preg_match('/play\.google\.com(?:%2F|\/)+store(?:%2F|\/)+apps(?:%2F|\/)+details(?:%3F|\?)id(?:%3D|=)([a-zA-Z0-9._]+)/', $decoded, $m)) {
+            $result['store_url'] = 'https://play.google.com/store/apps/details?id=' . $m[1];
             $result['store_platform'] = 'playstore';
         }
 
-        // Extract ad text content (headline, description, CTA) from preview JS
-        // Text ads: look for readable text strings in the JS content
-        $decoded = $response;
-        // Decode common URL-encoded content
-        if (strpos($decoded, '%20') !== false || strpos($decoded, '%3A') !== false) {
-            $decoded .= "\n" . urldecode($response);
+        // ── Ad Dimensions (width x height) ──
+        if (preg_match('/(?:width|w)["\s:=]+(\d{2,4}).*?(?:height|h)["\s:=]+(\d{2,4})/', $decoded, $dm)) {
+            $result['ad_width'] = (int)$dm[1];
+            $result['ad_height'] = (int)$dm[2];
+        } elseif (preg_match('/(\d{2,4})\s*[xX×]\s*(\d{2,4})/', $decoded, $dm)) {
+            $result['ad_width'] = (int)$dm[1];
+            $result['ad_height'] = (int)$dm[2];
         }
 
-        // Headlines — look for text patterns in the ad preview JS
-        // Pattern 1: Google text ad format with headline fields
-        if (preg_match_all('/"headline[s]?":\s*\[?\s*"([^"]{5,200})"/', $decoded, $hm)) {
-            $result['headline'] = $hm[1][0];
+        // ── Landing URL (final destination) ──
+        // Pattern 1: adurl or clickurl parameter
+        if (preg_match('/(?:adurl|clickurl|click_url|redirect|landing_?url|finalUrl|final_url|destinationUrl|destination_url)["\s:=]+["\']?(https?[^"\'\\\\&\s]{10,500})/', $decoded, $lm)) {
+            $result['landing_url'] = urldecode($lm[1]);
         }
-        // Pattern 2: title or heading text in JSON-like structures
-        if (!$result['headline'] && preg_match('/"title":\s*"([^"]{5,200})"/', $decoded, $hm)) {
-            $result['headline'] = $hm[1];
+        // Pattern 2: googleadservices redirect — extract final URL
+        if (!$result['landing_url'] && preg_match('/googleadservices\.com.*?(?:adurl|url)=(https?(?:%3A|:)[^&\s"\']{10,500})/', $decoded, $lm)) {
+            $result['landing_url'] = urldecode($lm[1]);
         }
-        // Pattern 3: Text between HTML heading tags
-        if (!$result['headline'] && preg_match('/<h[1-3][^>]*>([^<]{5,200})<\/h[1-3]>/i', $decoded, $hm)) {
-            $result['headline'] = trim(strip_tags($hm[1]));
-        }
-        // Pattern 4: Long readable text strings (likely ad copy)
-        if (!$result['headline'] && preg_match_all('/(?:^|["\',\s])([A-Z][a-zA-Z0-9\s,.\-!?\']+[.!?]?)(?:["\',\s]|$)/', $decoded, $textMatches)) {
-            foreach ($textMatches[1] as $text) {
-                $text = trim($text);
-                if (strlen($text) >= 10 && strlen($text) <= 150 && preg_match('/[a-zA-Z]{3,}/', $text)) {
-                    $result['headline'] = $text;
+        // Pattern 3: Any https URL that's not google/youtube/doubleclick (likely landing page)
+        if (!$result['landing_url'] && preg_match_all('/https?:\/\/(?!(?:www\.)?(?:google|youtube|doubleclick|googlesyndication|googleapis|gstatic|ytimg)\b)[a-zA-Z0-9][-a-zA-Z0-9.]+\.[a-z]{2,}[^\s"\'\\\\,;)]{0,300}/', $decoded, $urls)) {
+            // Pick the longest non-tracker URL
+            usort($urls[0], function($a, $b) { return strlen($b) - strlen($a); });
+            foreach ($urls[0] as $url) {
+                if (strlen($url) > 15 && !preg_match('/\.(js|css|png|jpg|gif|svg|woff|ttf)(\?|$)/i', $url)) {
+                    $result['landing_url'] = urldecode($url);
                     break;
                 }
             }
         }
 
-        // Description
-        if (preg_match('/"description[s]?":\s*\[?\s*"([^"]{10,500})"/', $decoded, $dm)) {
-            $result['description'] = $dm[1];
+        // ── Display URL ──
+        if (preg_match('/"(?:displayUrl|display_url|visible_url)"[:\s]+"([^"]{5,100})"/', $decoded, $du)) {
+            $result['display_url'] = $du[1];
         }
 
-        // CTA (Call to Action)
-        if (preg_match('/"(?:cta|callToAction|call_to_action|buttonText)":\s*"([^"]{2,50})"/', $decoded, $cm)) {
+        // ── Headlines (multiple for responsive ads) ──
+        $headlines = [];
+
+        // P1: JSON "headline" / "headlines" fields
+        if (preg_match_all('/"headlines?":\s*"([^"]{3,200})"/', $decoded, $hm)) {
+            $headlines = array_merge($headlines, $hm[1]);
+        }
+        // P2: Array of headlines
+        if (preg_match('/"headlines?":\s*\[([^\]]+)\]/', $decoded, $hArr)) {
+            if (preg_match_all('/"([^"]{3,200})"/', $hArr[1], $hItems)) {
+                $headlines = array_merge($headlines, $hItems[1]);
+            }
+        }
+        // P3: "title" field
+        if (preg_match_all('/"title":\s*"([^"]{3,200})"/', $decoded, $tm)) {
+            $headlines = array_merge($headlines, $tm[1]);
+        }
+        // P4: HTML heading tags
+        if (preg_match_all('/<h[1-3][^>]*>([^<]{3,200})<\/h[1-3]>/i', $decoded, $hTags)) {
+            $headlines = array_merge($headlines, array_map('trim', $hTags[1]));
+        }
+        // P5: Div/span with headline-like classes
+        if (preg_match_all('/<(?:div|span)[^>]*class="[^"]*(?:headline|title|header)[^"]*"[^>]*>([^<]{3,200})/i', $decoded, $hCls)) {
+            $headlines = array_merge($headlines, array_map('trim', $hCls[1]));
+        }
+        // P6: Google Ads text ad format — look for text between common separators
+        if (preg_match_all('/(?:^|[\[,])\s*"([A-Z][^"]{5,150})"(?:\s*[,\]])/m', $decoded, $quoted)) {
+            foreach ($quoted[1] as $q) {
+                if (preg_match('/[a-zA-Z]{3,}/', $q) && !preg_match('/^(https?:|function |var |const |let |if |for |return )/', $q)) {
+                    $headlines[] = $q;
+                }
+            }
+        }
+        // P7: Bold text or emphasized text
+        if (preg_match_all('/<(?:b|strong|em)[^>]*>([^<]{5,150})<\/(?:b|strong|em)>/i', $decoded, $bTags)) {
+            $headlines = array_merge($headlines, array_map('trim', $bTags[1]));
+        }
+
+        // Deduplicate and clean
+        $headlines = array_values(array_unique(array_filter($headlines, function($h) {
+            $h = trim($h);
+            return strlen($h) >= 3 && strlen($h) <= 200
+                && !preg_match('/^https?:/', $h)
+                && !preg_match('/^\{|\}$/', $h)
+                && preg_match('/[a-zA-Z]{2,}/', $h);
+        })));
+        $result['headlines'] = array_slice($headlines, 0, 10);
+        if (!empty($headlines)) {
+            $result['headline'] = $headlines[0];
+        }
+
+        // ── Descriptions (multiple for responsive ads) ──
+        $descriptions = [];
+
+        // D1: JSON "description" / "descriptions" fields
+        if (preg_match_all('/"descriptions?":\s*"([^"]{8,500})"/', $decoded, $dm)) {
+            $descriptions = array_merge($descriptions, $dm[1]);
+        }
+        // D2: Array of descriptions
+        if (preg_match('/"descriptions?":\s*\[([^\]]+)\]/', $decoded, $dArr)) {
+            if (preg_match_all('/"([^"]{8,500})"/', $dArr[1], $dItems)) {
+                $descriptions = array_merge($descriptions, $dItems[1]);
+            }
+        }
+        // D3: "body" or "text" or "content" fields
+        if (preg_match_all('/"(?:body|bodyText|body_text|longDescription|long_description)":\s*"([^"]{8,500})"/', $decoded, $bm)) {
+            $descriptions = array_merge($descriptions, $bm[1]);
+        }
+        // D4: Paragraph tags
+        if (preg_match_all('/<p[^>]*>([^<]{8,500})<\/p>/i', $decoded, $pTags)) {
+            $descriptions = array_merge($descriptions, array_map('trim', $pTags[1]));
+        }
+        // D5: Div with description-like class
+        if (preg_match_all('/<div[^>]*class="[^"]*(?:description|body|text|content)[^"]*"[^>]*>([^<]{8,500})/i', $decoded, $dCls)) {
+            $descriptions = array_merge($descriptions, array_map('trim', $dCls[1]));
+        }
+
+        $descriptions = array_values(array_unique(array_filter($descriptions, function($d) {
+            return strlen(trim($d)) >= 8 && preg_match('/[a-zA-Z]{3,}/', $d) && !preg_match('/^https?:/', $d);
+        })));
+        $result['descriptions'] = array_slice($descriptions, 0, 5);
+        if (empty($result['description']) && !empty($descriptions)) {
+            $result['description'] = $descriptions[0];
+        }
+
+        // ── CTA (Call to Action) ──
+        // C1: JSON CTA fields
+        if (preg_match('/"(?:cta|callToAction|call_to_action|buttonText|button_text|actionText|action_text)":\s*"([^"]{2,50})"/', $decoded, $cm)) {
             $result['cta'] = $cm[1];
         }
-        // Common CTA patterns in text
-        if (!$result['cta'] && preg_match('/(?:Learn More|Sign Up|Download|Install|Shop Now|Get Started|Buy Now|Try Free|Subscribe|Apply Now|Book Now|Contact Us|Get Offer)/i', $decoded, $cm)) {
-            $result['cta'] = $cm[0];
+        // C2: Button/anchor text
+        if (!$result['cta'] && preg_match('/<(?:button|a)[^>]*(?:class="[^"]*(?:cta|btn|button|action)[^"]*"|)[^>]*>([^<]{2,40})<\/(?:button|a)>/i', $decoded, $bt)) {
+            $result['cta'] = trim($bt[1]);
         }
+        // C3: Common CTA patterns anywhere in text
+        if (!$result['cta'] && preg_match('/\b(Learn More|Sign Up|Download|Install|Shop Now|Get Started|Buy Now|Try Free|Subscribe|Apply Now|Book Now|Contact Us|Get Offer|Play Now|Watch Now|Order Now|See More|Read More|Try Now|Start Free|Claim Offer|Save Now|Register|Join Free|Explore|Discover)\b/i', $decoded, $cm)) {
+            $result['cta'] = $cm[1];
+        }
+
+        // ── Tracking IDs ──
+        $trackingIds = [];
+        // Google Analytics
+        if (preg_match_all('/\b(UA-\d{4,10}-\d{1,4})\b/', $decoded, $ga)) {
+            foreach ($ga[1] as $id) $trackingIds[] = ['type' => 'ga_ua', 'id' => $id];
+        }
+        if (preg_match_all('/\b(G-[A-Z0-9]{10,12})\b/', $decoded, $ga4)) {
+            foreach ($ga4[1] as $id) $trackingIds[] = ['type' => 'ga4', 'id' => $id];
+        }
+        // Google Tag Manager
+        if (preg_match_all('/\b(GTM-[A-Z0-9]{6,8})\b/', $decoded, $gtm)) {
+            foreach ($gtm[1] as $id) $trackingIds[] = ['type' => 'gtm', 'id' => $id];
+        }
+        // Facebook Pixel
+        if (preg_match_all('/(?:fbq|facebook).*?["\'](\d{15,16})["\']/', $decoded, $fb)) {
+            foreach ($fb[1] as $id) $trackingIds[] = ['type' => 'fb_pixel', 'id' => $id];
+        }
+        $result['tracking_ids'] = $trackingIds;
+
+        // ── Image URLs (all non-tracker images) ──
+        $images = [];
+        if (preg_match_all('/(?:src|href|url)\s*[=(:]\s*["\']?(https?:\/\/[^"\')\s,;]{10,500}\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^"\')\s]*)?)/i', $decoded, $imgUrls)) {
+            foreach ($imgUrls[1] as $imgUrl) {
+                $imgUrl = urldecode($imgUrl);
+                if (!preg_match('/(?:google|doubleclick|gstatic|analytics)/', $imgUrl)) {
+                    $images[] = $imgUrl;
+                }
+            }
+        }
+        $result['image_urls'] = array_values(array_unique(array_slice($images, 0, 10)));
 
         return $result;
     }
