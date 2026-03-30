@@ -707,25 +707,89 @@ class Processor
 
     /**
      * Derive a readable product name from a store URL.
+     * Fetches real app name from App Store / Play Store.
      */
     private function deriveProductNameFromStoreUrl($storeUrl, $storePlatform)
     {
-        if ($storePlatform === 'playstore') {
+        if ($storePlatform === 'ios') {
+            // Extract numeric ID from App Store URL
+            if (preg_match('/id(\d+)/', $storeUrl, $m)) {
+                $appId = $m[1];
+                $name = $this->fetchAppStoreAppName($appId);
+                if ($name) return $name;
+            }
+            // Fallback: slug from URL
+            if (preg_match('/\/app\/([^\/]+)\//', $storeUrl, $m)) {
+                return ucwords(str_replace('-', ' ', $m[1]));
+            }
+        } elseif ($storePlatform === 'playstore') {
             // Extract package name from Play Store URL
             if (preg_match('/id=([a-zA-Z0-9._]+)/', $storeUrl, $m)) {
-                return $this->packageToAppName($m[1]);
-            }
-        } elseif ($storePlatform === 'ios') {
-            // Extract app slug from App Store URL
-            if (preg_match('/\/app\/([^\/]+)/', $storeUrl, $m)) {
-                $slug = $m[1];
-                if (strpos($slug, 'id') === 0) {
-                    return 'iOS App ' . $slug;
-                }
-                return ucwords(str_replace('-', ' ', $slug));
+                $packageName = $m[1];
+                $name = $this->fetchPlayStoreAppName($packageName);
+                if ($name) return $name;
+                return $this->packageToAppName($packageName);
             }
         }
         return 'Unknown App';
+    }
+
+    /**
+     * Fetch app name from Apple iTunes Lookup API.
+     */
+    private function fetchAppStoreAppName($appId)
+    {
+        $url = 'https://itunes.apple.com/lookup?id=' . $appId;
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_FOLLOWLOCATION => true,
+        ]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($resp && $code === 200) {
+            $data = json_decode($resp, true);
+            if ($data && isset($data['results'][0]['trackName'])) {
+                return $data['results'][0]['trackName'];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Fetch app name from Play Store page title.
+     */
+    private function fetchPlayStoreAppName($packageName)
+    {
+        $url = 'https://play.google.com/store/apps/details?id=' . $packageName . '&hl=en';
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        ]);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($resp && $code === 200) {
+            // Extract title from <title>App Name - Apps on Google Play</title>
+            if (preg_match('/<title>([^<]+?)(?:\s*-\s*Apps on Google Play)?<\/title>/i', $resp, $m)) {
+                $name = trim($m[1]);
+                if ($name && $name !== 'Google Play' && strlen($name) < 200) {
+                    return $name;
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -1260,10 +1324,20 @@ class Processor
      */
     private function findOrCreateProduct($advertiserId, $productName, $productType, $storePlatform, $storeUrl)
     {
-        $existing = $this->db->fetchOne(
-            "SELECT id FROM ad_products WHERE advertiser_id = ? AND product_name = ?",
-            [$advertiserId, $productName]
-        );
+        // Match by store_url first (most reliable), then by name
+        $existing = null;
+        if ($storeUrl) {
+            $existing = $this->db->fetchOne(
+                "SELECT id FROM ad_products WHERE advertiser_id = ? AND store_url = ?",
+                [$advertiserId, $storeUrl]
+            );
+        }
+        if (!$existing) {
+            $existing = $this->db->fetchOne(
+                "SELECT id FROM ad_products WHERE advertiser_id = ? AND product_name = ?",
+                [$advertiserId, $productName]
+            );
+        }
 
         if ($existing) {
             // Update store_url/platform if we now have better info
