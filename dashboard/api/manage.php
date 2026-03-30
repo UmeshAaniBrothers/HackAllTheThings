@@ -39,6 +39,7 @@ try {
         case 'run_all':         runFullPipeline($db, $config, $basePath); break;
         case 'status':          getStatus($db); break;
         case 'remove_advertiser': removeAdvertiser($db); break;
+        case 'test_connection':   testApiConnection($db, $config); break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -121,8 +122,24 @@ function scrapeAdvertiser(Database $db, array $config): void
         return;
     }
     $output = ob_get_clean();
+    $scraperErrors = $scraper->getErrors();
 
     $adsCount = count($ads);
+
+    // If zero ads and there were errors, report as failure
+    if ($adsCount === 0 && !empty($scraperErrors)) {
+        $errorMsg = implode('; ', $scraperErrors);
+        $db->query(
+            "UPDATE managed_advertisers SET status = 'error', error_message = ? WHERE advertiser_id = ?",
+            [$errorMsg, $advertiserId]
+        );
+        echo json_encode([
+            'success' => false,
+            'error'   => 'Fetch failed: ' . $errorMsg,
+            'log'     => $output,
+        ]);
+        return;
+    }
 
     // Update managed_advertisers
     $db->query(
@@ -272,8 +289,24 @@ function runFullPipeline(Database $db, array $config, string $basePath): void
         echo json_encode(['success' => false, 'error' => 'Scrape failed: ' . $e->getMessage()]);
         return;
     }
-    ob_get_clean();
+    $scrapeLog = ob_get_clean();
+    $scraperErrors = $scraper->getErrors();
     $adsCount = count($ads);
+
+    // If zero ads and there were errors, report failure with details
+    if ($adsCount === 0 && !empty($scraperErrors)) {
+        $errorMsg = implode('; ', $scraperErrors);
+        $db->query(
+            "UPDATE managed_advertisers SET status = 'error', error_message = ? WHERE advertiser_id = ?",
+            [$errorMsg, $advertiserId]
+        );
+        echo json_encode([
+            'success' => false,
+            'error'   => 'Fetch failed: ' . $errorMsg,
+            'log'     => $scrapeLog,
+        ]);
+        return;
+    }
     $steps[] = ['step' => 'scrape', 'status' => 'done', 'ads_found' => $adsCount];
 
     $db->query(
@@ -397,6 +430,17 @@ function getStatus(Database $db): void
         'global_stats' => $globalStats,
         'recent_logs'  => $recentLogs,
         'fetch_logs'   => $fetchLogs,
+    ]);
+}
+
+function testApiConnection(Database $db, array $config): void
+{
+    $scraper = new Scraper($db, $config['scraper']);
+    $result = $scraper->testConnection();
+    echo json_encode([
+        'success' => $result['ok'],
+        'message' => $result['message'] ?? null,
+        'error'   => $result['error'] ?? null,
     ]);
 }
 

@@ -2,9 +2,14 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h4 class="mb-0"><i class="bi bi-gear me-2"></i>Manage Advertisers</h4>
-    <button class="btn btn-outline-info btn-sm" onclick="loadStatus()">
-        <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-    </button>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-warning btn-sm" onclick="testApi()">
+            <i class="bi bi-plug me-1"></i>Test API
+        </button>
+        <button class="btn btn-outline-info btn-sm" onclick="loadStatus()">
+            <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+        </button>
+    </div>
 </div>
 
 <!-- Add New Advertiser -->
@@ -390,6 +395,21 @@
         }
     }
     window.removeAdv = removeAdv;
+
+    // ── Test API connection ─────────────────────────────
+    async function testApi() {
+        try {
+            const data = await fetchAPI('manage.php', { action: 'test_connection' });
+            if (data.success) {
+                alert('API OK: ' + data.message);
+            } else {
+                alert('API FAILED: ' + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            alert('API test error: ' + err.message);
+        }
+    }
+    window.testApi = testApi;
 
     // ── Init ─────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', loadStatus);
