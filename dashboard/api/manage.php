@@ -4,16 +4,14 @@
  * API: Manage Advertisers & Pipeline
  *
  * Uses the existing `managed_advertisers` table for tracking.
- *
- * Actions:
- *   - add_advertiser: Add new advertiser to track
- *   - scrape: Trigger immediate scrape for an advertiser
- *   - process: Process unprocessed raw payloads
- *   - analyze: Run trend analysis, fingerprinting, AI, tagging
- *   - run_all: Full pipeline (scrape → process → analyze)
- *   - status: Get pipeline status and tracked advertisers
- *   - remove_advertiser: Stop tracking an advertiser
  */
+
+// Catch all PHP errors and return as JSON instead of HTML
+ini_set('display_errors', 0);
+error_reporting(E_ALL);
+set_error_handler(function($severity, $message, $file, $line) {
+    throw new ErrorException($message, 0, $severity, $file, $line);
+});
 
 header('Content-Type: application/json');
 set_time_limit(300);
@@ -45,9 +43,13 @@ try {
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode([
+        'success' => false,
+        'error' => $e->getMessage(),
+        'file' => basename($e->getFile()) . ':' . $e->getLine(),
+    ]);
 }
 
 // ── Helper Functions ──────────────────────────────────────
