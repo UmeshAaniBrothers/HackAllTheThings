@@ -753,11 +753,13 @@ class Processor
      */
     public function detectProducts()
     {
-        // Get unmapped ads with headlines and all associated URLs (batched for performance)
+        // Get unmapped ads with headlines, URLs, and ad platform info (batched)
         $ads = $this->db->fetchAll(
             "SELECT a.creative_id, a.advertiser_id, d.headline, d.landing_url,
                     (SELECT GROUP_CONCAT(ass.original_url SEPARATOR '||')
-                     FROM ad_assets ass WHERE ass.creative_id = a.creative_id) as all_asset_urls
+                     FROM ad_assets ass WHERE ass.creative_id = a.creative_id) as all_asset_urls,
+                    (SELECT GROUP_CONCAT(DISTINCT t.platform SEPARATOR '||')
+                     FROM ad_targeting t WHERE t.creative_id = a.creative_id) as ad_platforms
              FROM ads a
              LEFT JOIN ad_details d ON a.creative_id = d.creative_id
                  AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
@@ -820,6 +822,8 @@ class Processor
             "SELECT a.creative_id, a.advertiser_id, d.headline, d.landing_url,
                     (SELECT GROUP_CONCAT(ass.original_url SEPARATOR '||')
                      FROM ad_assets ass WHERE ass.creative_id = a.creative_id) as all_asset_urls,
+                    (SELECT GROUP_CONCAT(DISTINCT t.platform SEPARATOR '||')
+                     FROM ad_targeting t WHERE t.creative_id = a.creative_id) as ad_platforms,
                     pm.id as map_id, pm.product_id
              FROM ads a
              INNER JOIN ad_product_map pm ON a.creative_id = pm.creative_id
@@ -840,8 +844,8 @@ class Processor
         foreach ($webAds as $ad) {
             $result = $this->detectProductForAd($ad, $advertiserStoreUrls);
 
-            // Only re-map if we found an actual app store link
-            if ($result['platform'] === 'ios' || $result['platform'] === 'playstore') {
+            // Re-map if we now detect it as an app (ios or playstore)
+            if ($result['platform'] !== 'web') {
                 // Remove old web mapping
                 $this->db->query("DELETE FROM ad_product_map WHERE id = ?", [$ad['map_id']]);
 
@@ -886,6 +890,7 @@ class Processor
         $headline = isset($ad['headline']) ? trim($ad['headline']) : '';
         $landingUrl = isset($ad['landing_url']) ? trim($ad['landing_url']) : '';
         $allUrls = isset($ad['all_asset_urls']) ? $ad['all_asset_urls'] : '';
+        $adPlatforms = isset($ad['ad_platforms']) ? $ad['ad_platforms'] : '';
 
         // Collect all URLs to search for store links
         $urlsToCheck = $landingUrl;
@@ -910,28 +915,48 @@ class Processor
             }
         }
 
-        // Priority 3: Extract from YouTube video title
+        // Priority 3: Use ad platform indicator (Google Play = playstore app)
+        $isGooglePlay = (stripos($adPlatforms, 'Google Play') !== false);
+
+        // Priority 4: Extract product name from headline
         if ($headline !== '') {
             $productName = $this->extractProductFromTitle($headline);
             if ($productName) {
                 $lower = strtolower($productName);
-                if (preg_match('/\b(game|gaming|play|level|quest)\b/i', $lower)) {
+                if ($isGooglePlay) {
+                    $productType = 'app';
+                    $storePlatform = 'playstore';
+                } elseif (preg_match('/\b(game|gaming|play|level|quest)\b/i', $lower)) {
                     $productType = 'game';
+                    // Games advertised on YouTube/Display are very likely Play Store apps
+                    $storePlatform = 'playstore';
                 } elseif (preg_match('/\b(app|download|install)\b/i', $headline)) {
                     $productType = 'app';
+                    $storePlatform = 'playstore';
                 }
             }
         }
 
-        // Priority 4: Use headline as-is if short enough
+        // Priority 5: Use headline as-is if short enough
         if (!$productName && $headline !== '' && strlen($headline) <= 60) {
             $productName = $headline;
+            if ($isGooglePlay) {
+                $productType = 'app';
+                $storePlatform = 'playstore';
+            }
+        }
+
+        // If platform is Google Play but we still have 'web', force playstore
+        if ($isGooglePlay && $storePlatform === 'web' && $productName) {
+            $storePlatform = 'playstore';
+            $productType = ($productType === 'other') ? 'app' : $productType;
         }
 
         // Fallback: Unknown
         if (!$productName || $productName === '') {
             $productName = 'Unknown';
             $productType = 'other';
+            $storePlatform = 'web';
         }
 
         // Normalize
