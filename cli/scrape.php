@@ -247,13 +247,23 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         return;
     }
 
-    // Step 3: Trigger processing on server (also auto-extracts YouTube URLs)
-    echo "Processing on server (+ YouTube extraction)...";
+    // Step 3: Trigger processing on server
+    echo "Processing payloads on server...";
     $procResult = postJson($processUrl, []);
     if ($procResult && !empty($procResult['success'])) {
         echo " OK: " . ($procResult['message'] ?? 'done') . "\n";
     } else {
         echo " Note: " . ($procResult['error'] ?? 'Processing may still be running') . "\n";
+    }
+
+    // Step 4: Trigger YouTube URL extraction on server (separate request)
+    $ytUrl = $serverUrl . '/dashboard/api/manage.php?action=extract_youtube';
+    echo "Extracting YouTube URLs on server...";
+    $ytResult = postJson($ytUrl, [], 600);
+    if ($ytResult && !empty($ytResult['success'])) {
+        echo " OK: " . ($ytResult['message'] ?? 'done') . "\n";
+    } else {
+        echo " Note: " . ($ytResult['error'] ?? 'Extraction may still be running') . "\n";
     }
 
     echo "\nDone! Refresh your dashboard to see the ads.\n";
@@ -276,7 +286,7 @@ function initGoogleSession($googleBase)
     ]);
     curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    unset($ch);
 
     if ($code !== 200) {
         echo "[warn] Session init got HTTP {$code}, continuing...\n";
@@ -313,7 +323,7 @@ function googleRequest($url, $body, $cookieFile)
     curl_setopt_array($ch, $opts);
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    unset($ch);
 
     if ($response === false || $httpCode !== 200) {
         return null;
@@ -335,7 +345,7 @@ function cleanupCookies($cookieFile)
 
 // ── Server API helper ────────────────────────────────────
 
-function postJson($url, $data)
+function postJson($url, $data, $timeout = 120)
 {
     $ch = curl_init();
     curl_setopt_array($ch, [
@@ -343,7 +353,7 @@ function postJson($url, $data)
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => json_encode($data),
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 120,
+        CURLOPT_TIMEOUT        => $timeout,
         CURLOPT_HTTPHEADER     => [
             'Content-Type: application/json',
             'Accept: application/json',
@@ -353,7 +363,7 @@ function postJson($url, $data)
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $error = curl_error($ch);
-    curl_close($ch);
+    unset($ch);
 
     if ($response === false) {
         return ['success' => false, 'error' => 'Curl error: ' . $error];

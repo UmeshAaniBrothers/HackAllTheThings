@@ -14,7 +14,7 @@ set_error_handler(function($severity, $message, $file, $line) {
 });
 
 header('Content-Type: application/json');
-set_time_limit(300);
+set_time_limit(600);
 
 $basePath = dirname(dirname(__DIR__));
 $config = require $basePath . '/config/config.php';
@@ -222,19 +222,10 @@ function processPayloads(Database $db, array $config): void
         );
     } catch (Exception $e) { /* non-critical */ }
 
-    // Auto-extract YouTube URLs for any new video ads
-    $ytExtracted = 0;
-    if ($processed > 0) {
-        try {
-            $ytExtracted = autoExtractYouTubeUrls($db);
-        } catch (Exception $e) { /* non-critical */ }
-    }
-
     echo json_encode([
         'success'   => true,
-        'message'   => "Processed {$processed} payloads" . ($ytExtracted > 0 ? ", extracted {$ytExtracted} YouTube URLs" : ''),
+        'message'   => "Processed {$processed} payloads",
         'processed' => $processed,
-        'youtube_extracted' => $ytExtracted,
         'log'       => $output,
     ]);
 }
