@@ -19,11 +19,16 @@ async function fetchAPI(endpoint, params = {}) {
     });
 
     const response = await fetch(url);
-    const data = await response.json().catch(function() { return null; });
+    var text = await response.text();
+    var data = null;
+    try { data = JSON.parse(text); } catch(e) {}
     if (!response.ok) {
-        var msg = (data && data.error) ? data.error : ('API error: ' + response.status);
+        var msg = (data && data.error) ? data.error : (text.substring(0, 300) || ('API error: ' + response.status));
         var file = (data && data.file) ? (' [' + data.file + ']') : '';
         throw new Error(msg + file);
+    }
+    if (!data) {
+        throw new Error('Invalid JSON: ' + text.substring(0, 300));
     }
     return data;
 }
