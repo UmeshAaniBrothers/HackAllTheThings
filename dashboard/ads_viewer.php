@@ -74,9 +74,9 @@
             </select>
         </div>
         <div class="col-md-2">
-            <label class="form-label small mb-1">App/Product</label>
+            <label class="form-label small mb-1">App</label>
             <select id="vFilterProduct" class="form-select form-select-sm">
-                <option value="">All Products</option>
+                <option value="">All Apps</option>
             </select>
         </div>
         <div class="col-md-1">
@@ -324,7 +324,7 @@
 
     // ── Filter Pills ───────────────────────────────────────
     const LABEL_MAP = {
-        advertiser_id: 'Advertiser', product_id: 'App/Product', country: 'Country', platform: 'Platform',
+        advertiser_id: 'Advertiser', product_id: 'App', country: 'Country', platform: 'Platform',
         ad_type: 'Type', status: 'Status', date_from: 'From', date_to: 'To',
         domain: 'Domain', cta: 'CTA', sentiment: 'Sentiment', hook: 'Hook',
         tag: 'Tag', search: 'Search',
@@ -558,9 +558,9 @@
                     <div class="ad-body">
                         <div class="ad-headline">${escapeHtml(headline)}</div>
                         ${productName && productName !== 'Unknown' ? `<div class="mt-1">
-                            <span class="badge bg-warning text-dark me-1 viewer-clickable" data-filter="product_id" data-value="${escapeHtml(productIdVal)}" title="App/Product"><i class="bi bi-app-indicator me-1"></i>${escapeHtml(productName)}</span>
+                            <span class="badge bg-warning text-dark me-1 viewer-clickable" data-filter="product_id" data-value="${escapeHtml(productIdVal)}" title="App"><i class="bi bi-app-indicator me-1"></i>${escapeHtml(productName)}</span>
                             <span class="badge ${platformColors[storePlatform] || 'bg-info'} viewer-clickable" data-filter="platform" data-value="${escapeHtml(storePlatform)}" title="Platform"><i class="bi ${platformIcons[storePlatform] || 'bi-globe'} me-1"></i>${platformLabels[storePlatform] || 'Web'}</span>
-                            ${storeUrl ? `<a href="${escapeHtml(storeUrl)}" target="_blank" rel="noopener" class="badge bg-secondary text-decoration-none" onclick="event.stopPropagation()" title="Open store/web link"><i class="bi bi-box-arrow-up-right me-1"></i>Open</a>` : ''}
+                            ${storeUrl ? `<a href="${escapeHtml(storeUrl)}" target="_blank" rel="noopener" class="badge ${storePlatform === 'ios' ? 'bg-dark' : 'bg-success'} text-decoration-none" onclick="event.stopPropagation()" title="${storePlatform === 'ios' ? 'App Store' : 'Play Store'}"><i class="bi ${storePlatform === 'ios' ? 'bi-apple' : 'bi-google-play'} me-1"></i>${storePlatform === 'ios' ? 'App Store' : 'Play Store'}</a>` : ''}
                         </div>` : ''}
                         ${ad.cta ? `<span class="badge bg-primary mt-1 viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
                         <div class="mt-2">
@@ -601,7 +601,7 @@
 
         let html = `<div class="table-container"><div class="table-responsive"><table class="table table-hover mb-0">
             <thead><tr>
-                <th>Advertiser</th><th>App/Product</th><th>Platform</th><th>Views</th><th>Type</th>
+                <th>Advertiser</th><th>App</th><th>Platform</th><th>Views</th><th>Type</th>
                 <th>Status</th><th>Countries</th>
                 <th>First Seen</th><th>Last Seen</th><th>Links</th>
             </tr></thead><tbody>`;
@@ -621,7 +621,7 @@
             const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
             html += `<tr class="viewer-row" role="button" data-id="${escapeHtml(ad.creative_id)}">
                 <td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer">${escapeHtml(advName)}</span></td>
-                <td>${tblProductName && tblProductName !== 'Unknown' ? `<span class="badge bg-warning text-dark viewer-clickable" data-filter="product_id" data-value="${escapeHtml(tblProductId)}" style="cursor:pointer;font-size:.75rem">${escapeHtml(tblProductName)}</span>${tblStoreUrl ? ` <a href="${escapeHtml(tblStoreUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Open store/web"><i class="bi bi-box-arrow-up-right" style="font-size:.75rem"></i></a>` : ''}` : '<small class="text-muted">-</small>'}</td>
+                <td>${tblProductName && tblProductName !== 'Unknown' ? `<span class="badge bg-warning text-dark viewer-clickable" data-filter="product_id" data-value="${escapeHtml(tblProductId)}" style="cursor:pointer;font-size:.75rem">${escapeHtml(tblProductName)}</span>${tblStoreUrl ? ` <a href="${escapeHtml(tblStoreUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${tblStorePlatform === 'ios' ? 'App Store' : 'Play Store'}" class="badge ${tblStorePlatform === 'ios' ? 'bg-dark' : 'bg-success'} text-decoration-none" style="font-size:.65rem"><i class="bi ${tblStorePlatform === 'ios' ? 'bi-apple' : 'bi-google-play'}"></i></a>` : ''}` : '<small class="text-muted">-</small>'}</td>
                 <td><span class="badge ${tblPlatformColors[tblStorePlatform] || 'bg-info'} viewer-clickable" data-filter="platform" data-value="${escapeHtml(tblStorePlatform)}" style="font-size:.75rem"><i class="bi ${tblPlatformIcons[tblStorePlatform] || 'bi-globe'} me-1"></i>${tblPlatformLabels[tblStorePlatform] || 'Web'}</span></td>
                 <td>${tblViewCount > 0 ? `<strong>${formatNumber(tblViewCount)}</strong>` : '<small class="text-muted">-</small>'}</td>
                 <td><span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type}</span></td>
