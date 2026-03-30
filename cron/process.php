@@ -126,15 +126,16 @@ try {
          INNER JOIN ad_products p ON pm.product_id = p.id AND p.store_platform = 'web'"
     );
     $remainingStoreUrls = (int) $db->fetchColumn(
-        "SELECT COUNT(*) FROM ad_products p
-         INNER JOIN ad_product_map pm ON p.id = pm.product_id
-         WHERE (p.store_url IS NULL OR p.store_url = '' OR p.store_url = 'not_found' OR p.store_platform = 'web')
-           AND p.product_name != 'Unknown'
-           AND EXISTS (
-               SELECT 1 FROM ad_assets ass
-               WHERE ass.creative_id = pm.creative_id
-                 AND ass.original_url LIKE '%displayads-formats%'
-           )"
+        "SELECT COUNT(*) FROM ads a
+         INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
+            AND ass.original_url LIKE '%displayads-formats%'
+         WHERE NOT EXISTS (
+             SELECT 1 FROM ad_product_map pm
+             INNER JOIN ad_products p ON pm.product_id = p.id
+             WHERE pm.creative_id = a.creative_id
+               AND p.store_platform IN ('ios', 'playstore')
+               AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found'
+         )"
     );
 
     $result = [

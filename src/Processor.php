@@ -536,12 +536,11 @@ class Processor
     public function extractYouTubeUrls()
     {
         $ads = $this->db->fetchAll(
-            "SELECT a.creative_id, a.advertiser_id, ass.original_url as preview_url
+            "SELECT a.creative_id, a.advertiser_id, a.ad_type, ass.original_url as preview_url
              FROM ads a
              INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
                 AND ass.original_url LIKE '%displayads-formats%'
-             WHERE a.ad_type = 'video'
-               AND NOT EXISTS (
+             WHERE NOT EXISTS (
                    SELECT 1 FROM ad_assets v
                    WHERE v.creative_id = a.creative_id
                      AND v.type = 'video'
@@ -549,7 +548,7 @@ class Processor
                )
              GROUP BY a.creative_id
              ORDER BY a.last_seen DESC
-             LIMIT 50"
+             LIMIT 100"
         );
 
         if (empty($ads)) {
@@ -566,7 +565,7 @@ class Processor
             if (!$data) continue;
 
             $ytId = $data['youtube_id'];
-            if ($ytId) {
+            if ($ytId && $ad['ad_type'] === 'video') {
                 $youtubeUrl = 'https://www.youtube.com/watch?v=' . $ytId;
                 $thumbnail = 'https://i.ytimg.com/vi/' . $ytId . '/hqdefault.jpg';
 
@@ -618,19 +617,22 @@ class Processor
      */
     public function enrichStoreUrlsFromPreview()
     {
-        // Get ads that have a preview URL but no store URL in their product
+        // Get ALL ads with a preview URL that don't yet have an ios/playstore product
         $ads = $this->db->fetchAll(
             "SELECT a.creative_id, a.advertiser_id, ass.original_url as preview_url
              FROM ads a
              INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
                 AND ass.original_url LIKE '%displayads-formats%'
-             INNER JOIN ad_product_map pm ON a.creative_id = pm.creative_id
-             INNER JOIN ad_products p ON pm.product_id = p.id
-             WHERE (p.store_url IS NULL OR p.store_url = '' OR p.store_url = 'not_found' OR p.store_platform = 'web')
-               AND p.product_name != 'Unknown'
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM ad_product_map pm
+                 INNER JOIN ad_products p ON pm.product_id = p.id
+                 WHERE pm.creative_id = a.creative_id
+                   AND p.store_platform IN ('ios', 'playstore')
+                   AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found'
+             )
              GROUP BY a.creative_id
              ORDER BY a.last_seen DESC
-             LIMIT 50"
+             LIMIT 100"
         );
 
         if (empty($ads)) {
@@ -681,7 +683,48 @@ class Processor
                     'product_type'   => 'app',
                 ], 'id = ?', [$mapping['product_id']]);
             }
+        } else {
+            // No mapping exists — create product + mapping from store URL
+            $productName = $this->deriveProductNameFromStoreUrl($storeUrl, $storePlatform);
+
+            $productId = $this->findOrCreateProduct(
+                $advertiserId,
+                $productName,
+                'app',
+                $storePlatform,
+                $storeUrl
+            );
+
+            if ($productId) {
+                $this->db->insert('ad_product_map', [
+                    'creative_id' => $creativeId,
+                    'product_id'  => $productId,
+                ]);
+            }
         }
+    }
+
+    /**
+     * Derive a readable product name from a store URL.
+     */
+    private function deriveProductNameFromStoreUrl($storeUrl, $storePlatform)
+    {
+        if ($storePlatform === 'playstore') {
+            // Extract package name from Play Store URL
+            if (preg_match('/id=([a-zA-Z0-9._]+)/', $storeUrl, $m)) {
+                return $this->packageToAppName($m[1]);
+            }
+        } elseif ($storePlatform === 'ios') {
+            // Extract app slug from App Store URL
+            if (preg_match('/\/app\/([^\/]+)/', $storeUrl, $m)) {
+                $slug = $m[1];
+                if (strpos($slug, 'id') === 0) {
+                    return 'iOS App ' . $slug;
+                }
+                return ucwords(str_replace('-', ' ', $slug));
+            }
+        }
+        return 'Unknown App';
     }
 
     /**
