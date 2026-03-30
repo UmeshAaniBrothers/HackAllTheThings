@@ -12,6 +12,7 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
             'advertiser_profile' => ' - Advertiser Profile',
             'youtube_profile' => ' - Video Profile',
             'ads_viewer' => ' - Ads Viewer',
+            'search' => ' - Search',
             'manage' => ' - Manage',
         ];
         echo $pageTitles[$currentPage] ?? '';
@@ -39,6 +40,11 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                     <li class="nav-item">
                         <a class="nav-link <?= $currentPage === 'ads_viewer' ? 'active' : '' ?>" href="ads_viewer.php">
                             <i class="bi bi-eye me-1"></i>Ads Viewer
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?= $currentPage === 'search' ? 'active' : '' ?>" href="search.php">
+                            <i class="bi bi-search me-1"></i>Search
                         </a>
                     </li>
                     <li class="nav-item">
