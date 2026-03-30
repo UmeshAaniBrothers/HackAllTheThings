@@ -29,6 +29,8 @@ $command = $argv[1] ?? 'help';
 $arg = $argv[2] ?? '';
 $arg2 = $argv[3] ?? '';
 
+$ADVERTISERS_FILE = __DIR__ . '/advertisers.txt';
+
 switch ($command) {
     case 'test':
         testConnection($GOOGLE_BASE, $SERVER_URL, $AUTH_TOKEN);
@@ -41,6 +43,16 @@ switch ($command) {
         if (empty($arg)) die("Usage: php cli/scrape.php fetch AR1234... [Name]\n");
         fetchAdvertiser($arg, $arg2 ?: $arg, $GOOGLE_BASE, $SERVER_URL, $AUTH_TOKEN);
         break;
+    case 'add':
+        if (empty($arg)) die("Usage: php cli/scrape.php add AR1234... \"Company Name\"\n");
+        addAdvertiser($arg, $arg2 ?: $arg, $ADVERTISERS_FILE);
+        break;
+    case 'list':
+        listAdvertisers($ADVERTISERS_FILE);
+        break;
+    case 'fetchall':
+        fetchAllAdvertisers($ADVERTISERS_FILE, $GOOGLE_BASE, $SERVER_URL, $AUTH_TOKEN);
+        break;
     default:
         echo "Ads Intelligent - CLI Scraper\n";
         echo "==============================\n\n";
@@ -48,8 +60,12 @@ switch ($command) {
         echo "Usage:\n";
         echo "  php cli/scrape.php test                          Test connections\n";
         echo "  php cli/scrape.php search \"Nike\"                 Search advertisers\n";
-        echo "  php cli/scrape.php fetch AR1234... [Name]        Fetch all ads\n\n";
+        echo "  php cli/scrape.php fetch AR1234... [Name]        Fetch all ads\n";
+        echo "  php cli/scrape.php add AR1234... \"Name\"          Add to advertisers list\n";
+        echo "  php cli/scrape.php list                          Show all saved advertisers\n";
+        echo "  php cli/scrape.php fetchall                      Fetch ALL saved advertisers\n\n";
         echo "Server: {$SERVER_URL}\n";
+        echo "Advertisers file: {$ADVERTISERS_FILE}\n";
         break;
 }
 echo "\n";
@@ -264,6 +280,113 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
     echo "If ads don't appear immediately, the server is still processing.\n";
     echo "Set up a cron job for automatic processing:\n";
     echo "  */2 * * * * cd /path/to/app && php cron/process.php >> cron/process.log 2>&1\n";
+}
+
+// ── Advertiser list management ───────────────────────────
+
+function addAdvertiser($advertiserId, $advertiserName, $filePath)
+{
+    // Check if already exists
+    $lines = file_exists($filePath) ? file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
+    foreach ($lines as $line) {
+        if (strpos($line, '#') === 0) continue;
+        $parts = explode('|', $line, 2);
+        if (trim($parts[0]) === $advertiserId) {
+            echo "Already in list: {$advertiserId}\n";
+            return;
+        }
+    }
+
+    file_put_contents($filePath, $advertiserId . '|' . $advertiserName . "\n", FILE_APPEND);
+    echo "Added: {$advertiserId} ({$advertiserName})\n";
+    echo "File: {$filePath}\n";
+    echo "Run 'php cli/scrape.php fetchall' to fetch all advertisers.\n";
+}
+
+function listAdvertisers($filePath)
+{
+    if (!file_exists($filePath)) {
+        echo "No advertisers saved yet.\n";
+        echo "Add with: php cli/scrape.php add AR1234... \"Company Name\"\n";
+        return;
+    }
+
+    $lines = file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if (empty($lines)) {
+        echo "Advertisers list is empty.\n";
+        return;
+    }
+
+    echo str_pad("Advertiser ID", 28) . "Name\n";
+    echo str_repeat("-", 70) . "\n";
+
+    $count = 0;
+    foreach ($lines as $line) {
+        if (strpos($line, '#') === 0) continue;
+        $parts = explode('|', $line, 2);
+        $id = trim($parts[0]);
+        $name = isset($parts[1]) ? trim($parts[1]) : $id;
+        echo str_pad($id, 28) . $name . "\n";
+        $count++;
+    }
+
+    echo "\nTotal: {$count} advertisers\n";
+    echo "Run 'php cli/scrape.php fetchall' to fetch all.\n";
+}
+
+function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
+{
+    if (!file_exists($filePath)) {
+        echo "No advertisers file found: {$filePath}\n";
+        echo "Add advertisers with: php cli/scrape.php add AR1234... \"Name\"\n";
+        return;
+    }
+
+    $lines = file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    $advertisers = [];
+    foreach ($lines as $line) {
+        if (strpos($line, '#') === 0) continue;
+        $parts = explode('|', $line, 2);
+        $id = trim($parts[0]);
+        $name = isset($parts[1]) ? trim($parts[1]) : $id;
+        if ($id !== '') {
+            $advertisers[] = ['id' => $id, 'name' => $name];
+        }
+    }
+
+    if (empty($advertisers)) {
+        echo "Advertisers list is empty.\n";
+        return;
+    }
+
+    echo "=== Fetching " . count($advertisers) . " advertisers ===\n";
+    echo "Started: " . date('Y-m-d H:i:s') . "\n\n";
+
+    $success = 0;
+    $failed = 0;
+
+    foreach ($advertisers as $i => $adv) {
+        $num = $i + 1;
+        echo "--- [{$num}/" . count($advertisers) . "] {$adv['name']} ({$adv['id']}) ---\n";
+
+        try {
+            fetchAdvertiser($adv['id'], $adv['name'], $googleBase, $serverUrl, $token);
+            $success++;
+        } catch (Exception $e) {
+            echo "ERROR: " . $e->getMessage() . "\n";
+            $failed++;
+        }
+
+        // Wait between advertisers to avoid rate limiting
+        if ($i < count($advertisers) - 1) {
+            echo "Waiting 5 seconds before next advertiser...\n\n";
+            sleep(5);
+        }
+    }
+
+    echo "\n=== Batch Complete ===\n";
+    echo "Success: {$success}, Failed: {$failed}\n";
+    echo "Finished: " . date('Y-m-d H:i:s') . "\n";
 }
 
 // ── Google API helpers ───────────────────────────────────

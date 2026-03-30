@@ -650,16 +650,16 @@ class Processor
      */
     public function enrichYouTubeMetadata()
     {
-        // Get video ads that have a YouTube URL but no headline yet
+        // Get video ads that have a YouTube URL but no headline OR no view_count
         $ads = $this->db->fetchAll(
-            "SELECT a.creative_id,
-                    (SELECT original_url FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url
+            "SELECT a.creative_id, a.view_count,
+                    (SELECT original_url FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url,
+                    (SELECT d2.headline FROM ad_details d2 WHERE d2.creative_id = a.creative_id ORDER BY d2.id DESC LIMIT 1) as current_headline
              FROM ads a
-             LEFT JOIN ad_details d ON a.creative_id = d.creative_id
-                AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
              WHERE a.ad_type = 'video'
                AND EXISTS (SELECT 1 FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%')
-               AND (d.headline IS NULL OR d.headline = '')
+               AND (a.view_count = 0 OR a.view_count IS NULL
+                    OR NOT EXISTS (SELECT 1 FROM ad_details d WHERE d.creative_id = a.creative_id AND d.headline IS NOT NULL AND d.headline != ''))
              ORDER BY a.last_seen DESC"
         );
 
@@ -691,6 +691,13 @@ class Processor
             }
             if ($meta['author']) {
                 $description .= ($description ? ' | ' : '') . 'by ' . $meta['author'];
+            }
+
+            // Store numeric view_count in ads table for sorting
+            if ($meta['view_count'] !== null) {
+                $this->db->update('ads', [
+                    'view_count' => (int) $meta['view_count'],
+                ], 'creative_id = ?', [$ad['creative_id']]);
             }
 
             // Update existing detail or insert new one

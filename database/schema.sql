@@ -26,12 +26,14 @@ CREATE TABLE IF NOT EXISTS ads (
     first_seen DATETIME NOT NULL,
     last_seen DATETIME NOT NULL,
     status ENUM('active','inactive') DEFAULT 'active',
+    view_count BIGINT UNSIGNED DEFAULT 0,
     hash_signature VARCHAR(64) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_advertiser (advertiser_id),
     INDEX idx_status (status),
     INDEX idx_last_seen (last_seen),
-    INDEX idx_first_seen (first_seen)
+    INDEX idx_first_seen (first_seen),
+    INDEX idx_view_count (view_count)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Ad content versioning (new row per change)

@@ -173,6 +173,9 @@
                     <li><a class="dropdown-item" href="#" onclick="viewerSetSort('newest'); return false;">Newest First</a></li>
                     <li><a class="dropdown-item" href="#" onclick="viewerSetSort('oldest'); return false;">Oldest First</a></li>
                     <li><a class="dropdown-item" href="#" onclick="viewerSetSort('last_seen'); return false;">Last Seen</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" onclick="viewerSetSort('views_desc'); return false;">Most Views</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="viewerSetSort('views_asc'); return false;">Least Views</a></li>
                 </ul>
             </div>
             <div class="dropdown d-inline-block ms-1">
@@ -294,7 +297,7 @@
         S.page = parseInt(h.page) || 1;
         S.view = h.view === 'table' ? 'table' : 'grid';
         S.perPage = [12,20,40,100].includes(parseInt(h.per_page)) ? parseInt(h.per_page) : 20;
-        S.sort = ['newest','oldest','last_seen'].includes(h.sort) ? h.sort : 'newest';
+        S.sort = ['newest','oldest','last_seen','views_desc','views_asc'].includes(h.sort) ? h.sort : 'newest';
     }
 
     function syncFormFromState() {
@@ -305,7 +308,7 @@
         document.getElementById('vViewGrid').classList.toggle('active', S.view === 'grid');
         document.getElementById('vViewTable').classList.toggle('active', S.view === 'table');
         document.getElementById('vPerPageLabel').textContent = S.perPage;
-        const sortLabels = { newest: 'Newest', oldest: 'Oldest', last_seen: 'Last Seen' };
+        const sortLabels = { newest: 'Newest', oldest: 'Oldest', last_seen: 'Last Seen', views_desc: 'Most Views', views_asc: 'Least Views' };
         document.getElementById('vSortLabel').textContent = sortLabels[S.sort] || 'Newest';
     }
 
@@ -379,7 +382,7 @@
 
     // ── API call ───────────────────────────────────────────
     async function loadData() {
-        const params = { page: S.page, per_page: S.perPage };
+        const params = { page: S.page, per_page: S.perPage, sort: S.sort };
 
         FILTER_KEYS.forEach(k => {
             if (S.filters[k]) {
@@ -519,12 +522,15 @@
             const headline = ad.headline || advName;
             const productName = ad.product_names ? ad.product_names.split('||')[0] : '';
             const productIdVal = ad.product_id || '';
+            const viewCount = parseInt(ad.view_count) || 0;
+            const viewCountStr = viewCount > 0 ? formatNumber(viewCount) : '';
 
             return `<div class="col-md-6 col-lg-4 col-xl-3 mb-4">
                 <div class="ad-card viewer-card" role="button" data-id="${escapeHtml(ad.creative_id)}">
                     ${ad.preview_image ? `<div class="ad-thumb">
                         <img src="${escapeHtml(ad.preview_image)}" alt="" loading="lazy">
                         ${isVideo ? '<span class="ad-play-icon"><i class="bi bi-play-fill"></i></span>' : ''}
+                        ${viewCount > 0 ? `<span class="ad-view-count"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</span>` : ''}
                     </div>` : ''}
                     <div class="ad-card-header">
                         <div class="d-flex justify-content-between align-items-center">
@@ -532,7 +538,7 @@
                                 <span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type || 'text'}</span>
                                 <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span>
                             </div>
-                            ${ad.description ? `<small class="text-muted"><i class="bi bi-eye me-1"></i>${escapeHtml(ad.description)}</small>` : `<small class="text-muted">${formatDate(ad.last_seen)}</small>`}
+                            ${viewCount > 0 && !ad.preview_image ? `<small class="text-muted"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</small>` : `<small class="text-muted">${formatDate(ad.last_seen)}</small>`}
                         </div>
                     </div>
                     <div class="ad-body">
@@ -580,7 +586,7 @@
 
         let html = `<div class="table-container"><div class="table-responsive"><table class="table table-hover mb-0">
             <thead><tr>
-                <th>Advertiser</th><th>App/Product</th><th>Creative ID</th><th>Type</th>
+                <th>Advertiser</th><th>App/Product</th><th>Views</th><th>Type</th>
                 <th>Status</th><th>Platforms</th><th>Countries</th>
                 <th>First Seen</th><th>Last Seen</th><th>Link</th>
             </tr></thead><tbody>`;
@@ -591,11 +597,12 @@
             const advName = ad.advertiser_name || ad.advertiser_id || '-';
             const tblProductName = ad.product_names ? ad.product_names.split('||')[0] : '';
             const tblProductId = ad.product_id || '';
+            const tblViewCount = parseInt(ad.view_count) || 0;
             const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
             html += `<tr class="viewer-row" role="button" data-id="${escapeHtml(ad.creative_id)}">
                 <td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer">${escapeHtml(advName)}</span></td>
                 <td>${tblProductName && tblProductName !== 'Unknown' ? `<span class="badge bg-warning text-dark viewer-clickable" data-filter="product_id" data-value="${escapeHtml(tblProductId)}" style="cursor:pointer;font-size:.75rem">${escapeHtml(tblProductName)}</span>` : '<small class="text-muted">-</small>'}</td>
-                <td class="text-truncate" style="max-width:180px"><small class="text-muted">${escapeHtml(ad.creative_id)}</small></td>
+                <td>${tblViewCount > 0 ? `<strong>${formatNumber(tblViewCount)}</strong>` : '<small class="text-muted">-</small>'}</td>
                 <td><span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type}</span></td>
                 <td><span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span></td>
                 <td>${platforms.slice(0, 2).map(p => `<span class="badge bg-dark viewer-clickable me-1" data-filter="platform" data-value="${escapeHtml(p)}" style="font-size:.7rem">${escapeHtml(p)}</span>`).join('')}</td>
@@ -892,7 +899,7 @@
 
     window.viewerSetSort = function(s) {
         S.sort = s;
-        const labels = { newest: 'Newest', oldest: 'Oldest', last_seen: 'Last Seen' };
+        const labels = { newest: 'Newest', oldest: 'Oldest', last_seen: 'Last Seen', views_desc: 'Most Views', views_asc: 'Least Views' };
         document.getElementById('vSortLabel').textContent = labels[s] || s;
         S.page = 1;
         load();
@@ -992,6 +999,7 @@
 .ad-thumb { position: relative; background: #000; aspect-ratio: 16/9; overflow: hidden; }
 .ad-thumb img { width: 100%; height: 100%; object-fit: cover; }
 .ad-play-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+.ad-view-count { position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.75); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
 .ad-card-header { padding: 10px 12px 6px; border-bottom: 1px solid #f0f0f0; }
 .ad-body { padding: 10px 12px; }
 .ad-meta { padding: 8px 12px; border-top: 1px solid #f0f0f0; background: #fafafa; }

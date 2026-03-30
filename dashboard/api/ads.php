@@ -2,7 +2,7 @@
 
 /**
  * API: Ad Listing
- * Returns filtered, paginated ad listings for the explorer.
+ * Returns filtered, paginated ad listings with sorting.
  */
 
 header('Content-Type: application/json');
@@ -25,6 +25,7 @@ try {
     $dateTo = isset($_GET['date_to']) ? trim($_GET['date_to']) : null;
     $search = isset($_GET['search']) ? trim($_GET['search']) : null;
     $productId = isset($_GET['product_id']) ? trim($_GET['product_id']) : null;
+    $sort = isset($_GET['sort']) ? trim($_GET['sort']) : 'newest';
     $page = max(1, (int) ($_GET['page'] ?? 1));
     $perPage = min(100, max(10, (int) ($_GET['per_page'] ?? 20)));
 
@@ -78,6 +79,16 @@ try {
 
     $whereClause = implode(' AND ', $where);
 
+    // Sort order
+    $sortMap = array(
+        'newest'     => 'a.last_seen DESC',
+        'oldest'     => 'a.first_seen ASC',
+        'last_seen'  => 'a.last_seen DESC',
+        'views_desc' => 'a.view_count DESC, a.last_seen DESC',
+        'views_asc'  => 'a.view_count ASC',
+    );
+    $orderBy = isset($sortMap[$sort]) ? $sortMap[$sort] : 'a.last_seen DESC';
+
     // Count total
     $total = (int) $db->fetchColumn(
         "SELECT COUNT(*) FROM ads a WHERE {$whereClause}",
@@ -89,7 +100,7 @@ try {
     $fetchParams = array_merge($params, [$perPage, $offset]);
 
     $ads = $db->fetchAll(
-        "SELECT a.creative_id, a.advertiser_id, a.ad_type, a.first_seen, a.last_seen, a.status,
+        "SELECT a.creative_id, a.advertiser_id, a.ad_type, a.first_seen, a.last_seen, a.status, a.view_count,
                 d.headline, d.description, d.cta, d.landing_url,
                 (SELECT GROUP_CONCAT(DISTINCT t.country) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as countries,
                 (SELECT GROUP_CONCAT(DISTINCT t.platform) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as platforms,
@@ -103,7 +114,7 @@ try {
              AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
          LEFT JOIN managed_advertisers adv ON a.advertiser_id = adv.advertiser_id
          WHERE {$whereClause}
-         ORDER BY a.last_seen DESC
+         ORDER BY {$orderBy}
          LIMIT ? OFFSET ?",
         $fetchParams
     );
