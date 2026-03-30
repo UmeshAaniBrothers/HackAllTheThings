@@ -231,16 +231,6 @@
 (function() {
     'use strict';
 
-    // ── Safety: ensure shared functions exist (in case dashboard.js cached) ──
-    if (typeof escapeHtml !== 'function') window.escapeHtml = function(t) { if (!t) return ''; var d = document.createElement('div'); d.textContent = String(t); return d.innerHTML; };
-    if (typeof formatDate !== 'function') window.formatDate = function(d) { if (!d) return 'N/A'; var dt = new Date(d); return isNaN(dt) ? 'N/A' : dt.toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'}); };
-    if (typeof formatNumber !== 'function') window.formatNumber = function(n) { return new Intl.NumberFormat().format(parseInt(n)||0); };
-    if (typeof countryBadge !== 'function') window.countryBadge = function(code) { return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="'+code+'" style="cursor:pointer">'+code+'</span>'; };
-    if (typeof countryFlag !== 'function') window.countryFlag = function(code) { try { return String.fromCodePoint(...[...code.toUpperCase()].map(c=>0x1F1E6+c.charCodeAt(0)-65)); } catch(e) { return ''; } };
-    if (typeof countryName !== 'function') window.countryName = function(code) { return code; };
-    if (typeof statusBadge !== 'function') window.statusBadge = function(s) { return '<span class="badge '+(s==='active'?'badge-active':'badge-inactive')+'">'+(s||'unknown')+'</span>'; };
-    if (typeof typeBadge !== 'function') window.typeBadge = function(t) { return '<span class="badge badge-'+(t||'text')+'">'+(t||'text')+'</span>'; };
-
     // ── State ──────────────────────────────────────────────
     const S = {
         page: 1,
