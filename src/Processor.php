@@ -184,6 +184,9 @@ class Processor
             $platforms[] = $pMap[(int)$platformId] ?? 'Platform_' . $platformId;
         }
 
+        // Country/region targeting — extract from fields 8, 9, 10, 11
+        $countries = $this->extractCountries($c);
+
         $hashHeadline = is_string($headline) ? $headline : '';
         $hashSig = $this->generateHash($hashHeadline, '', '');
 
@@ -199,7 +202,7 @@ class Processor
             'last_seen'      => $lastSeen,
             'hash_signature' => $hashSig,
             'assets'         => $assets,
-            'countries'      => [],
+            'countries'      => $countries,
             'platforms'      => $platforms,
         ];
     }
@@ -434,6 +437,47 @@ class Processor
             }
         }
         return [];
+    }
+
+    /**
+     * Extract country codes from protobuf fields 8, 9, 10, 11.
+     *
+     * Google Ads Transparency encodes geographic targeting in these fields.
+     * Countries appear as 2-letter ISO codes (e.g. "US", "IN", "GB")
+     * nested at various depths in the protobuf structure.
+     */
+    private function extractCountries(array $c): array
+    {
+        $countries = [];
+
+        // Fields 8-11 may contain country/region targeting
+        foreach (['8', '9', '10', '11'] as $fieldKey) {
+            $field = $c[$fieldKey] ?? $c[(int)$fieldKey] ?? null;
+            if ($field === null) continue;
+
+            $this->collectCountryCodes($field, $countries);
+        }
+
+        return array_values(array_unique($countries));
+    }
+
+    /**
+     * Recursively collect 2-letter country codes from a protobuf field value.
+     */
+    private function collectCountryCodes($value, array &$countries, int $depth = 0): void
+    {
+        if ($depth > 5) return; // prevent infinite recursion
+
+        if (is_string($value) && preg_match('/^[A-Z]{2}$/', $value)) {
+            $countries[] = $value;
+            return;
+        }
+
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                $this->collectCountryCodes($item, $countries, $depth + 1);
+            }
+        }
     }
 
     /**
