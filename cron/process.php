@@ -87,6 +87,14 @@ try {
         logMsg("Product re-detection error: " . $e->getMessage());
     }
 
+    // Step 4c: Enrich store URLs by searching Play Store / App Store
+    $storeEnriched = 0;
+    try {
+        $storeEnriched = $processor->enrichStoreUrls();
+    } catch (Exception $e) {
+        logMsg("Store URL enrichment error: " . $e->getMessage());
+    }
+
     // Step 5: Update advertiser stats
     try {
         $db->query(
@@ -112,10 +120,16 @@ try {
            AND NOT EXISTS (SELECT 1 FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%')"
     );
 
-    // Count remaining web products that might still need re-detection
+    // Count remaining work
     $remainingWebProducts = (int) $db->fetchColumn(
         "SELECT COUNT(*) FROM ad_product_map pm
          INNER JOIN ad_products p ON pm.product_id = p.id AND p.store_platform = 'web'"
+    );
+    $remainingStoreUrls = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ad_products
+         WHERE store_platform IN ('playstore', 'ios')
+           AND (store_url IS NULL)
+           AND product_name != 'Unknown'"
     );
 
     $result = [
@@ -125,15 +139,17 @@ try {
         'enriched'  => $ytEnriched,
         'products'  => $productsDetected,
         'redetected' => $redetected,
+        'store_urls_enriched' => $storeEnriched,
         'remaining_extract' => $remainingExtract,
         'remaining_enrich'  => $remainingEnrich,
         'remaining_web_products' => $remainingWebProducts,
-        'message'   => ($remainingExtract > 0 || $remainingEnrich > 0) ? 'Call again to process more. ' . $remainingExtract . ' need YouTube URL, ' . $remainingEnrich . ' need view counts.' : 'All done!',
+        'remaining_store_urls' => $remainingStoreUrls,
+        'message'   => ($remainingExtract > 0 || $remainingEnrich > 0 || $remainingStoreUrls > 0) ? 'Call again to process more.' : 'All done!',
     ];
 
     if ($isCli) {
-        if ($processed > 0 || $ytExtracted > 0 || $ytEnriched > 0 || $productsDetected > 0 || $redetected > 0) {
-            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs, enriched {$ytEnriched} videos, detected {$productsDetected} products, re-detected {$redetected} web->app");
+        if ($processed > 0 || $ytExtracted > 0 || $ytEnriched > 0 || $productsDetected > 0 || $redetected > 0 || $storeEnriched > 0) {
+            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs, enriched {$ytEnriched} videos, detected {$productsDetected} products, re-detected {$redetected} web->app, enriched {$storeEnriched} store URLs");
         }
     } else {
         echo json_encode($result);
