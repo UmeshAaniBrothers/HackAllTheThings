@@ -72,8 +72,6 @@ try {
 
 function storePayload($db)
 {
-    global $config;
-
     $input = file_get_contents('php://input');
     $data = json_decode($input, true);
 
@@ -82,27 +80,13 @@ function storePayload($db)
         return;
     }
 
-    $rawJson = is_string($data['payload']) ? $data['payload'] : json_encode($data['payload']);
-
     $db->insert('raw_payloads', [
         'advertiser_id'  => $data['advertiser_id'],
-        'raw_json'       => $rawJson,
+        'raw_json'       => is_string($data['payload']) ? $data['payload'] : json_encode($data['payload']),
         'processed_flag' => 0,
     ]);
 
-    // Immediately process this payload
-    $processed = 0;
-    try {
-        $assetManager = new AssetManager($config['storage'] ?? array());
-        $processor = new Processor($db, $assetManager);
-        ob_start();
-        $processed = $processor->processAll();
-        ob_get_clean();
-    } catch (Throwable $e) {
-        // Non-critical: will be processed later
-    }
-
-    echo json_encode(['success' => true, 'message' => "Stored and processed {$processed} payload(s)"]);
+    echo json_encode(['success' => true, 'message' => 'Payload stored']);
 }
 
 function storeAndProcess($db, $config)

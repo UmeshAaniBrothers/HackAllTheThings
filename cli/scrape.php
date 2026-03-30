@@ -202,11 +202,12 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         return;
     }
 
-    // Send to server - each page is stored + processed immediately
-    echo "\nSending to server (store + process per page)...\n";
+    // Send to server - store only (fast)
+    echo "\nSending to server...\n";
 
     $storeUrl = $serverUrl . '/dashboard/api/ingest.php?action=store_payload&token=' . urlencode($token);
     $updateUrl = $serverUrl . '/dashboard/api/ingest.php?action=update_advertiser&token=' . urlencode($token);
+    $cronUrl = $serverUrl . '/cron/process.php?token=' . urlencode($token);
 
     // Step 1: Ensure advertiser exists
     $advResult = postJson($updateUrl, [
@@ -218,7 +219,7 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         echo "WARNING: Could not update advertiser record\n";
     }
 
-    // Step 2: Send each page — server processes it immediately
+    // Step 2: Send each page (store only, no processing yet)
     $sentPages = 0;
     foreach ($allPayloads as $i => $payload) {
         $pageNum = $i + 1;
@@ -230,14 +231,14 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         ]);
 
         if ($result && !empty($result['success'])) {
-            echo " OK (" . ($result['message'] ?? 'stored') . ")\n";
+            echo " OK\n";
             $sentPages++;
         } else {
             echo " FAILED: " . ($result['error'] ?? 'Unknown') . "\n";
         }
     }
 
-    echo "\nProcessed {$sentPages}/" . count($allPayloads) . " pages.\n";
+    echo "\nStored {$sentPages}/" . count($allPayloads) . " pages.\n";
 
     if ($sentPages === 0) {
         $backupFile = __DIR__ . '/backup_' . $advertiserId . '_' . date('Ymd_His') . '.json';
@@ -246,17 +247,23 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         return;
     }
 
-    // Step 3: Extract YouTube URLs
-    $ytUrl = $serverUrl . '/dashboard/api/manage.php?action=extract_youtube';
-    echo "Extracting YouTube URLs on server...";
-    $ytResult = postJson($ytUrl, [], 600);
-    if ($ytResult && !empty($ytResult['success'])) {
-        echo " OK: " . ($ytResult['message'] ?? 'done') . "\n";
+    // Step 3: Trigger background processing on server
+    echo "Triggering server processing...";
+    $cronResult = postJson($cronUrl, [], 300);
+    if ($cronResult && !empty($cronResult['success'])) {
+        $msg = "processed {$cronResult['processed']} payloads";
+        if (!empty($cronResult['youtube'])) {
+            $msg .= ", {$cronResult['youtube']} YouTube URLs";
+        }
+        echo " OK ({$msg})\n";
     } else {
-        echo " Note: " . ($ytResult['error'] ?? 'May still be running') . "\n";
+        echo " triggered (will complete in background)\n";
     }
 
-    echo "\nDone! Refresh your dashboard to see the ads.\n";
+    echo "\nDone! Ads will appear on your dashboard shortly.\n";
+    echo "If ads don't appear immediately, the server is still processing.\n";
+    echo "Set up a cron job for automatic processing:\n";
+    echo "  */2 * * * * cd /path/to/app && php cron/process.php >> cron/process.log 2>&1\n";
 }
 
 // ── Google API helpers ───────────────────────────────────
