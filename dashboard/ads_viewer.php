@@ -231,6 +231,16 @@
 (function() {
     'use strict';
 
+    // ── Safety: ensure shared functions exist (in case dashboard.js cached) ──
+    if (typeof escapeHtml !== 'function') window.escapeHtml = function(t) { if (!t) return ''; var d = document.createElement('div'); d.textContent = String(t); return d.innerHTML; };
+    if (typeof formatDate !== 'function') window.formatDate = function(d) { if (!d) return 'N/A'; var dt = new Date(d); return isNaN(dt) ? 'N/A' : dt.toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'}); };
+    if (typeof formatNumber !== 'function') window.formatNumber = function(n) { return new Intl.NumberFormat().format(parseInt(n)||0); };
+    if (typeof countryBadge !== 'function') window.countryBadge = function(code) { return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="'+code+'" style="cursor:pointer">'+code+'</span>'; };
+    if (typeof countryFlag !== 'function') window.countryFlag = function(code) { try { return String.fromCodePoint(...[...code.toUpperCase()].map(c=>0x1F1E6+c.charCodeAt(0)-65)); } catch(e) { return ''; } };
+    if (typeof countryName !== 'function') window.countryName = function(code) { return code; };
+    if (typeof statusBadge !== 'function') window.statusBadge = function(s) { return '<span class="badge '+(s==='active'?'badge-active':'badge-inactive')+'">'+(s||'unknown')+'</span>'; };
+    if (typeof typeBadge !== 'function') window.typeBadge = function(t) { return '<span class="badge badge-'+(t||'text')+'">'+(t||'text')+'</span>'; };
+
     // ── State ──────────────────────────────────────────────
     const S = {
         page: 1,
@@ -430,8 +440,11 @@
         resultsEl.innerHTML = '<div class="loading-overlay"><div class="spinner-border text-primary" role="status"></div></div>';
         document.getElementById('vPagination').innerHTML = '';
 
+        // Load stats separately so it can't crash the main load
+        loadStats();
+
         try {
-            const [{ data, endpoint }] = await Promise.all([loadData(), loadStats()]);
+            const { data, endpoint } = await loadData();
 
             const ads = data.ads || data.results || [];
             const total = data.total || 0;
@@ -461,7 +474,7 @@
 
         } catch (err) {
             console.error('Viewer load error:', err);
-            resultsEl.innerHTML = '<div class="text-center text-danger py-5"><i class="bi bi-exclamation-triangle me-2"></i>Failed to load ads. Please try again.</div>';
+            resultsEl.innerHTML = `<div class="text-center text-danger py-5"><i class="bi bi-exclamation-triangle me-2"></i>Failed to load ads: ${typeof escapeHtml === 'function' ? escapeHtml(err.message) : err.message}<br><small class="text-muted mt-2 d-block">Check browser console for details</small></div>`;
         }
     }
     window.viewerLoad = load;
@@ -578,17 +591,13 @@
                     </div>
                     <div class="ad-body">
                         <div class="ad-headline">${escapeHtml(headline)}</div>
-                        ${ad.description ? `<div class="ad-description">${escapeHtml(ad.description.substring(0, 100))}</div>` : ''}
+                        ${ad.description ? `<div class="ad-description">${escapeHtml(ad.description.substring(0, 150))}</div>` : ''}
+                        ${ad.cta ? `<div class="mt-1"><span class="badge bg-primary">${escapeHtml(ad.cta)}</span></div>` : ''}
                         ${productName && productName !== 'Unknown' ? `<div class="mt-1">
                             <a href="app_profile.php?id=${encodeURIComponent(productIdVal)}" class="badge bg-warning text-dark me-1 text-decoration-none" onclick="event.stopPropagation()" title="View App Profile"><i class="bi bi-app-indicator me-1"></i>${escapeHtml(productName)}</a>
                             <span class="badge ${platformColors[storePlatform] || 'bg-info'} viewer-clickable" data-filter="platform" data-value="${escapeHtml(storePlatform)}" title="Platform"><i class="bi ${platformIcons[storePlatform] || 'bi-globe'} me-1"></i>${platformLabels[storePlatform] || 'Web'}</span>
                         </div>` : ''}
-                        <div class="d-flex flex-wrap gap-1 mt-1">
-                            ${ad.cta ? `<span class="badge bg-primary viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
-                            ${ad.landing_url && !ad.landing_url.includes('displayads-formats') ? (() => { try { const h = new URL(ad.landing_url).hostname.replace('www.',''); return `<a href="${escapeHtml(ad.landing_url)}" target="_blank" rel="noopener" class="badge bg-light text-dark text-decoration-none" onclick="event.stopPropagation()" title="${escapeHtml(ad.landing_url)}"><i class="bi bi-link-45deg"></i> ${escapeHtml(h.substring(0,25))}</a>`; } catch(e) { return ''; } })() : ''}
-                            ${ad.display_url ? `<span class="badge bg-light text-muted" style="font-size:.65rem"><i class="bi bi-globe2"></i> ${escapeHtml(ad.display_url)}</span>` : ''}
-                            ${ad.ad_width && ad.ad_height ? `<span class="badge bg-light text-dark" style="font-size:.65rem">${ad.ad_width}×${ad.ad_height}</span>` : ''}
-                        </div>
+                        ${ad.landing_url && !ad.landing_url.includes('displayads-formats') ? (() => { try { const h = new URL(ad.landing_url).hostname.replace('www.',''); return `<div class="mt-1"><a href="${escapeHtml(ad.landing_url)}" target="_blank" rel="noopener" class="badge bg-light text-dark text-decoration-none" onclick="event.stopPropagation()" title="${escapeHtml(ad.landing_url)}"><i class="bi bi-link-45deg"></i> ${escapeHtml(h.substring(0,30))}</a></div>`; } catch(e) { return ''; } })() : ''}
                         <div class="mt-2">
                             ${isVideo && ad.youtube_url ? `<a href="youtube_profile.php?id=${encodeURIComponent(extractYouTubeId(ad.youtube_url))}" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()">
                                 <i class="bi bi-youtube me-1"></i>YouTube
@@ -600,8 +609,11 @@
                     </div>
                     <div class="ad-meta">
                         <div class="d-flex flex-wrap gap-1 mb-1">
-                            ${countries.map(c => countryBadge(c)).join('')}
-                            ${countries.length === 0 ? '<span class="badge bg-light text-muted" style="font-size:.65rem"><i class="bi bi-geo-alt"></i> No country data</span>' : ''}
+                            ${countries.length > 0 ? countries.map(c => {
+                                const flag = countryFlag(c);
+                                const name = countryName(c);
+                                return `<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="cursor:pointer" title="${escapeHtml(name)}">${flag} ${escapeHtml(name)} (${escapeHtml(c)})</span>`;
+                            }).join('') : '<span class="badge bg-light text-muted" style="font-size:.65rem"><i class="bi bi-geo-alt"></i> No country data</span>'}
                         </div>
                         <div class="d-flex justify-content-between align-items-center">
                             <a href="advertiser_profile.php?id=${encodeURIComponent(ad.advertiser_id)}" class="small text-muted text-decoration-none" onclick="event.stopPropagation()" title="View Advertiser Profile"><i class="bi bi-person-fill me-1"></i>${escapeHtml(advName)}</a>
@@ -625,7 +637,7 @@
 
         let html = `<div class="table-container"><div class="table-responsive"><table class="table table-hover mb-0">
             <thead><tr>
-                <th>Advertiser</th><th>App</th><th>Platform</th><th>Views</th><th>Type</th>
+                <th>Advertiser</th><th>Headline</th><th>App</th><th>Platform</th><th>Views</th><th>Type</th>
                 <th>Status</th><th>Countries</th>
                 <th>First Seen</th><th>Last Seen</th><th>Links</th>
             </tr></thead><tbody>`;
@@ -643,14 +655,16 @@
             const tblStorePlatform = ad.store_platform || 'web';
             const tblViewCount = parseInt(ad.view_count) || 0;
             const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
+            const tblHeadline = ad.headline || '';
             html += `<tr class="viewer-row" role="button" data-id="${escapeHtml(ad.creative_id)}">
                 <td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer">${escapeHtml(advName)}</span></td>
+                <td style="max-width:200px"><div class="text-truncate fw-bold" title="${escapeHtml(tblHeadline)}">${escapeHtml(tblHeadline || '-')}</div>${ad.description ? `<div class="text-truncate text-muted small" style="max-width:200px" title="${escapeHtml(ad.description)}">${escapeHtml(ad.description.substring(0,60))}</div>` : ''}</td>
                 <td>${tblProductName && tblProductName !== 'Unknown' ? `<span class="badge bg-warning text-dark viewer-clickable" data-filter="product_id" data-value="${escapeHtml(tblProductId)}" style="cursor:pointer;font-size:.75rem">${escapeHtml(tblProductName)}</span>${tblStoreUrl ? ` <a href="${escapeHtml(tblStoreUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${tblStorePlatform === 'ios' ? 'App Store' : 'Play Store'}" class="badge ${tblStorePlatform === 'ios' ? 'bg-dark' : 'bg-success'} text-decoration-none" style="font-size:.65rem"><i class="bi ${tblStorePlatform === 'ios' ? 'bi-apple' : 'bi-google-play'}"></i></a>` : ''}` : '<small class="text-muted">-</small>'}</td>
                 <td><span class="badge ${tblPlatformColors[tblStorePlatform] || 'bg-info'} viewer-clickable" data-filter="platform" data-value="${escapeHtml(tblStorePlatform)}" style="font-size:.75rem"><i class="bi ${tblPlatformIcons[tblStorePlatform] || 'bi-globe'} me-1"></i>${tblPlatformLabels[tblStorePlatform] || 'Web'}</span></td>
                 <td>${tblViewCount > 0 ? `<strong>${formatNumber(tblViewCount)}</strong>` : '<small class="text-muted">-</small>'}</td>
                 <td><span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type}</span></td>
                 <td><span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span></td>
-                <td>${countries.map(c => countryBadge(c)).join('')}${countries.length === 0 ? '<small class="text-muted">-</small>' : ''}</td>
+                <td>${countries.length > 0 ? countries.map(c => { const f = countryFlag(c); return `<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="cursor:pointer" title="${escapeHtml(countryName(c))}">${f} ${escapeHtml(c)}</span>`; }).join(' ') : '<small class="text-muted">-</small>'}</td>
                 <td><small>${formatDate(ad.first_seen)}</small></td>
                 <td><small>${formatDate(ad.last_seen)}</small></td>
                 <td><a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right"></i></a>${ad.youtube_url ? ` <a href="${escapeHtml(ad.youtube_url)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-youtube"></i></a>` : ''}</td>
