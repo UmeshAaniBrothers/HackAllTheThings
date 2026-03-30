@@ -72,39 +72,180 @@ class Processor
 
     /**
      * Parse ads from a raw API payload.
+     * Supports both old named-key format AND new protobuf numeric-key format:
+     *   "1"[n]."1" = advertiser_id
+     *   "1"[n]."2" = creative_id
+     *   "1"[n]."3" = content (nested: 3.1.4=preview URL, 3.3.2=image HTML)
+     *   "1"[n]."4" = format (1=text, 2=image, 3=video)
+     *   "1"[n]."6"."1" = first shown timestamp
+     *   "1"[n]."7"."1" = last shown timestamp
+     *   "1"[n]."12" = advertiser name
+     *   "1"[n]."13" = platform indicator
      */
     private function parseAdsFromPayload(array $data, string $fallbackAdvertiserId): array
     {
         $ads = [];
-        $creatives = $data['creatives'] ?? $data[1] ?? [];
+        $creatives = $data['creatives'] ?? $data['1'] ?? $data[1] ?? [];
 
         if (!is_array($creatives)) {
             return $ads;
         }
 
         foreach ($creatives as $creative) {
-            $headline = $this->extractField($creative, ['headline', 2]);
-            $description = $this->extractField($creative, ['description', 3]);
-            $cta = $this->extractField($creative, ['callToAction', 4]);
+            if (!is_array($creative)) continue;
 
-            $ads[] = [
-                'creative_id'   => $this->extractField($creative, ['creativeId', 0]),
-                'advertiser_id' => $this->extractField($creative, ['advertiserId', 1]) ?? $fallbackAdvertiserId,
-                'ad_type'       => $this->determineAdType($creative),
-                'headline'      => $headline,
-                'description'   => $description,
-                'cta'           => $cta,
-                'landing_url'   => $this->extractField($creative, ['landingPageUrl', 5]),
-                'first_seen'    => $this->parseTimestamp($this->extractField($creative, ['firstShown', 8])),
-                'last_seen'     => $this->parseTimestamp($this->extractField($creative, ['lastShown', 9])),
-                'hash_signature' => $this->generateHash($headline, $description, $cta),
-                'assets'        => $this->extractAssets($creative),
-                'countries'     => $this->extractArray($creative, ['countries', 'targetedCountries', 10]),
-                'platforms'     => $this->extractArray($creative, ['platforms', 'adPlatforms', 11]),
-            ];
+            // Detect format: if key "2" is a string that starts with "CR", it's the new protobuf format
+            $isProtobuf = false;
+            $key2 = $creative['2'] ?? $creative[2] ?? null;
+            if (is_string($key2) && strpos($key2, 'CR') === 0) {
+                $isProtobuf = true;
+            }
+            // Also detect by key "1" starting with "AR"
+            $key1 = $creative['1'] ?? $creative[1] ?? null;
+            if (is_string($key1) && strpos($key1, 'AR') === 0) {
+                $isProtobuf = true;
+            }
+
+            if ($isProtobuf) {
+                $ad = $this->parseProtobufCreative($creative, $fallbackAdvertiserId);
+            } else {
+                $ad = $this->parseLegacyCreative($creative, $fallbackAdvertiserId);
+            }
+
+            if ($ad && !empty($ad['creative_id'])) {
+                $ads[] = $ad;
+            }
         }
 
-        return array_filter($ads, function($ad) { return $ad['creative_id'] !== null; });
+        return $ads;
+    }
+
+    /**
+     * Parse a creative in the new protobuf numeric-key format.
+     */
+    private function parseProtobufCreative(array $c, string $fallbackAdvertiserId): array
+    {
+        $advertiserId = $this->extractStringVal($c, ['1']);
+        $creativeId = $this->extractStringVal($c, ['2']);
+        $advertiserName = $this->extractStringVal($c, ['12']);
+
+        // Format: 1=text, 2=image, 3=video
+        $format = $c['4'] ?? $c[4] ?? null;
+        $typeMap = [1 => 'text', 2 => 'image', 3 => 'video'];
+        $adType = 'text';
+        if (is_numeric($format) && isset($typeMap[(int)$format])) {
+            $adType = $typeMap[(int)$format];
+        }
+
+        // Timestamps
+        $firstSeen = null;
+        $lastSeen = null;
+        $f6 = $c['6'] ?? $c[6] ?? null;
+        $f7 = $c['7'] ?? $c[7] ?? null;
+        if (is_array($f6)) $firstSeen = $f6['1'] ?? $f6[1] ?? null;
+        elseif (is_scalar($f6)) $firstSeen = $f6;
+        if (is_array($f7)) $lastSeen = $f7['1'] ?? $f7[1] ?? null;
+        elseif (is_scalar($f7)) $lastSeen = $f7;
+
+        $firstSeen = $this->parseTimestamp($firstSeen);
+        $lastSeen = $this->parseTimestamp($lastSeen);
+
+        // Content from field 3
+        $content = $c['3'] ?? $c[3] ?? [];
+        $headline = null;
+        $previewUrl = null;
+        $imageUrl = null;
+
+        if (is_array($content)) {
+            $f31 = $content['1'] ?? $content[1] ?? null;
+            if (is_array($f31)) {
+                $previewUrl = $this->extractStringVal($f31, ['4']);
+                $headline = $this->extractStringVal($f31, ['1', '2', '3']);
+            }
+            $f33 = $content['3'] ?? $content[3] ?? null;
+            if (is_array($f33)) {
+                $imgHtml = $f33['2'] ?? $f33[2] ?? null;
+                if (is_string($imgHtml) && preg_match('/src=["\']([^"\']+)/', $imgHtml, $m)) {
+                    $imageUrl = $m[1];
+                }
+            }
+        }
+
+        // Build assets
+        $assets = [];
+        if ($previewUrl) $assets[] = ['type' => 'preview', 'url' => $previewUrl];
+        if ($imageUrl) $assets[] = ['type' => 'image', 'url' => $imageUrl];
+
+        // Platform
+        $platformId = $c['13'] ?? $c[13] ?? null;
+        $platforms = [];
+        if (is_numeric($platformId)) {
+            $pMap = [1 => 'Google Search', 2 => 'YouTube', 3 => 'Google Display', 4 => 'Google Shopping', 5 => 'Google Maps', 6 => 'Google Play'];
+            $platforms[] = $pMap[(int)$platformId] ?? 'Platform_' . $platformId;
+        }
+
+        $hashHeadline = is_string($headline) ? $headline : '';
+        $hashSig = $this->generateHash($hashHeadline, '', '');
+
+        return [
+            'creative_id'    => $creativeId,
+            'advertiser_id'  => $advertiserId ?: $fallbackAdvertiserId,
+            'ad_type'        => $adType,
+            'headline'       => is_string($headline) ? $headline : null,
+            'description'    => null,
+            'cta'            => null,
+            'landing_url'    => $previewUrl,
+            'first_seen'     => $firstSeen,
+            'last_seen'      => $lastSeen,
+            'hash_signature' => $hashSig,
+            'assets'         => $assets,
+            'countries'      => [],
+            'platforms'      => $platforms,
+        ];
+    }
+
+    /**
+     * Parse a creative in the old named-key format (backward compatible).
+     */
+    private function parseLegacyCreative(array $creative, string $fallbackAdvertiserId): array
+    {
+        $headline = $this->extractStringVal($creative, ['headline']);
+        $description = $this->extractStringVal($creative, ['description']);
+        $cta = $this->extractStringVal($creative, ['callToAction']);
+
+        return [
+            'creative_id'   => $this->extractStringVal($creative, ['creativeId']),
+            'advertiser_id' => $this->extractStringVal($creative, ['advertiserId']) ?: $fallbackAdvertiserId,
+            'ad_type'       => $this->determineAdType($creative),
+            'headline'      => $headline,
+            'description'   => $description,
+            'cta'           => $cta,
+            'landing_url'   => $this->extractStringVal($creative, ['landingPageUrl']),
+            'first_seen'    => $this->parseTimestamp($this->extractField($creative, ['firstShown'])),
+            'last_seen'     => $this->parseTimestamp($this->extractField($creative, ['lastShown'])),
+            'hash_signature' => $this->generateHash($headline ?: '', $description ?: '', $cta ?: ''),
+            'assets'        => $this->extractAssets($creative),
+            'countries'     => $this->extractArray($creative, ['countries', 'targetedCountries']),
+            'platforms'     => $this->extractArray($creative, ['platforms', 'adPlatforms']),
+        ];
+    }
+
+    /**
+     * Extract a string value from array, skipping arrays/objects.
+     */
+    private function extractStringVal(array $data, array $keys)
+    {
+        foreach ($keys as $key) {
+            $val = $data[$key] ?? $data[(string)$key] ?? null;
+            if (is_string($val) && $val !== '') return $val;
+            if (is_numeric($val)) return (string)$val;
+            if (is_array($val)) {
+                // Try nested first value
+                $nested = $val['1'] ?? $val[1] ?? $val[0] ?? null;
+                if (is_string($nested) && $nested !== '') return $nested;
+            }
+        }
+        return null;
     }
 
     /**
@@ -247,13 +388,14 @@ class Processor
     /**
      * Generate SHA-256 hash from ad content for change detection.
      */
-    public function generateHash(?string $headline, ?string $description, ?string $cta): string
+    public function generateHash($headline = '', $description = '', $cta = '')
     {
-        $content = implode('|', [
-            trim($headline ?? ''),
-            trim($description ?? ''),
-            trim($cta ?? ''),
-        ]);
+        // Ensure all values are strings
+        if (!is_string($headline)) $headline = is_scalar($headline) ? (string)$headline : '';
+        if (!is_string($description)) $description = is_scalar($description) ? (string)$description : '';
+        if (!is_string($cta)) $cta = is_scalar($cta) ? (string)$cta : '';
+
+        $content = implode('|', [trim($headline), trim($description), trim($cta)]);
         return hash('sha256', $content);
     }
 
