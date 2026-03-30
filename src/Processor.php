@@ -934,6 +934,14 @@ class Processor
             $headline    = $data['headline'] ?? null;
             $description = $data['description'] ?? null;
             $cta         = $data['cta'] ?? null;
+
+            // Hard guard: NEVER save JS error text as headline/description
+            if ($headline && preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(/i', $headline)) {
+                $headline = null;
+            }
+            if ($description && preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(/i', $description)) {
+                $description = null;
+            }
             $landingUrl  = $data['landing_url'] ?? null;
             $displayUrl  = $data['display_url'] ?? null;
             $adWidth     = $data['ad_width'] ?? null;
