@@ -202,18 +202,12 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         return;
     }
 
-    // ── Extract YouTube video IDs from preview URLs ──────
-    echo "\nExtracting YouTube video IDs from preview URLs...\n";
-    $videoDetails = extractVideoDetails($allPayloads);
-    echo "Found " . count($videoDetails) . " YouTube video(s)\n";
-
     // Send to server - one page at a time to avoid timeout
     echo "\nSending to server (page by page)...\n";
 
     $storeUrl = $serverUrl . '/dashboard/api/ingest.php?action=store_payload&token=' . urlencode($token);
     $updateUrl = $serverUrl . '/dashboard/api/ingest.php?action=update_advertiser&token=' . urlencode($token);
     $processUrl = $serverUrl . '/dashboard/api/manage.php?action=process';
-    $enrichUrl = $serverUrl . '/dashboard/api/ingest.php?action=enrich_ads&token=' . urlencode($token);
 
     // Step 1: Ensure advertiser exists
     $advResult = postJson($updateUrl, [
@@ -253,8 +247,8 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         return;
     }
 
-    // Step 3: Trigger processing on server
-    echo "Processing payloads on server...";
+    // Step 3: Trigger processing on server (also auto-extracts YouTube URLs)
+    echo "Processing on server (+ YouTube extraction)...";
     $procResult = postJson($processUrl, []);
     if ($procResult && !empty($procResult['success'])) {
         echo " OK: " . ($procResult['message'] ?? 'done') . "\n";
@@ -262,136 +256,7 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
         echo " Note: " . ($procResult['error'] ?? 'Processing may still be running') . "\n";
     }
 
-    // Step 4: Send enrichment data (YouTube URLs, images, text)
-    if (!empty($videoDetails)) {
-        echo "\nSending enrichment data (YouTube URLs, thumbnails)...\n";
-
-        // Send in batches of 50
-        $batches = array_chunk($videoDetails, 50);
-        foreach ($batches as $bi => $batch) {
-            $batchNum = $bi + 1;
-            echo "  Batch {$batchNum}/" . count($batches) . " (" . count($batch) . " ads)...";
-
-            $result = postJson($enrichUrl, [
-                'advertiser_id' => $advertiserId,
-                'enrichments'   => $batch,
-            ]);
-
-            if ($result && !empty($result['success'])) {
-                echo " OK\n";
-            } else {
-                echo " FAILED: " . ($result['error'] ?? 'Unknown') . "\n";
-            }
-        }
-    }
-
-    echo "\nDone! Refresh your Manage page to see the ads.\n";
-}
-
-/**
- * Extract YouTube video IDs by fetching each video ad's preview URL.
- * The preview content.js contains YouTube thumbnail URLs like:
- * https://i1.ytimg.com/vi/VIDEO_ID/hqdefault.jpg
- */
-function extractVideoDetails($allPayloads)
-{
-    $results = [];
-    $seen = [];
-    $totalVideo = 0;
-
-    foreach ($allPayloads as $payloadStr) {
-        $data = json_decode($payloadStr, true);
-        if (!is_array($data) || empty($data['1'])) continue;
-
-        foreach ($data['1'] as $ad) {
-            $creativeId = $ad['2'] ?? null;
-            $format = $ad['4'] ?? null;
-            if (!$creativeId || isset($seen[$creativeId])) continue;
-            $seen[$creativeId] = true;
-
-            // Get preview URL from field 3.1.4
-            $content = $ad['3'] ?? [];
-            $previewUrl = null;
-            if (is_array($content)) {
-                $f31 = $content['1'] ?? $content[1] ?? null;
-                if (is_array($f31)) {
-                    $previewUrl = $f31['4'] ?? $f31[4] ?? null;
-                }
-            }
-
-            // Only fetch preview for video ads (format=3) to get YouTube ID
-            if ($format == 3 && $previewUrl && is_string($previewUrl)) {
-                $totalVideo++;
-                // Rate limit: don't hammer Google
-                if ($totalVideo > 1) {
-                    usleep(300000); // 300ms between requests
-                }
-
-                $ytId = fetchYouTubeIdFromPreview($previewUrl);
-                if ($ytId) {
-                    echo ".";
-                    $results[] = [
-                        'creative_id' => $creativeId,
-                        'youtube_id'  => $ytId,
-                        'youtube_url' => 'https://www.youtube.com/watch?v=' . $ytId,
-                        'thumbnail'   => 'https://i.ytimg.com/vi/' . $ytId . '/hqdefault.jpg',
-                    ];
-                } else {
-                    echo "x";
-                }
-
-                // Progress every 50
-                if ($totalVideo % 50 === 0) {
-                    echo " [{$totalVideo}]\n";
-                }
-            }
-        }
-    }
-    echo "\n";
-
-    return $results;
-}
-
-/**
- * Fetch a preview content.js URL and extract YouTube video ID from it.
- * Looks for ytimg.com/vi/VIDEO_ID/ pattern in the JavaScript response.
- */
-function fetchYouTubeIdFromPreview($previewUrl)
-{
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL            => $previewUrl,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 10,
-        CURLOPT_CONNECTTIMEOUT => 5,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        CURLOPT_HTTPHEADER     => [
-            'Referer: https://adstransparency.google.com/',
-            'Accept: */*',
-        ],
-        CURLOPT_ENCODING       => 'gzip, deflate, br',
-    ]);
-
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($response === false || $httpCode !== 200) {
-        return null;
-    }
-
-    // Look for YouTube thumbnail URL: ytimg.com/vi/VIDEO_ID/
-    if (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $response, $matches)) {
-        return $matches[1];
-    }
-
-    // Also try youtube.com/embed/VIDEO_ID or youtube.com/watch?v=VIDEO_ID
-    if (preg_match('/youtube\.com\/(?:embed\/|watch\?v=)([a-zA-Z0-9_-]{11})/', $response, $matches)) {
-        return $matches[1];
-    }
-
-    return null;
+    echo "\nDone! Refresh your dashboard to see the ads.\n";
 }
 
 // ── Google API helpers ───────────────────────────────────
