@@ -352,10 +352,14 @@ class Processor
                 $localPath = $this->assetManager->downloadAsset($url, $ad['creative_id'], $type);
             }
 
-            $validTypes = ['image', 'video', 'text', 'preview'];
+            // DB column is ENUM('image','video','text') — map 'preview' to 'image'
+            $dbType = $type;
+            if ($dbType === 'preview') $dbType = 'image';
+            if (!in_array($dbType, ['image', 'video', 'text'])) $dbType = 'image';
+
             $this->db->insert('ad_assets', [
                 'creative_id'  => $ad['creative_id'],
-                'type'         => in_array($type, $validTypes) ? $type : 'image',
+                'type'         => $dbType,
                 'original_url' => $url,
                 'local_path'   => $localPath,
             ]);
@@ -535,7 +539,7 @@ class Processor
             "SELECT a.creative_id, ass.original_url as preview_url
              FROM ads a
              INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
-                AND (ass.type = 'preview' OR (ass.type = 'image' AND ass.original_url LIKE '%displayads-formats%'))
+                AND ass.original_url LIKE '%displayads-formats%'
              WHERE a.ad_type = 'video'
                AND NOT EXISTS (
                    SELECT 1 FROM ad_assets v
