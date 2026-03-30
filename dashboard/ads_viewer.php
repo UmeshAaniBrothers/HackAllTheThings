@@ -485,11 +485,14 @@
         productSel.length = 1;
         var platSymbols = { ios: '[iOS]', playstore: '[Play]' };
         var selectedPlatform = S.filters.platform || '';
+        var selectedAdvertiser = S.filters.advertiser_id || '';
         (S.filterOptions.products || []).forEach(function(p) {
             if (p.product_name === 'Unknown') return;
             if (p.store_platform !== 'ios' && p.store_platform !== 'playstore') return;
             // Filter by selected platform
             if (selectedPlatform && selectedPlatform !== 'web' && p.store_platform !== selectedPlatform) return;
+            // Filter by selected advertiser
+            if (selectedAdvertiser && p.advertiser_id !== selectedAdvertiser) return;
             var opt = document.createElement('option');
             opt.value = p.product_id;
             var platTag = platSymbols[p.store_platform] || '';
