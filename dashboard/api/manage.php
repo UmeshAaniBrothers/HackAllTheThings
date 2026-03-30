@@ -40,6 +40,7 @@ try {
         case 'remove_advertiser': removeAdvertiser($db); break;
         case 'test_connection':   testApiConnection($db, $config); break;
         case 'search_advertisers': searchAdvertisers($db, $config); break;
+        case 'extract_youtube':    extractYouTubeUrls($db); break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -508,4 +509,145 @@ function removeAdvertiser(Database $db): void
 
     $db->update('managed_advertisers', ['status' => 'paused'], 'advertiser_id = ?', [$advertiserId]);
     echo json_encode(['success' => true, 'message' => 'Advertiser paused']);
+}
+
+/**
+ * Extract YouTube video URLs from preview content.js URLs.
+ * Fetches each video ad's Google preview JS and extracts the YouTube video ID
+ * from embedded ytimg.com thumbnail references.
+ * Works from server side since displayads-formats.googleusercontent.com is not blocked.
+ */
+function extractYouTubeUrls($db)
+{
+    // Get all video ads that have a preview asset but no youtube video asset
+    $ads = $db->fetchAll(
+        "SELECT a.creative_id, ass.original_url as preview_url
+         FROM ads a
+         INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
+            AND (ass.type = 'preview' OR (ass.type = 'image' AND ass.original_url LIKE '%displayads-formats%'))
+         WHERE a.ad_type = 'video'
+           AND NOT EXISTS (
+               SELECT 1 FROM ad_assets v
+               WHERE v.creative_id = a.creative_id
+                 AND v.type = 'video'
+                 AND v.original_url LIKE '%youtube.com%'
+           )
+         GROUP BY a.creative_id
+         ORDER BY a.last_seen DESC"
+    );
+
+    if (empty($ads)) {
+        echo json_encode(['success' => true, 'message' => 'No video ads need YouTube extraction', 'extracted' => 0]);
+        return;
+    }
+
+    $extracted = 0;
+    $failed = 0;
+    $total = count($ads);
+    $errors = [];
+
+    foreach ($ads as $ad) {
+        $previewUrl = $ad['preview_url'];
+        if (empty($previewUrl)) {
+            $failed++;
+            continue;
+        }
+
+        // Fetch the preview content.js
+        $ytId = fetchYouTubeIdFromPreview($previewUrl);
+
+        if ($ytId) {
+            $youtubeUrl = 'https://www.youtube.com/watch?v=' . $ytId;
+            $thumbnail = 'https://i.ytimg.com/vi/' . $ytId . '/hqdefault.jpg';
+
+            // Store YouTube video asset
+            $exists = $db->fetchOne(
+                "SELECT id FROM ad_assets WHERE creative_id = ? AND type = 'video' AND original_url = ?",
+                [$ad['creative_id'], $youtubeUrl]
+            );
+            if (!$exists) {
+                $db->insert('ad_assets', [
+                    'creative_id'  => $ad['creative_id'],
+                    'type'         => 'video',
+                    'original_url' => $youtubeUrl,
+                    'local_path'   => null,
+                ]);
+            }
+
+            // Store YouTube thumbnail
+            $exists2 = $db->fetchOne(
+                "SELECT id FROM ad_assets WHERE creative_id = ? AND type = 'image' AND original_url = ?",
+                [$ad['creative_id'], $thumbnail]
+            );
+            if (!$exists2) {
+                $db->insert('ad_assets', [
+                    'creative_id'  => $ad['creative_id'],
+                    'type'         => 'image',
+                    'original_url' => $thumbnail,
+                    'local_path'   => null,
+                ]);
+            }
+
+            $extracted++;
+        } else {
+            $failed++;
+            if (count($errors) < 5) {
+                $errors[] = $ad['creative_id'];
+            }
+        }
+
+        // Rate limit: 300ms between requests
+        usleep(300000);
+    }
+
+    echo json_encode([
+        'success'   => true,
+        'message'   => "Extracted {$extracted} YouTube URLs out of {$total} video ads ({$failed} failed)",
+        'extracted' => $extracted,
+        'failed'    => $failed,
+        'total'     => $total,
+        'sample_errors' => $errors,
+    ]);
+}
+
+/**
+ * Fetch a Google preview content.js URL and extract YouTube video ID.
+ * Looks for ytimg.com/vi/VIDEO_ID/ pattern in the JavaScript response.
+ */
+function fetchYouTubeIdFromPreview($previewUrl)
+{
+    $ch = curl_init();
+    curl_setopt_array($ch, array(
+        CURLOPT_URL            => $previewUrl,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 15,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        CURLOPT_HTTPHEADER     => array(
+            'Referer: https://adstransparency.google.com/',
+            'Accept: */*',
+        ),
+        CURLOPT_ENCODING       => 'gzip, deflate',
+    ));
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($response === false || $httpCode !== 200 || strlen($response) < 100) {
+        return null;
+    }
+
+    // Look for YouTube thumbnail URL: ytimg.com/vi/VIDEO_ID/
+    if (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $response, $matches)) {
+        return $matches[1];
+    }
+
+    // Also try youtube.com/embed/VIDEO_ID
+    if (preg_match('/youtube\.com\/(?:embed\/|watch\?v=)([a-zA-Z0-9_-]{11})/', $response, $matches)) {
+        return $matches[1];
+    }
+
+    return null;
 }

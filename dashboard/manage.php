@@ -57,6 +57,20 @@
     </div>
 </div>
 
+<!-- Server-side Tools -->
+<div class="filter-bar mb-4">
+    <h6 class="mb-3"><i class="bi bi-tools me-1"></i>Server-side Tools</h6>
+    <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-outline-danger btn-sm" onclick="extractYouTube()" id="btnExtractYt">
+            <i class="bi bi-youtube me-1"></i>Extract YouTube URLs
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="processPayloads()" id="btnProcess">
+            <i class="bi bi-arrow-repeat me-1"></i>Process Raw Payloads
+        </button>
+    </div>
+    <div id="toolResult" class="mt-2" style="display:none"></div>
+</div>
+
 <!-- Global Stats -->
 <div class="row mb-4" id="globalStats">
     <div class="col-6 col-md-3 mb-3">
@@ -334,6 +348,56 @@
         }
     }
     window.addOnly = addOnly;
+
+    // ── Server-side tools ────────────────────────────────
+    async function extractYouTube() {
+        const btn = document.getElementById('btnExtractYt');
+        const resultDiv = document.getElementById('toolResult');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Extracting...';
+        resultDiv.style.display = 'block';
+        resultDiv.innerHTML = '<div class="alert alert-info mb-0"><i class="bi bi-hourglass-split me-1"></i>Fetching YouTube URLs from Google preview pages... This may take a few minutes.</div>';
+
+        try {
+            const data = await fetchAPI('manage.php', { action: 'extract_youtube' });
+            if (data.success) {
+                resultDiv.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle me-1"></i>' + (data.message || 'Done') + '</div>';
+            } else {
+                resultDiv.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-x-circle me-1"></i>' + (data.error || 'Failed') + '</div>';
+            }
+        } catch (err) {
+            resultDiv.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-x-circle me-1"></i>Error: ' + err.message + '</div>';
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-youtube me-1"></i>Extract YouTube URLs';
+    }
+    window.extractYouTube = extractYouTube;
+
+    async function processPayloads() {
+        const btn = document.getElementById('btnProcess');
+        const resultDiv = document.getElementById('toolResult');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Processing...';
+        resultDiv.style.display = 'block';
+        resultDiv.innerHTML = '<div class="alert alert-info mb-0"><i class="bi bi-hourglass-split me-1"></i>Processing raw payloads...</div>';
+
+        try {
+            const data = await fetchAPI('manage.php', { action: 'process' });
+            if (data.success) {
+                resultDiv.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle me-1"></i>' + (data.message || 'Done') + '</div>';
+                loadStatus();
+            } else {
+                resultDiv.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-x-circle me-1"></i>' + (data.error || 'Failed') + '</div>';
+            }
+        } catch (err) {
+            resultDiv.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-x-circle me-1"></i>Error: ' + err.message + '</div>';
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Process Raw Payloads';
+    }
+    window.processPayloads = processPayloads;
 
     // ── Re-scrape single advertiser ───────────────────────
     async function reScrape(advId) {
