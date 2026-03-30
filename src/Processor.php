@@ -517,4 +517,118 @@ class Processor
         $timestamp = date('Y-m-d H:i:s');
         echo "[{$timestamp}] PROCESSOR: {$message}\n";
     }
+
+    /**
+     * Extract YouTube URLs from Google preview content.js for all video ads
+     * that don't have a YouTube URL yet.
+     * Returns the number of YouTube URLs extracted.
+     */
+    public function extractYouTubeUrls()
+    {
+        $ads = $this->db->fetchAll(
+            "SELECT a.creative_id, ass.original_url as preview_url
+             FROM ads a
+             INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
+                AND (ass.type = 'preview' OR (ass.type = 'image' AND ass.original_url LIKE '%displayads-formats%'))
+             WHERE a.ad_type = 'video'
+               AND NOT EXISTS (
+                   SELECT 1 FROM ad_assets v
+                   WHERE v.creative_id = a.creative_id
+                     AND v.type = 'video'
+                     AND v.original_url LIKE '%youtube.com%'
+               )
+             GROUP BY a.creative_id
+             ORDER BY a.last_seen DESC"
+        );
+
+        if (empty($ads)) {
+            return 0;
+        }
+
+        $extracted = 0;
+
+        foreach ($ads as $ad) {
+            $previewUrl = $ad['preview_url'];
+            if (empty($previewUrl)) continue;
+
+            $ytId = $this->fetchYouTubeIdFromPreview($previewUrl);
+
+            if ($ytId) {
+                $youtubeUrl = 'https://www.youtube.com/watch?v=' . $ytId;
+                $thumbnail = 'https://i.ytimg.com/vi/' . $ytId . '/hqdefault.jpg';
+
+                $exists = $this->db->fetchOne(
+                    "SELECT id FROM ad_assets WHERE creative_id = ? AND type = 'video' AND original_url = ?",
+                    [$ad['creative_id'], $youtubeUrl]
+                );
+                if (!$exists) {
+                    $this->db->insert('ad_assets', [
+                        'creative_id'  => $ad['creative_id'],
+                        'type'         => 'video',
+                        'original_url' => $youtubeUrl,
+                        'local_path'   => null,
+                    ]);
+                }
+
+                $exists2 = $this->db->fetchOne(
+                    "SELECT id FROM ad_assets WHERE creative_id = ? AND type = 'image' AND original_url = ?",
+                    [$ad['creative_id'], $thumbnail]
+                );
+                if (!$exists2) {
+                    $this->db->insert('ad_assets', [
+                        'creative_id'  => $ad['creative_id'],
+                        'type'         => 'image',
+                        'original_url' => $thumbnail,
+                        'local_path'   => null,
+                    ]);
+                }
+
+                $extracted++;
+            }
+
+            usleep(300000); // 300ms rate limit
+        }
+
+        $this->log("Extracted {$extracted} YouTube URLs from " . count($ads) . " video ads");
+        return $extracted;
+    }
+
+    /**
+     * Fetch a Google preview content.js URL and extract YouTube video ID.
+     */
+    private function fetchYouTubeIdFromPreview($previewUrl)
+    {
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL            => $previewUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            CURLOPT_HTTPHEADER     => array(
+                'Referer: https://adstransparency.google.com/',
+                'Accept: */*',
+            ),
+            CURLOPT_ENCODING       => 'gzip, deflate',
+        ));
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($response === false || $httpCode !== 200 || strlen($response) < 100) {
+            return null;
+        }
+
+        if (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $response, $matches)) {
+            return $matches[1];
+        }
+
+        if (preg_match('/youtube\.com\/(?:embed\/|watch\?v=)([a-zA-Z0-9_-]{11})/', $response, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
+    }
 }
