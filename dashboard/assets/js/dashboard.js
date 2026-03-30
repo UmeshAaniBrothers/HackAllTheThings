@@ -1,7 +1,8 @@
 /**
  * Ad Intelligence Dashboard - Frontend JavaScript
  *
- * Shared utilities and overview page logic.
+ * Shared utilities used across all pages.
+ * Overview page logic is inline in index.php.
  * Ads Viewer (ads_viewer.php) has its own inline JS.
  * Manage page (manage.php) has its own inline JS.
  */
@@ -20,19 +21,33 @@ async function fetchAPI(endpoint, params = {}) {
         }
     });
 
-    const response = await fetch(url);
-    var text = await response.text();
-    var data = null;
-    try { data = JSON.parse(text); } catch(e) {}
-    if (!response.ok) {
-        var msg = (data && data.error) ? data.error : (text.substring(0, 300) || ('API error: ' + response.status));
-        var file = (data && data.file) ? (' [' + data.file + ']') : '';
-        throw new Error(msg + file);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        var text = await response.text();
+        var data = null;
+        try { data = JSON.parse(text); } catch(e) {}
+
+        if (!response.ok) {
+            var msg = (data && data.error) ? data.error : (text.substring(0, 300) || ('API error: ' + response.status));
+            var file = (data && data.file) ? (' [' + data.file + ']') : '';
+            throw new Error(msg + file);
+        }
+        if (!data) {
+            throw new Error('Invalid JSON: ' + text.substring(0, 300));
+        }
+        return data;
+    } catch (err) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+            throw new Error('Request timed out');
+        }
+        throw err;
     }
-    if (!data) {
-        throw new Error('Invalid JSON: ' + text.substring(0, 300));
-    }
-    return data;
 }
 
 function showLoading(containerId) {
@@ -49,83 +64,31 @@ function showLoading(containerId) {
 function formatDate(dateStr) {
     if (!dateStr) return 'N/A';
     const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return 'N/A';
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function formatNumber(num) {
-    return new Intl.NumberFormat().format(num || 0);
+    if (num === null || num === undefined) return '0';
+    const n = parseInt(num) || 0;
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return new Intl.NumberFormat().format(n);
 }
 
 function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = String(text);
     return div.innerHTML;
 }
 
 function statusBadge(status) {
     const cls = status === 'active' ? 'badge-active' : 'badge-inactive';
-    return `<span class="badge ${cls}">${status}</span>`;
+    return `<span class="badge ${cls}">${status || 'unknown'}</span>`;
 }
 
 function typeBadge(type) {
     const cls = `badge-${type || 'text'}`;
     return `<span class="badge ${cls}">${type || 'text'}</span>`;
-}
-
-// ============================================================
-// Overview Page
-// ============================================================
-
-async function loadOverview() {
-    try {
-        const advertiserId = document.getElementById('advertiserFilter')?.value || null;
-        const data = await fetchAPI('overview.php', { advertiser_id: advertiserId });
-
-        if (!data.success) return;
-
-        // Update KPI cards
-        document.getElementById('totalAds').textContent = formatNumber(data.stats.total_ads);
-        document.getElementById('activeAds').textContent = formatNumber(data.stats.active_ads);
-        var videoAds = document.getElementById('videoAds');
-        if (videoAds) videoAds.textContent = formatNumber(data.stats.video_ads);
-        var pendingEl = document.getElementById('pendingPayloads');
-        if (pendingEl) pendingEl.textContent = formatNumber(data.stats.pending_payloads);
-
-        // Recent activity table
-        renderActivityTable(data.recent_activity);
-
-        // Populate advertiser filter
-        populateAdvertiserFilter(data.advertisers);
-
-    } catch (err) {
-        console.error('Overview load error:', err);
-    }
-}
-
-function renderActivityTable(activities) {
-    const tbody = document.getElementById('activityTable');
-    if (!tbody || !activities) return;
-
-    tbody.innerHTML = activities.map(a => `
-        <tr>
-            <td class="text-truncate" style="max-width:140px"><small class="text-muted">${escapeHtml((a.creative_id || '').substring(0, 16))}...</small></td>
-            <td>${escapeHtml(a.headline || 'N/A')}</td>
-            <td>${typeBadge(a.ad_type)}</td>
-            <td>${statusBadge(a.status)}</td>
-            <td>${formatDate(a.last_seen)}</td>
-        </tr>
-    `).join('');
-}
-
-function populateAdvertiserFilter(advertisers) {
-    const select = document.getElementById('advertiserFilter');
-    if (!select || select.options.length > 1 || !advertisers) return;
-
-    advertisers.forEach(a => {
-        const option = document.createElement('option');
-        option.value = a.advertiser_id;
-        option.textContent = `${a.name || a.advertiser_id} (${a.total_ads || 0} ads)`;
-        select.appendChild(option);
-    });
 }

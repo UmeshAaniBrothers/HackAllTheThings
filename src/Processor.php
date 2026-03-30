@@ -573,11 +573,6 @@ class Processor
     }
 
     /**
-     * Extract YouTube URLs from Google preview content.js for all video ads
-     * that don't have a YouTube URL yet.
-     * Returns the number of YouTube URLs extracted.
-     */
-    /**
      * Enrich ads that are missing headline/description by fetching preview content.js
      * from Google Ads Transparency and extracting text content.
      */
@@ -1548,7 +1543,7 @@ class Processor
         ));
         $resp = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        unset($ch);
+        curl_close($ch);
 
         if ($resp && $code === 200) {
             $data = json_decode($resp, true);
@@ -1573,7 +1568,7 @@ class Processor
         ));
         $html = curl_exec($ch2);
         $code2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
-        unset($ch2);
+        curl_close($ch2);
 
         if ($html && $code2 === 200) {
             if (preg_match('/"viewCount":"(\d+)"/', $html, $m)) {

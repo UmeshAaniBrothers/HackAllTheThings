@@ -374,7 +374,7 @@
         const el = document.getElementById(ELEMENT_MAP[key]);
         if (el) {
             // If the option doesn't exist in the select, add it
-            if (el.tagName === 'SELECT' && !el.querySelector(`option[value="${CSS.escape(value)}"]`)) {
+            if (el.tagName === 'SELECT' && !Array.from(el.options).some(o => o.value === value)) {
                 const opt = document.createElement('option');
                 opt.value = value;
                 opt.textContent = value;
@@ -397,10 +397,7 @@
             }
         });
 
-        // Use search.php if advanced filters are used, ads.php otherwise
-        const hasAdvanced = S.filters.domain || S.filters.cta || S.filters.sentiment
-                         || S.filters.hook || S.filters.tag;
-        const endpoint = hasAdvanced ? 'search.php' : 'ads.php';
+        const endpoint = 'ads.php';
 
         const data = await fetchAPI(endpoint, params);
         if (!data.success) throw new Error('API returned success=false');
@@ -518,18 +515,7 @@
     }
 
     async function loadTags() {
-        try {
-            const data = await fetchAPI('tags.php', { action: 'list' });
-            if (!data.success) return;
-            const sel = document.getElementById('vFilterTag');
-            (data.tags || []).forEach(t => {
-                const opt = document.createElement('option');
-                opt.value = t.name;
-                opt.textContent = t.name;
-                opt.style.borderLeft = `4px solid ${t.color || '#6c757d'}`;
-                sel.appendChild(opt);
-            });
-        } catch (e) {}
+        // Tags feature placeholder — tags API not yet implemented
     }
 
     // ── Grid Render ────────────────────────────────────────
@@ -593,13 +579,13 @@
                     <div class="ad-body">
                         <div class="ad-headline">${escapeHtml(headline)}</div>
                         ${productName && productName !== 'Unknown' ? `<div class="mt-1">
-                            <a href="app_profile.php?id=${escapeHtml(productIdVal)}" class="badge bg-warning text-dark me-1 text-decoration-none" onclick="event.stopPropagation()" title="View App Profile"><i class="bi bi-app-indicator me-1"></i>${escapeHtml(productName)}</a>
+                            <a href="app_profile.php?id=${encodeURIComponent(productIdVal)}" class="badge bg-warning text-dark me-1 text-decoration-none" onclick="event.stopPropagation()" title="View App Profile"><i class="bi bi-app-indicator me-1"></i>${escapeHtml(productName)}</a>
                             <span class="badge ${platformColors[storePlatform] || 'bg-info'} viewer-clickable" data-filter="platform" data-value="${escapeHtml(storePlatform)}" title="Platform"><i class="bi ${platformIcons[storePlatform] || 'bi-globe'} me-1"></i>${platformLabels[storePlatform] || 'Web'}</span>
                             ${storeUrl ? `<a href="${escapeHtml(storeUrl)}" target="_blank" rel="noopener" class="badge ${storePlatform === 'ios' ? 'bg-dark' : 'bg-success'} text-decoration-none" onclick="event.stopPropagation()" title="${storePlatform === 'ios' ? 'App Store' : 'Play Store'}"><i class="bi ${storePlatform === 'ios' ? 'bi-apple' : 'bi-google-play'} me-1"></i>${storePlatform === 'ios' ? 'App Store' : 'Play Store'}</a>` : ''}
                         </div>` : ''}
                         ${ad.cta ? `<span class="badge bg-primary mt-1 viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
                         <div class="mt-2">
-                            ${isVideo && ad.youtube_url ? `<a href="youtube_profile.php?id=${escapeHtml(extractYouTubeId(ad.youtube_url))}" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()">
+                            ${isVideo && ad.youtube_url ? `<a href="youtube_profile.php?id=${encodeURIComponent(extractYouTubeId(ad.youtube_url))}" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()">
                                 <i class="bi bi-youtube me-1"></i>YouTube
                             </a>` : ''}
                             <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()">
@@ -703,10 +689,10 @@
         modal.show();
 
         try {
-            const [creative, intel] = await Promise.all([
+            const [creative] = await Promise.all([
                 fetchAPI('creative.php', { id: creativeId }),
-                fetchAPI('intelligence.php', { creative_id: creativeId }).catch(() => null),
             ]);
+            const intel = null;
 
             if (!creative.success) {
                 body.innerHTML = '<div class="text-danger">Failed to load detail</div>';

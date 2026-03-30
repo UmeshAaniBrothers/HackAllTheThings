@@ -7,7 +7,13 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ad Intelligence Dashboard<?php
-        $pageTitles = ['app_profile' => ' - App Profile', 'advertiser_profile' => ' - Advertiser Profile', 'youtube_profile' => ' - Video Profile'];
+        $pageTitles = [
+            'app_profile' => ' - App Profile',
+            'advertiser_profile' => ' - Advertiser Profile',
+            'youtube_profile' => ' - Video Profile',
+            'ads_viewer' => ' - Ads Viewer',
+            'manage' => ' - Manage',
+        ];
         echo $pageTitles[$currentPage] ?? '';
     ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -39,6 +45,11 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                         <a class="nav-link <?= $currentPage === 'manage' ? 'active' : '' ?>" href="manage.php">
                             <i class="bi bi-gear me-1"></i>Manage
                         </a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <span class="nav-link text-muted small" id="navClock"></span>
                     </li>
                 </ul>
             </div>

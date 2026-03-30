@@ -133,7 +133,7 @@
                 <h5><i class="bi bi-youtube me-2 text-danger"></i>YouTube Videos (${data.videos.length})</h5>
                 <div class="row">
                     ${data.videos.map(v => `<div class="col-md-4 col-lg-3 mb-3">
-                        <a href="youtube_profile.php?id=${escapeHtml(v.video_id)}" class="text-decoration-none text-dark">
+                        <a href="youtube_profile.php?id=${encodeURIComponent(v.video_id)}" class="text-decoration-none text-dark">
                             <div class="card h-100">
                                 <div style="position:relative;aspect-ratio:16/9;overflow:hidden;background:#000">
                                     <img src="https://i.ytimg.com/vi/${escapeHtml(v.video_id)}/hqdefault.jpg" class="w-100 h-100" style="object-fit:cover" loading="lazy">

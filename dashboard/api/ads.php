@@ -78,6 +78,18 @@ try {
         $params[] = $searchParam;
     }
 
+    // Advanced filters: domain (landing_url), CTA
+    $domain = isset($_GET['domain']) ? trim($_GET['domain']) : null;
+    $cta = isset($_GET['cta']) ? trim($_GET['cta']) : null;
+    if ($domain) {
+        $where[] = 'EXISTS (SELECT 1 FROM ad_details dd WHERE dd.creative_id = a.creative_id AND dd.landing_url LIKE ?)';
+        $params[] = '%' . $domain . '%';
+    }
+    if ($cta) {
+        $where[] = 'EXISTS (SELECT 1 FROM ad_details dd WHERE dd.creative_id = a.creative_id AND dd.cta LIKE ?)';
+        $params[] = '%' . $cta . '%';
+    }
+
     $whereClause = implode(' AND ', $where);
 
     // Sort order

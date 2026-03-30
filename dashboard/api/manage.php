@@ -33,6 +33,11 @@ try {
         case 'status':             getStatus($db); break;
         case 'remove_advertiser':  removeAdvertiser($db); break;
         case 'extract_youtube':    extractYouTubeUrls($db); break;
+        case 'run_all':            runFullPipeline($db, $config); break;
+        case 'scrape':             triggerScrape($db); break;
+        case 'analyze':            runAnalysis($db, $config); break;
+        case 'search_advertisers': searchAdvertisers($db); break;
+        case 'test_connection':    testConnection($db); break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -159,9 +164,10 @@ function removeAdvertiser(Database $db): void
     echo json_encode(['success' => true, 'message' => 'Advertiser paused']);
 }
 
-function extractYouTubeUrls($db)
+function extractYouTubeUrls($db): void
 {
-    global $config;
+    $basePath = dirname(dirname(__DIR__));
+    $config = require $basePath . '/config/config.php';
     $assetManager = new AssetManager($config['storage'] ?? array());
     $processor = new Processor($db, $assetManager);
 
@@ -175,5 +181,156 @@ function extractYouTubeUrls($db)
             ? "Extracted {$extracted} YouTube URLs"
             : 'No video ads need YouTube extraction',
         'extracted' => $extracted,
+    ]);
+}
+
+function runFullPipeline(Database $db, array $config): void
+{
+    $advertiserId = trim($_GET['advertiser_id'] ?? $_POST['advertiser_id'] ?? '');
+    $advertiserName = trim($_GET['advertiser_name'] ?? $_POST['advertiser_name'] ?? '');
+
+    if (empty($advertiserId)) {
+        echo json_encode(['success' => false, 'error' => 'advertiser_id is required']);
+        return;
+    }
+
+    // Step 1: Ensure advertiser is tracked
+    $existing = $db->fetchOne("SELECT id FROM managed_advertisers WHERE advertiser_id = ?", [$advertiserId]);
+    if (!$existing) {
+        $db->insert('managed_advertisers', [
+            'advertiser_id' => $advertiserId,
+            'name'          => $advertiserName ?: $advertiserId,
+            'status'        => 'new',
+        ]);
+    }
+
+    // Step 2: Process any pending payloads
+    $assetManager = new AssetManager($config['storage'] ?? []);
+    $processor = new Processor($db, $assetManager);
+
+    ob_start();
+    $processed = $processor->processAll();
+    $textEnriched = $processor->enrichAdText();
+    $ytExtracted = $processor->extractYouTubeUrls();
+    $ytEnriched = $processor->enrichYouTubeMetadata();
+    $storeEnriched = $processor->enrichStoreUrlsFromPreview();
+    ob_get_clean();
+
+    // Step 3: Update stats
+    try {
+        $db->query(
+            "UPDATE managed_advertisers ma SET
+                ma.active_ads = (SELECT COUNT(*) FROM ads a WHERE a.advertiser_id = ma.advertiser_id AND a.status = 'active'),
+                ma.total_ads = (SELECT COUNT(*) FROM ads a WHERE a.advertiser_id = ma.advertiser_id)
+             WHERE ma.advertiser_id = ?",
+            [$advertiserId]
+        );
+    } catch (Exception $e) { /* non-critical */ }
+
+    $stats = $db->fetchOne(
+        "SELECT COUNT(*) as total,
+                SUM(status = 'active') as active,
+                SUM(ad_type = 'text') as text_ads,
+                SUM(ad_type = 'image') as image_ads,
+                SUM(ad_type = 'video') as video_ads
+         FROM ads WHERE advertiser_id = ?",
+        [$advertiserId]
+    );
+
+    echo json_encode([
+        'success' => true,
+        'message' => "Processed {$processed} payloads, {$textEnriched} text, {$ytExtracted} YouTube, {$ytEnriched} enriched, {$storeEnriched} apps",
+        'stats'   => $stats,
+    ]);
+}
+
+function triggerScrape(Database $db): void
+{
+    $advertiserId = trim($_GET['advertiser_id'] ?? $_POST['advertiser_id'] ?? '');
+    if (empty($advertiserId)) {
+        echo json_encode(['success' => false, 'error' => 'advertiser_id is required']);
+        return;
+    }
+
+    // Server-side scraping is not supported — must use CLI tool from local Mac
+    echo json_encode([
+        'success' => false,
+        'error'   => 'Server-side scraping is not available. Use the CLI tool from your Mac: php cli/scrape.php fetch ' . $advertiserId,
+    ]);
+}
+
+function runAnalysis(Database $db, array $config): void
+{
+    $assetManager = new AssetManager($config['storage'] ?? []);
+    $processor = new Processor($db, $assetManager);
+
+    ob_start();
+    $textEnriched = $processor->enrichAdText();
+    $ytEnriched = $processor->enrichYouTubeMetadata();
+    $storeEnriched = $processor->enrichStoreUrlsFromPreview();
+    ob_get_clean();
+
+    echo json_encode([
+        'success' => true,
+        'message' => "Analysis complete: {$textEnriched} text enriched, {$ytEnriched} YouTube enriched, {$storeEnriched} apps detected",
+        'results' => [
+            'text_enriched'  => $textEnriched,
+            'youtube_enriched' => $ytEnriched,
+            'apps_detected'  => $storeEnriched,
+        ],
+    ]);
+}
+
+function searchAdvertisers(Database $db): void
+{
+    $keyword = trim($_GET['keyword'] ?? $_POST['keyword'] ?? '');
+    if (empty($keyword)) {
+        echo json_encode(['success' => false, 'error' => 'keyword is required']);
+        return;
+    }
+
+    // Search in managed_advertisers by name or ID
+    $results = $db->fetchAll(
+        "SELECT advertiser_id, name, status, total_ads
+         FROM managed_advertisers
+         WHERE (name LIKE ? OR advertiser_id LIKE ?)
+           AND status NOT IN ('deleted')
+         ORDER BY total_ads DESC
+         LIMIT 20",
+        ['%' . $keyword . '%', '%' . $keyword . '%']
+    );
+
+    // Also search in ads table for advertiser IDs we may not be tracking
+    $untracked = $db->fetchAll(
+        "SELECT DISTINCT a.advertiser_id,
+                COALESCE(ma.name, a.advertiser_id) as name,
+                COUNT(*) as total_ads
+         FROM ads a
+         LEFT JOIN managed_advertisers ma ON a.advertiser_id = ma.advertiser_id
+         WHERE a.advertiser_id LIKE ?
+           AND a.advertiser_id NOT IN (SELECT advertiser_id FROM managed_advertisers)
+         GROUP BY a.advertiser_id
+         ORDER BY total_ads DESC
+         LIMIT 10",
+        ['%' . $keyword . '%']
+    );
+
+    echo json_encode([
+        'success' => true,
+        'results' => array_merge($results, $untracked),
+    ]);
+}
+
+function testConnection(Database $db): void
+{
+    $result = $db->fetchOne("SELECT 1 as ok, NOW() as server_time");
+    $adCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM ads");
+    $advCount = (int) $db->fetchColumn("SELECT COUNT(*) FROM managed_advertisers WHERE status != 'deleted'");
+
+    echo json_encode([
+        'success'     => true,
+        'message'     => "Database OK. {$adCount} ads, {$advCount} advertisers tracked.",
+        'server_time' => $result['server_time'],
+        'ad_count'    => $adCount,
     ]);
 }

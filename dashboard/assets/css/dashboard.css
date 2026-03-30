@@ -270,10 +270,68 @@ body {
     font-size: 0.85rem;
 }
 
+/* Top entity hover rows */
+.top-entity-row {
+    transition: background-color 0.15s, transform 0.15s;
+    border-radius: 8px;
+}
+
+.top-entity-row:hover {
+    background-color: rgba(67, 97, 238, 0.05);
+    transform: translateX(2px);
+}
+
+/* Progress bar styling */
+.progress {
+    background-color: #e9ecef;
+    border-radius: 4px;
+}
+
+/* Card consistent styling */
+.card {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* Navbar brand */
+.navbar-brand {
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+/* Table hover */
+.table-hover > tbody > tr:hover > td {
+    background-color: rgba(67, 97, 238, 0.04);
+}
+
+/* Links in cards */
+.card a:not(.btn) {
+    transition: color 0.15s;
+}
+
+/* Empty state */
+.empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: #6c757d;
+}
+
+.empty-state i {
+    font-size: 3rem;
+    display: block;
+    margin-bottom: 1rem;
+    opacity: 0.3;
+}
+
 /* Responsive tweaks */
 @media (max-width: 768px) {
     .kpi-card .kpi-value {
         font-size: 1.5rem;
+    }
+
+    .kpi-card .kpi-icon {
+        font-size: 2rem;
     }
 
     #geoMap {
@@ -283,5 +341,23 @@ body {
     .navbar-nav {
         max-height: 300px;
         overflow-y: auto;
+    }
+
+    .chart-container {
+        padding: 1rem;
+    }
+
+    .filter-bar {
+        padding: 1rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .kpi-card .kpi-value {
+        font-size: 1.25rem;
+    }
+
+    .kpi-card .kpi-label {
+        font-size: 0.75rem;
     }
 }

@@ -76,12 +76,9 @@ try {
         [$advertiserId]
     );
 
-    // 5. Unique YouTube videos
-    $videos = $db->fetchAll(
-        "SELECT DISTINCT
-                SUBSTRING_INDEX(SUBSTRING_INDEX(ass.original_url, 'v=', -1), '&', 1) as video_id,
-                d.headline as title,
-                a.view_count
+    // 5. Unique YouTube videos — extract video IDs in PHP for reliability
+    $videoRows = $db->fetchAll(
+        "SELECT DISTINCT ass.original_url, d.headline as title, a.view_count
          FROM ad_assets ass
          INNER JOIN ads a ON ass.creative_id = a.creative_id
          LEFT JOIN ad_details d ON a.creative_id = d.creative_id
@@ -89,10 +86,30 @@ try {
          WHERE ass.type = 'video'
            AND ass.original_url LIKE '%youtube.com%'
            AND a.advertiser_id = ?
-         GROUP BY video_id
          ORDER BY a.view_count DESC",
         [$advertiserId]
     );
+
+    $videos = [];
+    $seenVideoIds = [];
+    foreach ($videoRows as $row) {
+        $videoId = null;
+        if (preg_match('/[?&]v=([a-zA-Z0-9_-]{11})/', $row['original_url'], $m)) {
+            $videoId = $m[1];
+        } elseif (preg_match('/youtu\.be\/([a-zA-Z0-9_-]{11})/', $row['original_url'], $m)) {
+            $videoId = $m[1];
+        } elseif (preg_match('/\/embed\/([a-zA-Z0-9_-]{11})/', $row['original_url'], $m)) {
+            $videoId = $m[1];
+        }
+        if ($videoId && !isset($seenVideoIds[$videoId])) {
+            $seenVideoIds[$videoId] = true;
+            $videos[] = [
+                'video_id'   => $videoId,
+                'title'      => $row['title'],
+                'view_count' => (int) $row['view_count'],
+            ];
+        }
+    }
 
     // 6. Countries
     $countryRows = $db->fetchAll(
