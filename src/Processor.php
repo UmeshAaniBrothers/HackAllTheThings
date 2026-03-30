@@ -534,6 +534,77 @@ class Processor
      * Returns the number of YouTube URLs extracted.
      */
     /**
+     * Enrich ads that are missing headline/description by fetching preview content.js
+     * from Google Ads Transparency and extracting text content.
+     */
+    public function enrichAdText()
+    {
+        $ads = $this->db->fetchAll(
+            "SELECT a.creative_id, ass.original_url as preview_url
+             FROM ads a
+             INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
+                AND ass.original_url LIKE '%displayads-formats%'
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM ad_details d
+                 WHERE d.creative_id = a.creative_id
+                   AND d.headline IS NOT NULL AND d.headline != ''
+             )
+             GROUP BY a.creative_id
+             ORDER BY a.last_seen DESC
+             LIMIT 100"
+        );
+
+        if (empty($ads)) return 0;
+
+        $enriched = 0;
+
+        foreach ($ads as $ad) {
+            if (empty($ad['preview_url'])) continue;
+
+            $data = $this->fetchPreviewData($ad['preview_url']);
+            if (!$data) continue;
+
+            $headline = $data['headline'] ?? null;
+            $description = $data['description'] ?? null;
+            $cta = $data['cta'] ?? null;
+
+            if (!$headline && !$description) continue;
+
+            // Check if detail row exists
+            $existing = $this->db->fetchOne(
+                "SELECT id, headline FROM ad_details WHERE creative_id = ? ORDER BY id DESC LIMIT 1",
+                [$ad['creative_id']]
+            );
+
+            if ($existing) {
+                $updateData = [];
+                if ($headline && (empty($existing['headline']))) {
+                    $updateData['headline'] = $headline;
+                }
+                if ($description) $updateData['description'] = $description;
+                if ($cta) $updateData['cta'] = $cta;
+                if (!empty($updateData)) {
+                    $this->db->update('ad_details', $updateData, 'id = ?', [$existing['id']]);
+                    $enriched++;
+                }
+            } else {
+                $this->db->insert('ad_details', [
+                    'creative_id' => $ad['creative_id'],
+                    'headline'    => $headline,
+                    'description' => $description,
+                    'cta'         => $cta,
+                ]);
+                $enriched++;
+            }
+
+            usleep(300000);
+        }
+
+        $this->log("Enriched text for {$enriched} ads from preview content");
+        return $enriched;
+    }
+
+    /**
      * Extract YouTube video IDs from Google Ads Transparency preview content.
      * Only extracts YouTube URLs — does NOT touch app/store detection.
      */
@@ -821,7 +892,7 @@ class Processor
             return null;
         }
 
-        $result = ['youtube_id' => null, 'store_url' => null, 'store_platform' => null];
+        $result = ['youtube_id' => null, 'store_url' => null, 'store_platform' => null, 'headline' => null, 'description' => null, 'cta' => null];
 
         // Extract YouTube ID
         if (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $response, $matches)) {
@@ -842,6 +913,52 @@ class Processor
             $packageId = $matches[1];
             $result['store_url'] = 'https://play.google.com/store/apps/details?id=' . $packageId;
             $result['store_platform'] = 'playstore';
+        }
+
+        // Extract ad text content (headline, description, CTA) from preview JS
+        // Text ads: look for readable text strings in the JS content
+        $decoded = $response;
+        // Decode common URL-encoded content
+        if (strpos($decoded, '%20') !== false || strpos($decoded, '%3A') !== false) {
+            $decoded .= "\n" . urldecode($response);
+        }
+
+        // Headlines — look for text patterns in the ad preview JS
+        // Pattern 1: Google text ad format with headline fields
+        if (preg_match_all('/"headline[s]?":\s*\[?\s*"([^"]{5,200})"/', $decoded, $hm)) {
+            $result['headline'] = $hm[1][0];
+        }
+        // Pattern 2: title or heading text in JSON-like structures
+        if (!$result['headline'] && preg_match('/"title":\s*"([^"]{5,200})"/', $decoded, $hm)) {
+            $result['headline'] = $hm[1];
+        }
+        // Pattern 3: Text between HTML heading tags
+        if (!$result['headline'] && preg_match('/<h[1-3][^>]*>([^<]{5,200})<\/h[1-3]>/i', $decoded, $hm)) {
+            $result['headline'] = trim(strip_tags($hm[1]));
+        }
+        // Pattern 4: Long readable text strings (likely ad copy)
+        if (!$result['headline'] && preg_match_all('/(?:^|["\',\s])([A-Z][a-zA-Z0-9\s,.\-!?\']+[.!?]?)(?:["\',\s]|$)/', $decoded, $textMatches)) {
+            foreach ($textMatches[1] as $text) {
+                $text = trim($text);
+                if (strlen($text) >= 10 && strlen($text) <= 150 && preg_match('/[a-zA-Z]{3,}/', $text)) {
+                    $result['headline'] = $text;
+                    break;
+                }
+            }
+        }
+
+        // Description
+        if (preg_match('/"description[s]?":\s*\[?\s*"([^"]{10,500})"/', $decoded, $dm)) {
+            $result['description'] = $dm[1];
+        }
+
+        // CTA (Call to Action)
+        if (preg_match('/"(?:cta|callToAction|call_to_action|buttonText)":\s*"([^"]{2,50})"/', $decoded, $cm)) {
+            $result['cta'] = $cm[1];
+        }
+        // Common CTA patterns in text
+        if (!$result['cta'] && preg_match('/(?:Learn More|Sign Up|Download|Install|Shop Now|Get Started|Buy Now|Try Free|Subscribe|Apply Now|Book Now|Contact Us|Get Offer)/i', $decoded, $cm)) {
+            $result['cta'] = $cm[0];
         }
 
         return $result;

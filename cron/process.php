@@ -55,6 +55,14 @@ try {
         logMsg("Payload processing error: " . $e->getMessage());
     }
 
+    // Step 1b: Enrich ad text (headline, description) from preview content
+    $textEnriched = 0;
+    try {
+        $textEnriched = $processor->enrichAdText();
+    } catch (Exception $e) {
+        logMsg("Text enrichment error: " . $e->getMessage());
+    }
+
     // Step 2: Extract YouTube URLs
     $ytExtracted = 0;
     try {
@@ -118,21 +126,32 @@ try {
          )"
     );
 
+    // Count ads missing headline
+    $remainingText = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ads a
+         INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id AND ass.original_url LIKE '%displayads-formats%'
+         WHERE NOT EXISTS (
+             SELECT 1 FROM ad_details d WHERE d.creative_id = a.creative_id AND d.headline IS NOT NULL AND d.headline != ''
+         )"
+    );
+
     $result = [
         'success'   => true,
         'processed' => $processed,
+        'text_enriched' => $textEnriched,
         'youtube'   => $ytExtracted,
         'enriched'  => $ytEnriched,
         'apps_detected' => $storeEnriched,
+        'remaining_text' => $remainingText,
         'remaining_extract' => $remainingExtract,
         'remaining_enrich'  => $remainingEnrich,
         'remaining_store_urls' => $remainingStoreUrls,
-        'message'   => ($remainingExtract > 0 || $remainingEnrich > 0 || $remainingStoreUrls > 0) ? 'Call again to process more.' : 'All done!',
+        'message'   => ($remainingExtract > 0 || $remainingEnrich > 0 || $remainingStoreUrls > 0 || $remainingText > 0) ? 'Call again to process more.' : 'All done!',
     ];
 
     if ($isCli) {
-        if ($processed > 0 || $ytExtracted > 0 || $ytEnriched > 0 || $storeEnriched > 0) {
-            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs, enriched {$ytEnriched} videos, detected {$storeEnriched} apps from preview");
+        if ($processed > 0 || $textEnriched > 0 || $ytExtracted > 0 || $ytEnriched > 0 || $storeEnriched > 0) {
+            logMsg("Processed {$processed}, text {$textEnriched}, youtube {$ytExtracted}, enriched {$ytEnriched}, apps {$storeEnriched}");
         }
     } else {
         echo json_encode($result);
