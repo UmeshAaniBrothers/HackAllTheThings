@@ -86,7 +86,7 @@ try {
         'oldest'     => 'a.first_seen ASC',
         'last_seen'  => 'a.last_seen DESC',
         'views_desc' => 'a.view_count DESC, a.last_seen DESC',
-        'views_asc'  => 'a.view_count ASC',
+        'views_asc'  => 'CASE WHEN a.view_count = 0 OR a.view_count IS NULL THEN 1 ELSE 0 END, a.view_count ASC',
     );
     $orderBy = isset($sortMap[$sort]) ? $sortMap[$sort] : 'a.last_seen DESC';
 

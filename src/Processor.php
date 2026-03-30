@@ -758,7 +758,7 @@ class Processor
                AND (a.view_count = 0 OR a.view_count IS NULL
                     OR NOT EXISTS (SELECT 1 FROM ad_details d WHERE d.creative_id = a.creative_id AND d.headline IS NOT NULL AND d.headline != ''))
              ORDER BY a.last_seen DESC
-             LIMIT 30"
+             LIMIT 80"
         );
 
         if (empty($ads)) {
@@ -766,6 +766,7 @@ class Processor
         }
 
         $enriched = 0;
+        $failed = 0;
 
         foreach ($ads as $ad) {
             $youtubeUrl = $ad['youtube_url'];
@@ -779,7 +780,16 @@ class Processor
             if (!$videoId) continue;
 
             $meta = $this->fetchYouTubeMetadata($videoId);
-            if (!$meta) continue;
+            if (!$meta) {
+                $failed++;
+                // If too many failures, YouTube may be rate-limiting — stop early
+                if ($failed >= 5) {
+                    $this->log("Stopping YouTube enrichment early: {$failed} consecutive failures");
+                    break;
+                }
+                continue;
+            }
+            $failed = 0; // Reset on success
 
             // Update ad_details with YouTube title and view count
             $headline = $meta['title'] ?: null;
@@ -835,7 +845,7 @@ class Processor
             }
 
             $enriched++;
-            usleep(500000); // 500ms between YouTube requests
+            usleep(300000); // 300ms between YouTube requests
         }
 
         $this->log("Enriched {$enriched} video ads with YouTube metadata");
