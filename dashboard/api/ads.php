@@ -24,6 +24,7 @@ try {
     $dateFrom = isset($_GET['date_from']) ? trim($_GET['date_from']) : null;
     $dateTo = isset($_GET['date_to']) ? trim($_GET['date_to']) : null;
     $search = isset($_GET['search']) ? trim($_GET['search']) : null;
+    $productId = isset($_GET['product_id']) ? trim($_GET['product_id']) : null;
     $page = max(1, (int) ($_GET['page'] ?? 1));
     $perPage = min(100, max(10, (int) ($_GET['per_page'] ?? 20)));
 
@@ -61,6 +62,12 @@ try {
         $params[] = $platform;
     }
 
+    // Product filter via subquery
+    if ($productId) {
+        $where[] = 'EXISTS (SELECT 1 FROM ad_product_map pm WHERE pm.creative_id = a.creative_id AND pm.product_id = ?)';
+        $params[] = (int) $productId;
+    }
+
     // Search in headline/description
     if ($search) {
         $where[] = 'EXISTS (SELECT 1 FROM ad_details d WHERE d.creative_id = a.creative_id AND (d.headline LIKE ? OR d.description LIKE ?))';
@@ -88,7 +95,9 @@ try {
                 (SELECT GROUP_CONCAT(DISTINCT t.platform) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as platforms,
                 (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'image' AND ass.original_url LIKE '%ytimg.com%' LIMIT 1) as preview_image,
                 (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url,
-                adv.name as advertiser_name
+                adv.name as advertiser_name,
+                (SELECT GROUP_CONCAT(DISTINCT p.product_name SEPARATOR '||') FROM ad_product_map pm INNER JOIN ad_products p ON pm.product_id = p.id WHERE pm.creative_id = a.creative_id) as product_names,
+                (SELECT pm2.product_id FROM ad_product_map pm2 WHERE pm2.creative_id = a.creative_id LIMIT 1) as product_id
          FROM ads a
          LEFT JOIN ad_details d ON a.creative_id = d.creative_id
              AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
@@ -104,6 +113,7 @@ try {
         'advertisers' => $db->fetchAll("SELECT DISTINCT advertiser_id FROM ads ORDER BY advertiser_id"),
         'countries'   => $db->fetchAll("SELECT DISTINCT country FROM ad_targeting ORDER BY country"),
         'platforms'   => $db->fetchAll("SELECT DISTINCT platform FROM ad_targeting ORDER BY platform"),
+        'products'    => $db->fetchAll("SELECT p.id as product_id, p.product_name, p.product_type, p.advertiser_id, COUNT(pm.creative_id) as ad_count FROM ad_products p LEFT JOIN ad_product_map pm ON p.id = pm.product_id GROUP BY p.id ORDER BY ad_count DESC"),
     ];
 
     echo json_encode([

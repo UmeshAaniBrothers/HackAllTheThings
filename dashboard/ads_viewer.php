@@ -70,6 +70,12 @@
                 <option value="">All Platforms</option>
             </select>
         </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">App/Product</label>
+            <select id="vFilterProduct" class="form-select form-select-sm">
+                <option value="">All Products</option>
+            </select>
+        </div>
         <div class="col-md-1">
             <label class="form-label small mb-1">Type</label>
             <select id="vFilterType" class="form-select form-select-sm">
@@ -235,12 +241,13 @@
 
     // ── Hash ↔ State ───────────────────────────────────────
     const FILTER_KEYS = [
-        'advertiser_id', 'country', 'platform', 'ad_type', 'status',
+        'advertiser_id', 'product_id', 'country', 'platform', 'ad_type', 'status',
         'date_from', 'date_to', 'domain', 'cta', 'sentiment',
         'hook', 'tag', 'search'
     ];
     const ELEMENT_MAP = {
         advertiser_id: 'vFilterAdvertiser',
+        product_id:    'vFilterProduct',
         country:       'vFilterCountry',
         platform:      'vFilterPlatform',
         ad_type:       'vFilterType',
@@ -311,7 +318,7 @@
 
     // ── Filter Pills ───────────────────────────────────────
     const LABEL_MAP = {
-        advertiser_id: 'Advertiser', country: 'Country', platform: 'Platform',
+        advertiser_id: 'Advertiser', product_id: 'App/Product', country: 'Country', platform: 'Platform',
         ad_type: 'Type', status: 'Status', date_from: 'From', date_to: 'To',
         domain: 'Domain', cta: 'CTA', sentiment: 'Sentiment', hook: 'Hook',
         tag: 'Tag', search: 'Search',
@@ -322,8 +329,16 @@
         const pills = [];
         FILTER_KEYS.forEach(k => {
             if (S.filters[k]) {
+                var displayVal = S.filters[k];
+                // For product_id, show the product name from dropdown text
+                if (k === 'product_id') {
+                    var pSel = document.getElementById('vFilterProduct');
+                    if (pSel && pSel.selectedIndex > 0) {
+                        displayVal = pSel.options[pSel.selectedIndex].textContent;
+                    }
+                }
                 pills.push(`<span class="badge bg-primary d-inline-flex align-items-center gap-1 viewer-pill"
-                    >${LABEL_MAP[k]}: ${escapeHtml(S.filters[k])}
+                    >${LABEL_MAP[k]}: ${escapeHtml(displayVal)}
                     <i class="bi bi-x-circle" role="button" data-filter="${k}" style="cursor:pointer"></i></span>`);
             }
         });
@@ -446,6 +461,17 @@
         addOptions('vFilterAdvertiser', options.advertisers || [], 'advertiser_id', 'advertiser_id');
         addOptions('vFilterCountry', options.countries || [], 'country', 'country');
         addOptions('vFilterPlatform', options.platforms || [], 'platform', 'platform');
+        // Products dropdown with ad count
+        var productSel = document.getElementById('vFilterProduct');
+        if (productSel && productSel.options.length <= 1 && options.products) {
+            (options.products || []).forEach(function(p) {
+                if (p.product_name === 'Unknown') return;
+                var opt = document.createElement('option');
+                opt.value = p.product_id;
+                opt.textContent = p.product_name + ' (' + (p.ad_count || 0) + ')';
+                productSel.appendChild(opt);
+            });
+        }
         // Restore selected values from state after populating
         syncFormFromState();
     }
@@ -491,6 +517,8 @@
             const advName = ad.advertiser_name || ad.advertiser_id || '';
             const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
             const headline = ad.headline || advName;
+            const productName = ad.product_names ? ad.product_names.split('||')[0] : '';
+            const productIdVal = ad.product_id || '';
 
             return `<div class="col-md-6 col-lg-4 col-xl-3 mb-4">
                 <div class="ad-card viewer-card" role="button" data-id="${escapeHtml(ad.creative_id)}">
@@ -509,6 +537,7 @@
                     </div>
                     <div class="ad-body">
                         <div class="ad-headline">${escapeHtml(headline)}</div>
+                        ${productName && productName !== 'Unknown' ? `<span class="badge bg-warning text-dark mt-1 me-1 viewer-clickable" data-filter="product_id" data-value="${escapeHtml(productIdVal)}" title="App/Product"><i class="bi bi-app-indicator me-1"></i>${escapeHtml(productName)}</span>` : ''}
                         ${ad.cta ? `<span class="badge bg-primary mt-1 viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
                         <div class="mt-2">
                             ${isVideo && ad.youtube_url ? `<a href="${escapeHtml(ad.youtube_url)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()">
@@ -551,7 +580,7 @@
 
         let html = `<div class="table-container"><div class="table-responsive"><table class="table table-hover mb-0">
             <thead><tr>
-                <th>Advertiser</th><th>Creative ID</th><th>Type</th>
+                <th>Advertiser</th><th>App/Product</th><th>Creative ID</th><th>Type</th>
                 <th>Status</th><th>Platforms</th><th>Countries</th>
                 <th>First Seen</th><th>Last Seen</th><th>Link</th>
             </tr></thead><tbody>`;
@@ -560,9 +589,12 @@
             const countries = (ad.countries || '').split(',').map(c => c.trim()).filter(Boolean);
             const platforms = (ad.platforms || '').split(',').map(p => p.trim()).filter(Boolean);
             const advName = ad.advertiser_name || ad.advertiser_id || '-';
+            const tblProductName = ad.product_names ? ad.product_names.split('||')[0] : '';
+            const tblProductId = ad.product_id || '';
             const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
             html += `<tr class="viewer-row" role="button" data-id="${escapeHtml(ad.creative_id)}">
                 <td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer">${escapeHtml(advName)}</span></td>
+                <td>${tblProductName && tblProductName !== 'Unknown' ? `<span class="badge bg-warning text-dark viewer-clickable" data-filter="product_id" data-value="${escapeHtml(tblProductId)}" style="cursor:pointer;font-size:.75rem">${escapeHtml(tblProductName)}</span>` : '<small class="text-muted">-</small>'}</td>
                 <td class="text-truncate" style="max-width:180px"><small class="text-muted">${escapeHtml(ad.creative_id)}</small></td>
                 <td><span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type}</span></td>
                 <td><span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span></td>
@@ -912,7 +944,7 @@
             S.page = 1;
             load();
         };
-        ['vFilterAdvertiser', 'vFilterCountry', 'vFilterPlatform', 'vFilterType',
+        ['vFilterAdvertiser', 'vFilterProduct', 'vFilterCountry', 'vFilterPlatform', 'vFilterType',
          'vFilterStatus', 'vFilterDateFrom', 'vFilterDateTo', 'vFilterSentiment',
          'vFilterHook', 'vFilterTag'].forEach(id => {
             const el = document.getElementById(id);

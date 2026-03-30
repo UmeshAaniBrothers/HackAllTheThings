@@ -738,6 +738,195 @@ class Processor
     }
 
     /**
+     * Detect products/apps from ad headlines and landing URLs.
+     * Groups ads by detected product name per advertiser.
+     * Returns number of new product mappings created.
+     */
+    public function detectProducts()
+    {
+        // Get ads with headlines that aren't mapped to a product yet
+        $ads = $this->db->fetchAll(
+            "SELECT a.creative_id, a.advertiser_id, d.headline, d.landing_url
+             FROM ads a
+             LEFT JOIN ad_details d ON a.creative_id = d.creative_id
+                 AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM ad_product_map pm WHERE pm.creative_id = a.creative_id
+             )
+             ORDER BY a.advertiser_id, a.last_seen DESC"
+        );
+
+        if (empty($ads)) {
+            return 0;
+        }
+
+        $mapped = 0;
+
+        foreach ($ads as $ad) {
+            $productName = null;
+            $productType = 'other';
+            $storeUrl = null;
+
+            $headline = isset($ad['headline']) ? trim($ad['headline']) : '';
+            $landingUrl = isset($ad['landing_url']) ? trim($ad['landing_url']) : '';
+
+            // Priority 1: Detect from Play Store / App Store URLs
+            if ($landingUrl && preg_match('/play\.google\.com\/store\/apps\/details\?id=([^&]+)/', $landingUrl, $m)) {
+                $packageName = $m[1];
+                $productName = $this->packageToAppName($packageName);
+                $productType = 'app';
+                $storeUrl = 'https://play.google.com/store/apps/details?id=' . $packageName;
+            } elseif ($landingUrl && preg_match('/apps\.apple\.com\/[^\/]+\/app\/([^\/]+)/', $landingUrl, $m)) {
+                $productName = str_replace('-', ' ', $m[1]);
+                $productName = ucwords($productName);
+                $productType = 'app';
+                $storeUrl = $landingUrl;
+            }
+
+            // Priority 2: Extract from YouTube video title
+            if (!$productName && $headline !== '') {
+                $productName = $this->extractProductFromTitle($headline);
+                if ($productName) {
+                    // Guess type from keywords
+                    $lower = strtolower($productName);
+                    if (preg_match('/\b(game|gaming|play|level|quest)\b/i', $lower)) {
+                        $productType = 'game';
+                    } elseif (preg_match('/\b(app|download|install)\b/i', $headline)) {
+                        $productType = 'app';
+                    }
+                }
+            }
+
+            // Priority 3: Use headline as-is if short enough (likely an app/product name)
+            if (!$productName && $headline !== '' && strlen($headline) <= 60) {
+                $productName = $headline;
+            }
+
+            // Skip if we couldn't detect anything
+            if (!$productName || $productName === '') {
+                // Map to "Unknown" product so we don't re-process
+                $productName = 'Unknown';
+                $productType = 'other';
+            }
+
+            // Normalize product name
+            $productName = trim($productName);
+            if (strlen($productName) > 255) {
+                $productName = substr($productName, 0, 252) . '...';
+            }
+
+            // Find or create product
+            $productId = $this->findOrCreateProduct(
+                $ad['advertiser_id'],
+                $productName,
+                $productType,
+                $storeUrl
+            );
+
+            if ($productId) {
+                // Create mapping
+                $exists = $this->db->fetchOne(
+                    "SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?",
+                    [$ad['creative_id'], $productId]
+                );
+                if (!$exists) {
+                    $this->db->insert('ad_product_map', [
+                        'creative_id' => $ad['creative_id'],
+                        'product_id'  => $productId,
+                    ]);
+                    $mapped++;
+                }
+            }
+        }
+
+        $this->log("Detected products for {$mapped} ads");
+        return $mapped;
+    }
+
+    /**
+     * Extract a product/app name from a YouTube video title.
+     * Looks for common patterns like "AppName - Feature", "AppName | Trailer", etc.
+     */
+    private function extractProductFromTitle($title)
+    {
+        $title = trim($title);
+        if ($title === '') return null;
+
+        // Common separators: " - ", " | ", " : ", " — "
+        $separators = array(' - ', ' | ', ' : ', " \xe2\x80\x94 ", ' // ');
+        foreach ($separators as $sep) {
+            if (strpos($title, $sep) !== false) {
+                $parts = explode($sep, $title, 2);
+                $first = trim($parts[0]);
+                // The product name is usually the first part before separator
+                if (strlen($first) >= 2 && strlen($first) <= 80) {
+                    return $first;
+                }
+            }
+        }
+
+        // If title is short (< 50 chars), it's likely just the product name
+        if (strlen($title) <= 50) {
+            return $title;
+        }
+
+        // Take first meaningful phrase (before first comma or period)
+        if (preg_match('/^([^,\.!]+)/', $title, $m)) {
+            $phrase = trim($m[1]);
+            if (strlen($phrase) >= 2 && strlen($phrase) <= 80) {
+                return $phrase;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Convert Android package name to a readable app name.
+     */
+    private function packageToAppName($packageName)
+    {
+        // com.example.myapp -> My App
+        $parts = explode('.', $packageName);
+        $last = end($parts);
+        // Convert camelCase or snake_case to words
+        $name = preg_replace('/([a-z])([A-Z])/', '$1 $2', $last);
+        $name = str_replace(array('_', '-'), ' ', $name);
+        return ucwords($name);
+    }
+
+    /**
+     * Find existing product or create a new one.
+     */
+    private function findOrCreateProduct($advertiserId, $productName, $productType, $storeUrl)
+    {
+        $existing = $this->db->fetchOne(
+            "SELECT id FROM ad_products WHERE advertiser_id = ? AND product_name = ?",
+            [$advertiserId, $productName]
+        );
+
+        if ($existing) {
+            // Update store_url if we now have one
+            if ($storeUrl) {
+                $this->db->update('ad_products', [
+                    'store_url'    => $storeUrl,
+                    'product_type' => $productType,
+                ], 'id = ?', [$existing['id']]);
+            }
+            return $existing['id'];
+        }
+
+        $lastId = $this->db->insert('ad_products', [
+            'advertiser_id' => $advertiserId,
+            'product_name'  => $productName,
+            'product_type'  => $productType,
+            'store_url'     => $storeUrl,
+        ]);
+
+        return $lastId ? (int) $lastId : null;
+    }
+
+    /**
      * Fetch YouTube video metadata: title, author, view count.
      */
     private function fetchYouTubeMetadata($videoId)

@@ -73,6 +73,31 @@ CREATE TABLE IF NOT EXISTS ad_targeting (
     FOREIGN KEY (creative_id) REFERENCES ads(creative_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Detected products/apps per advertiser
+CREATE TABLE IF NOT EXISTS ad_products (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    advertiser_id VARCHAR(64) NOT NULL,
+    product_name VARCHAR(255) NOT NULL,
+    product_type ENUM('app','website','game','service','other') DEFAULT 'other',
+    store_url TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_advertiser (advertiser_id),
+    INDEX idx_name (product_name),
+    UNIQUE KEY uk_adv_product (advertiser_id, product_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Map creatives to products
+CREATE TABLE IF NOT EXISTS ad_product_map (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    creative_id VARCHAR(128) NOT NULL,
+    product_id BIGINT UNSIGNED NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_creative_product (creative_id, product_id),
+    INDEX idx_product (product_id),
+    FOREIGN KEY (creative_id) REFERENCES ads(creative_id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES ad_products(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Scrape activity logging
 CREATE TABLE IF NOT EXISTS scrape_logs (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

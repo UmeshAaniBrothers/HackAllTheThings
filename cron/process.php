@@ -86,7 +86,15 @@ try {
         logMsg("YouTube enrichment error: " . $e->getMessage());
     }
 
-    // Step 4: Update advertiser stats
+    // Step 4: Detect products/apps from headlines and landing URLs
+    $productsDetected = 0;
+    try {
+        $productsDetected = $processor->detectProducts();
+    } catch (Exception $e) {
+        logMsg("Product detection error: " . $e->getMessage());
+    }
+
+    // Step 5: Update advertiser stats
     try {
         $db->query(
             "UPDATE managed_advertisers ma SET
@@ -101,12 +109,13 @@ try {
         'processed' => $processed,
         'youtube'   => $ytExtracted,
         'enriched'  => $ytEnriched,
+        'products'  => $productsDetected,
         'pending'   => count($unprocessed),
     ];
 
     if ($isCli) {
-        if ($processed > 0 || $ytExtracted > 0 || $ytEnriched > 0) {
-            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs, enriched {$ytEnriched} videos");
+        if ($processed > 0 || $ytExtracted > 0 || $ytEnriched > 0 || $productsDetected > 0) {
+            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs, enriched {$ytEnriched} videos, detected {$productsDetected} product mappings");
         }
     } else {
         echo json_encode($result);
