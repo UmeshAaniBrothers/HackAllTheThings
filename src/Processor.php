@@ -548,7 +548,8 @@ class Processor
                      AND v.original_url LIKE '%youtube.com%'
                )
              GROUP BY a.creative_id
-             ORDER BY a.last_seen DESC"
+             ORDER BY a.last_seen DESC
+             LIMIT 50"
         );
 
         if (empty($ads)) {
@@ -660,7 +661,8 @@ class Processor
                AND EXISTS (SELECT 1 FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%')
                AND (a.view_count = 0 OR a.view_count IS NULL
                     OR NOT EXISTS (SELECT 1 FROM ad_details d WHERE d.creative_id = a.creative_id AND d.headline IS NOT NULL AND d.headline != ''))
-             ORDER BY a.last_seen DESC"
+             ORDER BY a.last_seen DESC
+             LIMIT 30"
         );
 
         if (empty($ads)) {

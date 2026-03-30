@@ -104,6 +104,21 @@ try {
         );
     } catch (Exception $e) { /* non-critical */ }
 
+    // Count remaining work
+    $remainingEnrich = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ads a
+         WHERE a.ad_type = 'video'
+           AND EXISTS (SELECT 1 FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%')
+           AND (a.view_count = 0 OR a.view_count IS NULL
+                OR NOT EXISTS (SELECT 1 FROM ad_details d WHERE d.creative_id = a.creative_id AND d.headline IS NOT NULL AND d.headline != ''))"
+    );
+    $remainingExtract = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ads a
+         INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id AND ass.original_url LIKE '%displayads-formats%'
+         WHERE a.ad_type = 'video'
+           AND NOT EXISTS (SELECT 1 FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%')"
+    );
+
     $result = [
         'success'   => true,
         'processed' => $processed,
@@ -111,6 +126,9 @@ try {
         'enriched'  => $ytEnriched,
         'products'  => $productsDetected,
         'pending'   => count($unprocessed),
+        'remaining_extract' => $remainingExtract,
+        'remaining_enrich'  => $remainingEnrich,
+        'message'   => ($remainingExtract > 0 || $remainingEnrich > 0) ? 'Call again to process more. ' . $remainingExtract . ' need YouTube URL, ' . $remainingEnrich . ' need view counts.' : 'All done!',
     ];
 
     if ($isCli) {
