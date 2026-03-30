@@ -117,26 +117,6 @@ body {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.ad-card .ad-media {
-    height: 180px;
-    background-color: #e9ecef;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-}
-
-.ad-card .ad-media img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: cover;
-}
-
-.ad-card .ad-media .no-media {
-    color: #adb5bd;
-    font-size: 3rem;
-}
-
 .ad-card .ad-body {
     padding: 1rem;
 }

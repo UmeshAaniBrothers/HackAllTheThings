@@ -488,41 +488,48 @@
             const countries = (ad.countries || '').split(',').map(c => c.trim()).filter(Boolean);
             const platforms = (ad.platforms || '').split(',').map(p => p.trim()).filter(Boolean);
             const isVideo = ad.ad_type === 'video';
+            const advName = ad.advertiser_name || ad.advertiser_id || '';
+            const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
+            const headline = ad.headline || advName;
 
             return `<div class="col-md-6 col-lg-4 col-xl-3 mb-4">
                 <div class="ad-card viewer-card" role="button" data-id="${escapeHtml(ad.creative_id)}">
-                    <div class="ad-media">
-                        ${ad.preview_image
-                            ? `<img src="${escapeHtml(ad.preview_image)}" alt="Ad preview" loading="lazy">`
-                            : isVideo
-                                ? '<i class="bi bi-play-circle no-media"></i>'
-                                : '<i class="bi bi-image no-media"></i>'
-                        }
-                        ${isVideo ? '<span class="viewer-video-badge"><i class="bi bi-play-fill"></i></span>' : ''}
-                    </div>
-                    <div class="ad-body">
-                        <div class="ad-headline">${escapeHtml(ad.headline || 'No headline')}</div>
-                        <div class="ad-description">${escapeHtml(ad.description || 'No description')}</div>
-                        ${ad.cta ? `<span class="badge bg-primary mt-2 viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
-                    </div>
-                    <div class="ad-meta">
-                        <div class="d-flex justify-content-between align-items-center mb-1">
+                    <div class="ad-card-header">
+                        <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type || 'text'}</span>
                                 <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span>
                             </div>
                             <small class="text-muted">${formatDate(ad.last_seen)}</small>
                         </div>
-                        <div class="d-flex flex-wrap gap-1">
+                    </div>
+                    <div class="ad-body">
+                        <div class="ad-headline">${escapeHtml(headline)}</div>
+                        ${ad.description ? `<div class="ad-description">${escapeHtml(ad.description)}</div>` : ''}
+                        ${ad.cta ? `<span class="badge bg-primary mt-1 viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
+                        <div class="mt-2">
+                            <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>View on Google
+                            </a>
+                            ${isVideo ? `<a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm ms-1 viewer-ext-link" onclick="event.stopPropagation()">
+                                <i class="bi bi-youtube me-1"></i>Watch Video
+                            </a>` : ''}
+                        </div>
+                    </div>
+                    <div class="ad-meta">
+                        <div class="d-flex flex-wrap gap-1 mb-1">
+                            ${platforms.slice(0, 2).map(p =>
+                                `<span class="badge bg-dark viewer-clickable" data-filter="platform" data-value="${escapeHtml(p)}" style="font-size:.7rem">${escapeHtml(p)}</span>`
+                            ).join('')}
                             ${countries.slice(0, 3).map(c =>
                                 `<span class="badge bg-secondary viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="font-size:.7rem">${escapeHtml(c)}</span>`
                             ).join('')}
                             ${countries.length > 3 ? `<span class="badge bg-light text-dark" style="font-size:.7rem">+${countries.length - 3}</span>` : ''}
-                            ${platforms.slice(0, 2).map(p =>
-                                `<span class="badge bg-dark viewer-clickable" data-filter="platform" data-value="${escapeHtml(p)}" style="font-size:.7rem">${escapeHtml(p)}</span>`
-                            ).join('')}
                         </div>
-                        ${ad.advertiser_id ? `<div class="mt-1"><small class="text-muted viewer-clickable" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer;text-decoration:underline dotted"><i class="bi bi-person-fill me-1"></i>${escapeHtml(ad.advertiser_id)}</small></div>` : ''}
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted viewer-clickable" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer;text-decoration:underline dotted"><i class="bi bi-person-fill me-1"></i>${escapeHtml(advName)}</small>
+                            <small class="text-muted">${formatDate(ad.first_seen)} - ${formatDate(ad.last_seen)}</small>
+                        </div>
                     </div>
                 </div>
             </div>`;
@@ -541,30 +548,26 @@
 
         let html = `<div class="table-container"><div class="table-responsive"><table class="table table-hover mb-0">
             <thead><tr>
-                <th></th><th>Headline</th><th>Advertiser</th><th>CTA</th>
-                <th>Type</th><th>Status</th><th>Countries</th><th>Platforms</th>
-                <th>First Seen</th><th>Last Seen</th>
+                <th>Advertiser</th><th>Creative ID</th><th>Type</th>
+                <th>Status</th><th>Platforms</th><th>Countries</th>
+                <th>First Seen</th><th>Last Seen</th><th>Link</th>
             </tr></thead><tbody>`;
 
         ads.forEach(ad => {
             const countries = (ad.countries || '').split(',').map(c => c.trim()).filter(Boolean);
             const platforms = (ad.platforms || '').split(',').map(p => p.trim()).filter(Boolean);
+            const advName = ad.advertiser_name || ad.advertiser_id || '-';
+            const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
             html += `<tr class="viewer-row" role="button" data-id="${escapeHtml(ad.creative_id)}">
-                <td style="width:50px">
-                    ${ad.preview_image
-                        ? `<img src="${escapeHtml(ad.preview_image)}" style="width:40px;height:40px;object-fit:cover;border-radius:6px" loading="lazy">`
-                        : `<div style="width:40px;height:40px;border-radius:6px;background:#e9ecef;display:flex;align-items:center;justify-content:center"><i class="bi bi-${ad.ad_type === 'video' ? 'play-circle' : 'image'} text-muted"></i></div>`
-                    }
-                </td>
-                <td class="text-truncate" style="max-width:220px"><strong>${escapeHtml(ad.headline || 'No headline')}</strong><br><small class="text-muted">${escapeHtml((ad.description || '').substring(0, 80))}</small></td>
-                <td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer">${escapeHtml(ad.advertiser_id || '-')}</span></td>
-                <td>${ad.cta ? `<span class="badge bg-primary viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : '-'}</td>
+                <td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer">${escapeHtml(advName)}</span></td>
+                <td class="text-truncate" style="max-width:180px"><small class="text-muted">${escapeHtml(ad.creative_id)}</small></td>
                 <td><span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type}</span></td>
                 <td><span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span></td>
-                <td>${countries.slice(0, 3).map(c => `<span class="badge bg-secondary viewer-clickable me-1" data-filter="country" data-value="${escapeHtml(c)}" style="font-size:.7rem">${escapeHtml(c)}</span>`).join('')}${countries.length > 3 ? `<span class="badge bg-light text-dark" style="font-size:.7rem">+${countries.length-3}</span>` : ''}</td>
                 <td>${platforms.slice(0, 2).map(p => `<span class="badge bg-dark viewer-clickable me-1" data-filter="platform" data-value="${escapeHtml(p)}" style="font-size:.7rem">${escapeHtml(p)}</span>`).join('')}</td>
+                <td>${countries.slice(0, 3).map(c => `<span class="badge bg-secondary viewer-clickable me-1" data-filter="country" data-value="${escapeHtml(c)}" style="font-size:.7rem">${escapeHtml(c)}</span>`).join('')}${countries.length > 3 ? `<span class="badge bg-light text-dark" style="font-size:.7rem">+${countries.length-3}</span>` : ''}</td>
                 <td><small>${formatDate(ad.first_seen)}</small></td>
                 <td><small>${formatDate(ad.last_seen)}</small></td>
+                <td><a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right"></i></a>${ad.ad_type === 'video' ? ` <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-youtube"></i></a>` : ''}</td>
             </tr>`;
         });
 
@@ -619,22 +622,32 @@
             const targeting = creative.targeting || [];
             const analysis = intel?.analysis || {};
 
-            document.getElementById('adDetailModalLabel').textContent = escapeHtml(detail.headline || ad.creative_id);
+            const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
+            const advName = ad.advertiser_name || ad.advertiser_id;
+            document.getElementById('adDetailModalLabel').textContent = escapeHtml(detail.headline || advName || ad.creative_id);
 
             let html = '';
 
             // Header row
             html += `<div class="row mb-3">
                 <div class="col-md-8">
-                    <h5>${escapeHtml(detail.headline || 'No headline')}</h5>
-                    <p class="text-muted">${escapeHtml(detail.description || 'No description')}</p>
+                    ${detail.headline ? `<h5>${escapeHtml(detail.headline)}</h5>` : ''}
+                    ${detail.description ? `<p class="text-muted">${escapeHtml(detail.description)}</p>` : ''}
                     ${detail.cta ? `<span class="badge bg-primary viewer-clickable" data-filter="cta" data-value="${escapeHtml(detail.cta)}" style="cursor:pointer">${escapeHtml(detail.cta)}</span>` : ''}
-                    ${detail.landing_url ? `<a href="${escapeHtml(detail.landing_url)}" target="_blank" rel="noopener" class="btn btn-link btn-sm"><i class="bi bi-box-arrow-up-right me-1"></i>${escapeHtml(new URL(detail.landing_url).hostname)}</a>` : ''}
+                    <div class="mt-2">
+                        <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-box-arrow-up-right me-1"></i>View on Google Ads Transparency
+                        </a>
+                        ${ad.ad_type === 'video' ? `<a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm ms-1">
+                            <i class="bi bi-youtube me-1"></i>Watch Video Ad
+                        </a>` : ''}
+                    </div>
                 </div>
                 <div class="col-md-4 text-md-end">
                     <span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}" style="cursor:pointer">${ad.ad_type}</span>
                     <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}" style="cursor:pointer">${ad.status}</span>
-                    <br><small class="text-muted viewer-clickable" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer;text-decoration:underline dotted"><i class="bi bi-person me-1"></i>${escapeHtml(ad.advertiser_id)}</small>
+                    <br><small class="text-muted viewer-clickable" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer;text-decoration:underline dotted"><i class="bi bi-person me-1"></i>${escapeHtml(advName)}</small>
+                    <br><small class="text-muted">${escapeHtml(ad.creative_id)}</small>
                 </div>
             </div>`;
 
@@ -646,22 +659,36 @@
                 <div class="col-3"><div class="card p-2 text-center"><small class="text-muted">Last Seen</small><br><strong>${formatDate(ad.last_seen)}</strong></div></div>
             </div>`;
 
-            // Media assets (images + YouTube embeds for video)
-            if (assets.length > 0) {
-                html += '<h6 class="mt-3 mb-2"><i class="bi bi-images me-1"></i>Media Assets</h6><div class="row mb-3">';
-                assets.forEach(asset => {
-                    if (asset.type === 'image') {
-                        const src = asset.local_path || asset.original_url;
-                        html += `<div class="col-md-4 mb-2"><img src="${escapeHtml(src)}" class="img-fluid rounded shadow-sm" alt="Ad asset" loading="lazy" style="cursor:zoom-in" onclick="window.open(this.src)"></div>`;
-                    } else if (asset.type === 'video') {
-                        const url = asset.original_url || '';
-                        const ytId = extractYouTubeId(url);
-                        if (ytId) {
-                            html += `<div class="col-md-6 mb-2"><div class="ratio ratio-16x9"><iframe src="https://www.youtube.com/embed/${escapeHtml(ytId)}" allowfullscreen class="rounded"></iframe></div></div>`;
-                        } else {
-                            html += `<div class="col-md-6 mb-2"><video controls class="w-100 rounded"><source src="${escapeHtml(url)}" type="video/mp4"></video></div>`;
-                        }
+            // Media assets — show preview iframes for Google preview URLs, real images for direct URLs
+            const realAssets = assets.filter(a => a.type === 'image' && a.original_url && a.original_url.indexOf('displayads-formats') === -1);
+            const previewAssets = assets.filter(a => (a.type === 'preview' || a.type === 'image') && a.original_url && a.original_url.indexOf('displayads-formats') !== -1);
+            const videoAssets = assets.filter(a => a.type === 'video');
+
+            if (realAssets.length > 0) {
+                html += '<h6 class="mt-3 mb-2"><i class="bi bi-images me-1"></i>Images</h6><div class="row mb-3">';
+                realAssets.forEach(asset => {
+                    const src = asset.local_path || asset.original_url;
+                    html += `<div class="col-md-4 mb-2"><img src="${escapeHtml(src)}" class="img-fluid rounded shadow-sm" alt="Ad asset" loading="lazy" style="cursor:zoom-in" onclick="window.open(this.src)"></div>`;
+                });
+                html += '</div>';
+            }
+
+            if (videoAssets.length > 0) {
+                html += '<h6 class="mt-3 mb-2"><i class="bi bi-play-circle me-1"></i>Video</h6><div class="row mb-3">';
+                videoAssets.forEach(asset => {
+                    const url = asset.original_url || '';
+                    const ytId = extractYouTubeId(url);
+                    if (ytId) {
+                        html += `<div class="col-md-6 mb-2"><div class="ratio ratio-16x9"><iframe src="https://www.youtube.com/embed/${escapeHtml(ytId)}" allowfullscreen class="rounded"></iframe></div></div>`;
                     }
+                });
+                html += '</div>';
+            }
+
+            if (previewAssets.length > 0) {
+                html += '<h6 class="mt-3 mb-2"><i class="bi bi-eye me-1"></i>Ad Preview</h6><div class="row mb-3">';
+                previewAssets.forEach(asset => {
+                    html += `<div class="col-md-6 mb-2"><div class="ratio ratio-16x9 border rounded"><iframe src="${escapeHtml(asset.original_url)}" sandbox="allow-scripts allow-same-origin" class="rounded" style="width:100%;height:100%"></iframe></div></div>`;
                 });
                 html += '</div>';
             }
@@ -753,12 +780,10 @@
 
             container.innerHTML = '<div class="d-flex gap-2 overflow-auto pb-2">' + related.map(ad =>
                 `<div class="card flex-shrink-0 viewer-related-card" style="width:180px;cursor:pointer" data-related-id="${escapeHtml(ad.creative_id)}">
-                    <div style="height:90px;background:#e9ecef;display:flex;align-items:center;justify-content:center;border-radius:6px 6px 0 0;overflow:hidden">
-                        ${ad.preview_image ? `<img src="${escapeHtml(ad.preview_image)}" style="width:100%;height:100%;object-fit:cover" loading="lazy">` : `<i class="bi bi-image text-muted"></i>`}
-                    </div>
                     <div class="p-2">
-                        <small class="fw-bold d-block text-truncate">${escapeHtml(ad.headline || 'No headline')}</small>
+                        <small class="fw-bold d-block text-truncate">${escapeHtml(ad.headline || ad.advertiser_name || ad.creative_id)}</small>
                         <small>${typeBadge(ad.ad_type)} ${statusBadge(ad.status)}</small>
+                        <small class="d-block text-muted mt-1">${formatDate(ad.last_seen)}</small>
                     </div>
                 </div>`
             ).join('') + '</div>';
@@ -927,15 +952,14 @@
 
 <style>
 /* Viewer-specific styles */
-.viewer-card { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+.viewer-card { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; }
 .viewer-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.12); }
-.viewer-video-badge {
-    position: absolute; top: 8px; right: 8px;
-    background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%;
-    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
-    font-size: 0.9rem;
-}
-.ad-media { position: relative; }
+.ad-card-header { padding: 10px 12px 6px; border-bottom: 1px solid #f0f0f0; }
+.ad-body { padding: 10px 12px; }
+.ad-meta { padding: 8px 12px; border-top: 1px solid #f0f0f0; background: #fafafa; }
+.ad-headline { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+.ad-description { font-size: 0.85rem; color: #6c757d; }
+.viewer-ext-link { font-size: 0.75rem; }
 .viewer-clickable:hover { opacity: 0.8; filter: brightness(1.1); }
 .viewer-pill { font-size: 0.78rem; }
 .viewer-related-card { transition: box-shadow 0.15s; }

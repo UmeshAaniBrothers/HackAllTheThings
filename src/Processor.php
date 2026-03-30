@@ -346,9 +346,10 @@ class Processor
                 $localPath = $this->assetManager->downloadAsset($url, $ad['creative_id'], $type);
             }
 
+            $validTypes = ['image', 'video', 'text', 'preview'];
             $this->db->insert('ad_assets', [
                 'creative_id'  => $ad['creative_id'],
-                'type'         => in_array($type, ['image', 'video', 'text']) ? $type : 'image',
+                'type'         => in_array($type, $validTypes) ? $type : 'image',
                 'original_url' => $url,
                 'local_path'   => $localPath,
             ]);

@@ -86,10 +86,12 @@ try {
                 d.headline, d.description, d.cta, d.landing_url,
                 (SELECT GROUP_CONCAT(DISTINCT t.country) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as countries,
                 (SELECT GROUP_CONCAT(DISTINCT t.platform) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as platforms,
-                (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'image' LIMIT 1) as preview_image
+                (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type IN ('image','preview') LIMIT 1) as preview_image,
+                adv.name as advertiser_name
          FROM ads a
          LEFT JOIN ad_details d ON a.creative_id = d.creative_id
              AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
+         LEFT JOIN advertisers adv ON a.advertiser_id = adv.advertiser_id
          WHERE {$whereClause}
          ORDER BY a.last_seen DESC
          LIMIT ? OFFSET ?",
