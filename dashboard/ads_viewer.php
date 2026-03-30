@@ -558,17 +558,28 @@
 
             return `<div class="col-md-6 col-lg-4 col-xl-3 mb-4">
                 <div class="ad-card viewer-card" role="button" data-id="${escapeHtml(ad.creative_id)}">
-                    ${ad.preview_image ? `<div class="ad-thumb">
-                        <img src="${escapeHtml(ad.preview_image)}" alt="" loading="lazy">
-                        ${isVideo ? '<span class="ad-play-icon"><i class="bi bi-play-fill"></i></span>' : ''}
-                        ${viewCount > 0 ? `<span class="ad-view-count"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</span>` : ''}
-                    </div>` : (!isVideo && ad.preview_url ? `<div class="ad-thumb ad-thumb-preview">
-                        <iframe src="${escapeHtml(ad.preview_url)}" sandbox="allow-scripts allow-same-origin" loading="lazy" scrolling="no" style="width:100%;height:100%;border:none;pointer-events:none"></iframe>
-                    </div>` : (isVideo && ad.youtube_url ? `<div class="ad-thumb">
-                        <img src="https://i.ytimg.com/vi/${escapeHtml(extractYouTubeId(ad.youtube_url))}/hqdefault.jpg" alt="" loading="lazy">
-                        <span class="ad-play-icon"><i class="bi bi-play-fill"></i></span>
-                        ${viewCount > 0 ? `<span class="ad-view-count"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</span>` : ''}
-                    </div>` : ''))}
+                    ${(() => {
+                        const ytId = ad.youtube_url ? extractYouTubeId(ad.youtube_url) : null;
+                        const thumbSrc = ad.preview_image || (ytId ? 'https://i.ytimg.com/vi/' + ytId + '/hqdefault.jpg' : null);
+                        if (thumbSrc) {
+                            return `<div class="ad-thumb">
+                                <img src="${escapeHtml(thumbSrc)}" alt="" loading="lazy">
+                                ${isVideo ? '<span class="ad-play-icon"><i class="bi bi-play-fill"></i></span>' : ''}
+                                ${viewCount > 0 ? `<span class="ad-view-count"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</span>` : ''}
+                            </div>`;
+                        }
+                        if (isVideo) {
+                            return `<div class="ad-thumb d-flex align-items-center justify-content-center" style="background:#1a1a2e">
+                                <i class="bi bi-play-circle" style="font-size:3rem;color:rgba(255,255,255,.5)"></i>
+                            </div>`;
+                        }
+                        if (ad.preview_url) {
+                            return `<div class="ad-thumb ad-thumb-preview">
+                                <iframe src="${escapeHtml(ad.preview_url)}" sandbox="allow-scripts allow-same-origin" loading="lazy" scrolling="no" style="width:100%;height:100%;border:none;pointer-events:none"></iframe>
+                            </div>`;
+                        }
+                        return '';
+                    })()}
                     <div class="ad-card-header">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
