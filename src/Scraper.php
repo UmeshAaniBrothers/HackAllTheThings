@@ -109,14 +109,13 @@ class Scraper
 
         $this->log("Starting fetch for advertiser: {$advertiserId}");
 
-        // Initialize session if not done
+        // Try to initialize session (get cookies), but continue even if it fails
         if (!$this->cookieFile) {
             if (!$this->initSession()) {
-                $this->log("Cannot fetch: session initialization failed");
-                return $allAds;
+                $this->log("Session init failed, continuing without cookies...");
+            } else {
+                usleep(500000); // 0.5s delay after session init
             }
-            // Small delay after session init
-            usleep(500000); // 0.5s
         }
 
         do {
@@ -168,9 +167,10 @@ class Scraper
 
         if (!$this->cookieFile) {
             if (!$this->initSession()) {
-                return [];
+                $this->log("Session init failed, continuing without cookies...");
+            } else {
+                usleep(300000);
             }
-            usleep(300000);
         }
 
         $url = $this->baseUrl . '/anji/_/rpc/SearchService/SearchSuggestions?authuser=0';
@@ -215,10 +215,10 @@ class Scraper
         $this->errors = [];
 
         if (!$this->initSession()) {
-            return ['ok' => false, 'error' => implode('; ', $this->errors)];
+            $this->log("Session init failed, trying API directly...");
+        } else {
+            usleep(300000);
         }
-
-        usleep(300000);
 
         // Try a small suggestion query
         $url = $this->baseUrl . '/anji/_/rpc/SearchService/SearchSuggestions?authuser=0';

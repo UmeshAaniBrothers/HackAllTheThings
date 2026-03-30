@@ -444,8 +444,20 @@ function searchAdvertisers(Database $db, array $config): void
         return;
     }
 
-    $scraper = new Scraper($db, $config['scraper']);
+    $scraper = new Scraper($db, $config['scraper'] ?? []);
+    ob_start();
     $results = $scraper->searchAdvertisers($keyword);
+    $log = ob_get_clean();
+    $errors = $scraper->getErrors();
+
+    if (empty($results) && !empty($errors)) {
+        echo json_encode([
+            'success' => false,
+            'error'   => implode('; ', $errors),
+            'log'     => $log,
+        ]);
+        return;
+    }
 
     echo json_encode([
         'success' => true,
@@ -456,8 +468,10 @@ function searchAdvertisers(Database $db, array $config): void
 
 function testApiConnection(Database $db, array $config): void
 {
-    $scraper = new Scraper($db, $config['scraper']);
+    $scraper = new Scraper($db, $config['scraper'] ?? []);
+    ob_start();
     $result = $scraper->testConnection();
+    ob_get_clean();
     echo json_encode([
         'success' => $result['ok'],
         'message' => $result['message'] ?? null,
