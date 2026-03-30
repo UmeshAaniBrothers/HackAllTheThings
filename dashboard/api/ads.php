@@ -107,6 +107,7 @@ try {
                 (SELECT GROUP_CONCAT(DISTINCT t.platform) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as platforms,
                 (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'image' AND ass.original_url LIKE '%ytimg.com%' LIMIT 1) as preview_image,
                 (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url,
+                (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.original_url LIKE '%displayads-formats%' LIMIT 1) as preview_url,
                 adv.name as advertiser_name,
                 (SELECT GROUP_CONCAT(DISTINCT p.product_name SEPARATOR '||') FROM ad_product_map pm INNER JOIN ad_products p ON pm.product_id = p.id WHERE pm.creative_id = a.creative_id AND p.store_platform IN ('ios', 'playstore')) as product_names,
                 (SELECT pm2.product_id FROM ad_product_map pm2 INNER JOIN ad_products p2x ON pm2.product_id = p2x.id WHERE pm2.creative_id = a.creative_id AND p2x.store_platform IN ('ios', 'playstore') LIMIT 1) as product_id,

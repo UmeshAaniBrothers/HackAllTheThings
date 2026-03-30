@@ -545,7 +545,9 @@
                         <img src="${escapeHtml(ad.preview_image)}" alt="" loading="lazy">
                         ${isVideo ? '<span class="ad-play-icon"><i class="bi bi-play-fill"></i></span>' : ''}
                         ${viewCount > 0 ? `<span class="ad-view-count"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</span>` : ''}
-                    </div>` : ''}
+                    </div>` : (ad.preview_url ? `<div class="ad-thumb ad-thumb-preview">
+                        <iframe src="${escapeHtml(ad.preview_url)}" sandbox="allow-scripts allow-same-origin" loading="lazy" scrolling="no" style="width:100%;height:100%;border:none;pointer-events:none"></iframe>
+                    </div>` : '')}
                     <div class="ad-card-header">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
@@ -1018,6 +1020,8 @@
 .viewer-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.12); }
 .ad-thumb { position: relative; background: #000; aspect-ratio: 16/9; overflow: hidden; }
 .ad-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ad-thumb-preview { background: #f8f9fa; }
+.ad-thumb-preview iframe { width: 100%; height: 100%; border: none; pointer-events: none; }
 .ad-play-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
 .ad-view-count { position: absolute; bottom: 6px; right: 6px; background: rgba(0,0,0,0.75); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
 .ad-card-header { padding: 10px 12px 6px; border-bottom: 1px solid #f0f0f0; }
