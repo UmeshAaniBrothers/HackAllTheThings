@@ -562,16 +562,20 @@
                         <img src="${escapeHtml(ad.preview_image)}" alt="" loading="lazy">
                         ${isVideo ? '<span class="ad-play-icon"><i class="bi bi-play-fill"></i></span>' : ''}
                         ${viewCount > 0 ? `<span class="ad-view-count"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</span>` : ''}
-                    </div>` : (ad.preview_url ? `<div class="ad-thumb ad-thumb-preview">
+                    </div>` : (!isVideo && ad.preview_url ? `<div class="ad-thumb ad-thumb-preview">
                         <iframe src="${escapeHtml(ad.preview_url)}" sandbox="allow-scripts allow-same-origin" loading="lazy" scrolling="no" style="width:100%;height:100%;border:none;pointer-events:none"></iframe>
-                    </div>` : '')}
+                    </div>` : (isVideo && ad.youtube_url ? `<div class="ad-thumb">
+                        <img src="https://i.ytimg.com/vi/${escapeHtml(extractYouTubeId(ad.youtube_url))}/hqdefault.jpg" alt="" loading="lazy">
+                        <span class="ad-play-icon"><i class="bi bi-play-fill"></i></span>
+                        ${viewCount > 0 ? `<span class="ad-view-count"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</span>` : ''}
+                    </div>` : ''))}
                     <div class="ad-card-header">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type || 'text'}</span>
                                 <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span>
                             </div>
-                            ${viewCount > 0 && !ad.preview_image ? `<small class="text-muted"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</small>` : `<small class="text-muted">${formatDate(ad.last_seen)}</small>`}
+                            ${viewCount > 0 && !ad.preview_image && !ad.youtube_url ? `<small class="text-muted"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</small>` : `<small class="text-muted">${formatDate(ad.last_seen)}</small>`}
                         </div>
                     </div>
                     <div class="ad-body">
