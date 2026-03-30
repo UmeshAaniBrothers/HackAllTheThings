@@ -58,6 +58,13 @@ switch ($command) {
     case 'enrich':
         enrichYouTubeFromCli($SERVER_URL, $AUTH_TOKEN);
         break;
+    case 'countries':
+        if (empty($arg)) die("Usage: php cli/scrape.php countries AR1234...\n");
+        scanCountries($arg, $GOOGLE_BASE, $SERVER_URL, $AUTH_TOKEN);
+        break;
+    case 'countriesall':
+        scanCountriesAll($ADVERTISERS_FILE, $GOOGLE_BASE, $SERVER_URL, $AUTH_TOKEN);
+        break;
     default:
         echo "Ads Intelligent - CLI Scraper\n";
         echo "==============================\n\n";
@@ -69,7 +76,9 @@ switch ($command) {
         echo "  php cli/scrape.php add AR1234... \"Name\" [region]     Add to list (default: IN)\n";
         echo "  php cli/scrape.php list                              Show saved advertisers\n";
         echo "  php cli/scrape.php fetchall                          Fetch ALL saved advertisers\n";
-        echo "  php cli/scrape.php enrich                            Extract YouTube URLs locally\n\n";
+        echo "  php cli/scrape.php enrich                            Extract YouTube URLs locally\n";
+        echo "  php cli/scrape.php countries AR1234...               Deep scan countries for one advertiser\n";
+        echo "  php cli/scrape.php countriesall                      Deep scan countries for ALL advertisers\n\n";
         echo "Regions: IN (India), US (USA), GB (UK), AU, CA, DE, FR, JP, BR, anywhere\n\n";
         echo "Server: {$SERVER_URL}\n";
         echo "Advertisers file: {$ADVERTISERS_FILE}\n";
@@ -415,6 +424,198 @@ function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
     // Auto-enrich YouTube URLs
     echo "\n=== Enriching YouTube URLs ===\n";
     enrichYouTubeFromCli($serverUrl, $token);
+}
+
+// ── Multi-region country scanning ──────────────────────────────────
+
+// Regions to scan - major Google Ads markets
+define('SCAN_REGIONS', [
+    'IN', 'US', 'GB', 'CA', 'AU', 'DE', 'FR', 'JP', 'BR', 'MX',
+    'ES', 'IT', 'NL', 'SE', 'NO', 'DK', 'FI', 'PL', 'RU', 'TR',
+    'SA', 'AE', 'EG', 'ZA', 'NG', 'KE', 'PK', 'BD', 'ID', 'PH',
+    'MY', 'SG', 'TH', 'VN', 'KR', 'TW', 'HK', 'NZ', 'AR', 'CL',
+    'CO', 'PE', 'IL', 'IE', 'PT', 'CH', 'AT', 'BE', 'CZ', 'RO',
+]);
+
+/**
+ * Scan which countries an advertiser's ads appear in by querying multiple regions.
+ * For each region, we just fetch the first page of creative IDs (fast scan).
+ */
+function scanCountries($advertiserId, $googleBase, $serverUrl, $token)
+{
+    echo "=== Deep Country Scan for {$advertiserId} ===\n";
+    echo "Scanning " . count(SCAN_REGIONS) . " regions...\n\n";
+
+    // Map: creative_id => [region1, region2, ...]
+    $adCountries = [];
+    $scanned = 0;
+    $regionsWithAds = 0;
+
+    foreach (SCAN_REGIONS as $region) {
+        $scanned++;
+        echo "  [{$scanned}/" . count(SCAN_REGIONS) . "] Region {$region}...";
+
+        $cookieFile = initGoogleSession($googleBase, $region);
+
+        // Fetch first page only (up to 100 ads) - fast scan
+        $freqData = [
+            '2' => 100,
+            '3' => [
+                '12' => ['1' => '', '2' => true],
+                '13' => ['1' => [$advertiserId]],
+            ],
+            '7' => ['1' => 1],
+        ];
+
+        $url = $googleBase . '/anji/_/rpc/SearchService/SearchCreatives?authuser=0';
+        $body = 'f.req=' . urlencode(json_encode($freqData));
+
+        usleep(800000); // 800ms between regions
+
+        $resp = googleRequest($url, $body, $cookieFile);
+        cleanupCookies($cookieFile);
+
+        if ($resp === null) {
+            echo " FAILED\n";
+            continue;
+        }
+
+        $data = json_decode($resp, true);
+        $ads = $data['1'] ?? $data[1] ?? [];
+
+        if (!is_array($ads) || empty($ads)) {
+            echo " 0 ads\n";
+            continue;
+        }
+
+        $count = count($ads);
+        $regionsWithAds++;
+        echo " {$count} ads";
+
+        // Check for more pages
+        $hasMore = !empty($data['2'] ?? $data[2] ?? null);
+
+        foreach ($ads as $creative) {
+            $creativeId = $creative['2'] ?? $creative[2] ?? null;
+            if (!$creativeId) continue;
+
+            if (!isset($adCountries[$creativeId])) {
+                $adCountries[$creativeId] = [];
+            }
+            $adCountries[$creativeId][] = $region;
+        }
+
+        if ($hasMore) {
+            // Fetch remaining pages for this region
+            $pageToken = $data['2'] ?? $data[2] ?? null;
+            $extraPages = 0;
+            while ($pageToken && $extraPages < 20) {
+                $extraPages++;
+                $freqData['4'] = $pageToken;
+                $body = 'f.req=' . urlencode(json_encode($freqData));
+                usleep(1000000);
+
+                $resp = googleRequest($url, $body, $cookieFile);
+                if (!$resp) break;
+
+                $data = json_decode($resp, true);
+                $moreAds = $data['1'] ?? $data[1] ?? [];
+                if (empty($moreAds)) break;
+
+                foreach ($moreAds as $creative) {
+                    $creativeId = $creative['2'] ?? $creative[2] ?? null;
+                    if (!$creativeId) continue;
+                    if (!isset($adCountries[$creativeId])) {
+                        $adCountries[$creativeId] = [];
+                    }
+                    $adCountries[$creativeId][] = $region;
+                }
+                $count += count($moreAds);
+
+                $pageToken = $data['2'] ?? $data[2] ?? null;
+            }
+            echo " ({$count} total across " . ($extraPages + 1) . " pages)";
+        }
+
+        echo "\n";
+    }
+
+    echo "\n=== Results ===\n";
+    echo "Regions scanned: " . count(SCAN_REGIONS) . "\n";
+    echo "Regions with ads: {$regionsWithAds}\n";
+    echo "Unique ads found: " . count($adCountries) . "\n\n";
+
+    if (empty($adCountries)) {
+        echo "No ads found in any region.\n";
+        return;
+    }
+
+    // Show summary
+    $countryCounts = [];
+    foreach ($adCountries as $creativeId => $regions) {
+        $regionCount = count($regions);
+        echo "  {$creativeId}: " . implode(', ', $regions) . " ({$regionCount} countries)\n";
+        foreach ($regions as $r) {
+            $countryCounts[$r] = ($countryCounts[$r] ?? 0) + 1;
+        }
+    }
+
+    echo "\nCountry distribution:\n";
+    arsort($countryCounts);
+    foreach ($countryCounts as $country => $count) {
+        echo "  {$country}: {$count} ads\n";
+    }
+
+    // Send to server
+    echo "\nSending country data to server...\n";
+    $countryUrl = $serverUrl . '/dashboard/api/ingest.php?action=set_ad_countries&token=' . urlencode($token);
+    $result = postJson($countryUrl, [
+        'advertiser_id' => $advertiserId,
+        'ad_countries'  => $adCountries,
+    ], 60);
+
+    if ($result && !empty($result['success'])) {
+        echo "OK: {$result['message']}\n";
+    } else {
+        echo "Failed: " . ($result['error'] ?? 'Unknown error') . "\n";
+    }
+}
+
+/**
+ * Scan countries for ALL saved advertisers.
+ */
+function scanCountriesAll($filePath, $googleBase, $serverUrl, $token)
+{
+    if (!file_exists($filePath)) {
+        die("Advertisers file not found: {$filePath}\n");
+    }
+
+    $lines = file($filePath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    $advertisers = [];
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if (empty($line) || $line[0] === '#') continue;
+        $parts = explode('|', $line);
+        $id = trim($parts[0]);
+        if (!empty($id)) {
+            $advertisers[] = $id;
+        }
+    }
+
+    echo "=== Scanning countries for " . count($advertisers) . " advertisers ===\n\n";
+
+    foreach ($advertisers as $i => $advId) {
+        $num = $i + 1;
+        echo "\n--- [{$num}/" . count($advertisers) . "] {$advId} ---\n";
+        scanCountries($advId, $googleBase, $serverUrl, $token);
+
+        if ($i < count($advertisers) - 1) {
+            echo "\nWaiting 10 seconds before next advertiser...\n";
+            sleep(10);
+        }
+    }
+
+    echo "\n=== All country scans complete ===\n";
 }
 
 // ── YouTube enrichment (runs locally since server can't reach Google) ──

@@ -69,47 +69,6 @@ class Processor
             }
         }
 
-        // Auto-assign country from advertiser's stored region for ads missing targeting
-        $this->autoAssignCountryFromAdvertiser($row['advertiser_id']);
-    }
-
-    /**
-     * Auto-assign country to ads that have no targeting, using the advertiser's stored region.
-     */
-    private function autoAssignCountryFromAdvertiser(string $advertiserId): void
-    {
-        $advertiser = $this->db->fetchOne(
-            "SELECT region FROM managed_advertisers WHERE advertiser_id = ?",
-            [$advertiserId]
-        );
-
-        $region = $advertiser['region'] ?? null;
-        if (empty($region)) {
-            return;
-        }
-
-        $ads = $this->db->fetchAll(
-            "SELECT a.creative_id FROM ads a
-             WHERE a.advertiser_id = ?
-               AND NOT EXISTS (
-                   SELECT 1 FROM ad_targeting t WHERE t.creative_id = a.creative_id
-               )",
-            [$advertiserId]
-        );
-
-        $count = 0;
-        foreach ($ads as $ad) {
-            $this->db->insert('ad_targeting', [
-                'creative_id' => $ad['creative_id'],
-                'country'     => $region,
-                'platform'    => 'Google Ads',
-            ]);
-            $count++;
-        }
-
-        if ($count > 0) {
-            $this->log("Auto-assigned country {$region} to {$count} ads for advertiser {$advertiserId}");
-        }
     }
 
     /**

@@ -62,6 +62,9 @@ try {
         case 'backfill_countries':
             backfillCountries($db);
             break;
+        case 'set_ad_countries':
+            setAdCountries($db);
+            break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -399,5 +402,67 @@ function backfillCountries($db)
         'success' => true,
         'message' => "Updated {$results['advertisers_updated']} advertisers, backfilled {$results['ads_backfilled']} ads",
         'details' => $results['details'],
+    ]);
+}
+
+/**
+ * Set per-ad country targeting from multi-region scan.
+ * Receives: { advertiser_id, ad_countries: { creative_id: [country1, country2, ...] } }
+ * This REPLACES existing targeting for each ad with the scan results.
+ */
+function setAdCountries($db)
+{
+    $input = file_get_contents('php://input');
+    $data = json_decode($input, true);
+
+    if (!$data || empty($data['ad_countries'])) {
+        echo json_encode(['success' => false, 'error' => 'ad_countries map required']);
+        return;
+    }
+
+    $adCountries = $data['ad_countries'];
+    $totalUpdated = 0;
+    $totalNew = 0;
+    $adsProcessed = 0;
+
+    foreach ($adCountries as $creativeId => $countries) {
+        if (!is_array($countries) || empty($countries)) continue;
+
+        // Verify this ad exists in our database
+        $exists = $db->fetchOne("SELECT creative_id FROM ads WHERE creative_id = ?", [$creativeId]);
+        if (!$exists) continue;
+
+        $adsProcessed++;
+
+        // Get existing countries for this ad
+        $existing = $db->fetchAll(
+            "SELECT country FROM ad_targeting WHERE creative_id = ?",
+            [$creativeId]
+        );
+        $existingCountries = array_column($existing, 'country');
+
+        // Add new countries that don't exist yet
+        foreach ($countries as $country) {
+            $country = strtoupper(trim($country));
+            if (empty($country) || strlen($country) !== 2) continue;
+
+            if (!in_array($country, $existingCountries)) {
+                $db->insert('ad_targeting', [
+                    'creative_id' => $creativeId,
+                    'country'     => $country,
+                    'platform'    => 'Google Ads',
+                ]);
+                $totalNew++;
+            }
+            $totalUpdated++;
+        }
+    }
+
+    echo json_encode([
+        'success' => true,
+        'ads_processed' => $adsProcessed,
+        'countries_added' => $totalNew,
+        'total_entries' => $totalUpdated,
+        'message' => "Processed {$adsProcessed} ads, added {$totalNew} new country entries",
     ]);
 }
