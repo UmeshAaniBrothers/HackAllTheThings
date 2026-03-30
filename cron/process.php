@@ -70,7 +70,7 @@ try {
         }
     }
 
-    // Step 2: Extract YouTube URLs (only if we have video ads without YouTube URLs)
+    // Step 2: Extract YouTube URLs
     $ytExtracted = 0;
     try {
         $ytExtracted = $processor->extractYouTubeUrls();
@@ -78,7 +78,15 @@ try {
         logMsg("YouTube extraction error: " . $e->getMessage());
     }
 
-    // Step 3: Update advertiser stats
+    // Step 3: Enrich YouTube metadata (title, view count, thumbnail)
+    $ytEnriched = 0;
+    try {
+        $ytEnriched = $processor->enrichYouTubeMetadata();
+    } catch (Exception $e) {
+        logMsg("YouTube enrichment error: " . $e->getMessage());
+    }
+
+    // Step 4: Update advertiser stats
     try {
         $db->query(
             "UPDATE managed_advertisers ma SET
@@ -92,12 +100,13 @@ try {
         'success'   => true,
         'processed' => $processed,
         'youtube'   => $ytExtracted,
+        'enriched'  => $ytEnriched,
         'pending'   => count($unprocessed),
     ];
 
     if ($isCli) {
-        if ($processed > 0 || $ytExtracted > 0) {
-            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs");
+        if ($processed > 0 || $ytExtracted > 0 || $ytEnriched > 0) {
+            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs, enriched {$ytEnriched} videos");
         }
     } else {
         echo json_encode($result);

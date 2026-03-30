@@ -641,4 +641,161 @@ class Processor
 
         return null;
     }
+
+    /**
+     * Fetch YouTube metadata (title, view count, thumbnail) for video ads.
+     * Uses YouTube oEmbed for title and page scraping for view count.
+     * Updates ad_details with title and view count info.
+     * Returns number of ads enriched.
+     */
+    public function enrichYouTubeMetadata()
+    {
+        // Get video ads that have a YouTube URL but no headline yet
+        $ads = $this->db->fetchAll(
+            "SELECT a.creative_id,
+                    (SELECT original_url FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url
+             FROM ads a
+             LEFT JOIN ad_details d ON a.creative_id = d.creative_id
+                AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
+             WHERE a.ad_type = 'video'
+               AND EXISTS (SELECT 1 FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%')
+               AND (d.headline IS NULL OR d.headline = '')
+             ORDER BY a.last_seen DESC"
+        );
+
+        if (empty($ads)) {
+            return 0;
+        }
+
+        $enriched = 0;
+
+        foreach ($ads as $ad) {
+            $youtubeUrl = $ad['youtube_url'];
+            if (empty($youtubeUrl)) continue;
+
+            // Extract video ID
+            $videoId = null;
+            if (preg_match('/[?&]v=([a-zA-Z0-9_-]{11})/', $youtubeUrl, $m)) {
+                $videoId = $m[1];
+            }
+            if (!$videoId) continue;
+
+            $meta = $this->fetchYouTubeMetadata($videoId);
+            if (!$meta) continue;
+
+            // Update ad_details with YouTube title and view count
+            $headline = $meta['title'] ?: null;
+            $description = '';
+            if ($meta['view_count'] !== null) {
+                $description = number_format($meta['view_count']) . ' views';
+            }
+            if ($meta['author']) {
+                $description .= ($description ? ' | ' : '') . 'by ' . $meta['author'];
+            }
+
+            // Update existing detail or insert new one
+            $existingDetail = $this->db->fetchOne(
+                "SELECT id FROM ad_details WHERE creative_id = ? ORDER BY id DESC LIMIT 1",
+                [$ad['creative_id']]
+            );
+
+            if ($existingDetail) {
+                $this->db->update('ad_details', [
+                    'headline'    => $headline,
+                    'description' => $description ?: null,
+                    'landing_url' => $youtubeUrl,
+                ], 'id = ?', [$existingDetail['id']]);
+            } else {
+                $this->db->insert('ad_details', [
+                    'creative_id' => $ad['creative_id'],
+                    'headline'    => $headline,
+                    'description' => $description ?: null,
+                    'landing_url' => $youtubeUrl,
+                ]);
+            }
+
+            // Ensure YouTube thumbnail is stored as image asset
+            $thumbUrl = 'https://i.ytimg.com/vi/' . $videoId . '/hqdefault.jpg';
+            $existsThumb = $this->db->fetchOne(
+                "SELECT id FROM ad_assets WHERE creative_id = ? AND original_url = ?",
+                [$ad['creative_id'], $thumbUrl]
+            );
+            if (!$existsThumb) {
+                $this->db->insert('ad_assets', [
+                    'creative_id'  => $ad['creative_id'],
+                    'type'         => 'image',
+                    'original_url' => $thumbUrl,
+                    'local_path'   => null,
+                ]);
+            }
+
+            $enriched++;
+            usleep(500000); // 500ms between YouTube requests
+        }
+
+        $this->log("Enriched {$enriched} video ads with YouTube metadata");
+        return $enriched;
+    }
+
+    /**
+     * Fetch YouTube video metadata: title, author, view count.
+     */
+    private function fetchYouTubeMetadata($videoId)
+    {
+        $result = ['title' => null, 'author' => null, 'view_count' => null, 'thumbnail' => null];
+
+        // Step 1: oEmbed for title and author
+        $oembedUrl = 'https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=' . $videoId . '&format=json';
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL            => $oembedUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            CURLOPT_ENCODING       => 'gzip, deflate',
+        ));
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        unset($ch);
+
+        if ($resp && $code === 200) {
+            $data = json_decode($resp, true);
+            if ($data) {
+                $result['title'] = isset($data['title']) ? $data['title'] : null;
+                $result['author'] = isset($data['author_name']) ? $data['author_name'] : null;
+                $result['thumbnail'] = isset($data['thumbnail_url']) ? $data['thumbnail_url'] : null;
+            }
+        }
+
+        // Step 2: Fetch watch page for view count
+        $watchUrl = 'https://www.youtube.com/watch?v=' . $videoId;
+        $ch2 = curl_init();
+        curl_setopt_array($ch2, array(
+            CURLOPT_URL            => $watchUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            CURLOPT_ENCODING       => 'gzip, deflate',
+        ));
+        $html = curl_exec($ch2);
+        $code2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+        unset($ch2);
+
+        if ($html && $code2 === 200) {
+            if (preg_match('/"viewCount":"(\d+)"/', $html, $m)) {
+                $result['view_count'] = (int)$m[1];
+            }
+        }
+
+        // Return null if we got nothing useful
+        if (!$result['title'] && $result['view_count'] === null) {
+            return null;
+        }
+
+        return $result;
+    }
 }

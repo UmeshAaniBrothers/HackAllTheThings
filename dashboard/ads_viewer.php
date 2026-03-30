@@ -494,26 +494,29 @@
 
             return `<div class="col-md-6 col-lg-4 col-xl-3 mb-4">
                 <div class="ad-card viewer-card" role="button" data-id="${escapeHtml(ad.creative_id)}">
+                    ${ad.preview_image ? `<div class="ad-thumb">
+                        <img src="${escapeHtml(ad.preview_image)}" alt="" loading="lazy">
+                        ${isVideo ? '<span class="ad-play-icon"><i class="bi bi-play-fill"></i></span>' : ''}
+                    </div>` : ''}
                     <div class="ad-card-header">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type || 'text'}</span>
                                 <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span>
                             </div>
-                            <small class="text-muted">${formatDate(ad.last_seen)}</small>
+                            ${ad.description ? `<small class="text-muted"><i class="bi bi-eye me-1"></i>${escapeHtml(ad.description)}</small>` : `<small class="text-muted">${formatDate(ad.last_seen)}</small>`}
                         </div>
                     </div>
                     <div class="ad-body">
                         <div class="ad-headline">${escapeHtml(headline)}</div>
-                        ${ad.description ? `<div class="ad-description">${escapeHtml(ad.description)}</div>` : ''}
                         ${ad.cta ? `<span class="badge bg-primary mt-1 viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
                         <div class="mt-2">
-                            <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()">
-                                <i class="bi bi-box-arrow-up-right me-1"></i>View on Google
-                            </a>
-                            ${isVideo && ad.youtube_url ? `<a href="${escapeHtml(ad.youtube_url)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm ms-1 viewer-ext-link" onclick="event.stopPropagation()">
+                            ${isVideo && ad.youtube_url ? `<a href="${escapeHtml(ad.youtube_url)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()">
                                 <i class="bi bi-youtube me-1"></i>YouTube
                             </a>` : ''}
+                            <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>Google
+                            </a>
                         </div>
                     </div>
                     <div class="ad-meta">
@@ -954,10 +957,13 @@
 /* Viewer-specific styles */
 .viewer-card { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; }
 .viewer-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.12); }
+.ad-thumb { position: relative; background: #000; aspect-ratio: 16/9; overflow: hidden; }
+.ad-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.ad-play-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.6); color: #fff; border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
 .ad-card-header { padding: 10px 12px 6px; border-bottom: 1px solid #f0f0f0; }
 .ad-body { padding: 10px 12px; }
 .ad-meta { padding: 8px 12px; border-top: 1px solid #f0f0f0; background: #fafafa; }
-.ad-headline { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+.ad-headline { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ad-description { font-size: 0.85rem; color: #6c757d; }
 .viewer-ext-link { font-size: 0.75rem; }
 .viewer-clickable:hover { opacity: 0.8; filter: brightness(1.1); }
