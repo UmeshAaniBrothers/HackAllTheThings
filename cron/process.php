@@ -47,27 +47,12 @@ try {
     $assetManager = new AssetManager($config['storage'] ?? array());
     $processor = new Processor($db, $assetManager);
 
-    // Step 1: Process raw payloads one at a time
-    $unprocessed = $db->fetchAll(
-        "SELECT id, advertiser_id, raw_json FROM raw_payloads WHERE processed_flag = 0 ORDER BY id ASC LIMIT 10"
-    );
-
+    // Step 1: Process raw payloads
     $processed = 0;
-    foreach ($unprocessed as $row) {
-        try {
-            // Use reflection or direct call to process single payload
-            ob_start();
-            // processAll processes all unprocessed, but we mark them one by one
-            // So we process one, mark it, move to next
-            $count = $processor->processAll();
-            ob_get_clean();
-            $processed += $count;
-            break; // processAll handles all at once, so break after first call
-        } catch (Exception $e) {
-            logMsg("Error processing payload {$row['id']}: " . $e->getMessage());
-            // Mark as processed to avoid infinite retry
-            $db->update('raw_payloads', ['processed_flag' => 2], 'id = ?', [$row['id']]);
-        }
+    try {
+        $processed = $processor->processAll();
+    } catch (Exception $e) {
+        logMsg("Payload processing error: " . $e->getMessage());
     }
 
     // Step 2: Extract YouTube URLs
@@ -92,6 +77,14 @@ try {
         $productsDetected = $processor->detectProducts();
     } catch (Exception $e) {
         logMsg("Product detection error: " . $e->getMessage());
+    }
+
+    // Step 4b: Re-detect products previously classified as 'web' (may now find app store links)
+    $redetected = 0;
+    try {
+        $redetected = $processor->redetectWebProducts();
+    } catch (Exception $e) {
+        logMsg("Product re-detection error: " . $e->getMessage());
     }
 
     // Step 5: Update advertiser stats
@@ -119,21 +112,28 @@ try {
            AND NOT EXISTS (SELECT 1 FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%')"
     );
 
+    // Count remaining web products that might still need re-detection
+    $remainingWebProducts = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ad_product_map pm
+         INNER JOIN ad_products p ON pm.product_id = p.id AND p.store_platform = 'web'"
+    );
+
     $result = [
         'success'   => true,
         'processed' => $processed,
         'youtube'   => $ytExtracted,
         'enriched'  => $ytEnriched,
         'products'  => $productsDetected,
-        'pending'   => count($unprocessed),
+        'redetected' => $redetected,
         'remaining_extract' => $remainingExtract,
         'remaining_enrich'  => $remainingEnrich,
+        'remaining_web_products' => $remainingWebProducts,
         'message'   => ($remainingExtract > 0 || $remainingEnrich > 0) ? 'Call again to process more. ' . $remainingExtract . ' need YouTube URL, ' . $remainingEnrich . ' need view counts.' : 'All done!',
     ];
 
     if ($isCli) {
-        if ($processed > 0 || $ytExtracted > 0 || $ytEnriched > 0 || $productsDetected > 0) {
-            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs, enriched {$ytEnriched} videos, detected {$productsDetected} product mappings");
+        if ($processed > 0 || $ytExtracted > 0 || $ytEnriched > 0 || $productsDetected > 0 || $redetected > 0) {
+            logMsg("Processed {$processed} payloads, extracted {$ytExtracted} YouTube URLs, enriched {$ytEnriched} videos, detected {$productsDetected} products, re-detected {$redetected} web->app");
         }
     } else {
         echo json_encode($result);

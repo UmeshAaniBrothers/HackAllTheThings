@@ -753,8 +753,7 @@ class Processor
      */
     public function detectProducts()
     {
-        // Get ads with headlines that aren't mapped to a product yet
-        // Also fetch all asset URLs to search for store links
+        // Get unmapped ads with headlines and all associated URLs (batched for performance)
         $ads = $this->db->fetchAll(
             "SELECT a.creative_id, a.advertiser_id, d.headline, d.landing_url,
                     (SELECT GROUP_CONCAT(ass.original_url SEPARATOR '||')
@@ -765,111 +764,32 @@ class Processor
              WHERE NOT EXISTS (
                  SELECT 1 FROM ad_product_map pm WHERE pm.creative_id = a.creative_id
              )
-             ORDER BY a.advertiser_id, a.last_seen DESC"
+             ORDER BY a.advertiser_id, a.last_seen DESC
+             LIMIT 100"
         );
 
         if (empty($ads)) {
             return 0;
         }
 
+        // Pre-load store URLs from raw payloads per advertiser (fast indexed query)
+        $advertiserStoreUrls = $this->preloadStoreUrlsFromPayloads($ads);
+
         $mapped = 0;
 
         foreach ($ads as $ad) {
-            $productName = null;
-            $productType = 'other';
-            $storePlatform = 'web';
-            $storeUrl = null;
-
-            $headline = isset($ad['headline']) ? trim($ad['headline']) : '';
-            $landingUrl = isset($ad['landing_url']) ? trim($ad['landing_url']) : '';
-            $allUrls = isset($ad['all_asset_urls']) ? $ad['all_asset_urls'] : '';
-
-            // Collect all URLs to search for store links (landing_url + all asset URLs)
-            $urlsToCheck = $landingUrl;
-            if ($allUrls) {
-                $urlsToCheck .= '||' . $allUrls;
-            }
-
-            // Priority 1: Detect from Play Store / App Store URLs in any available URL
-            if ($urlsToCheck && preg_match('/play\.google\.com\/store\/apps\/details\?id=([^&\s|]+)/', $urlsToCheck, $m)) {
-                $packageName = $m[1];
-                $productName = $this->packageToAppName($packageName);
-                $productType = 'app';
-                $storePlatform = 'playstore';
-                $storeUrl = 'https://play.google.com/store/apps/details?id=' . $packageName;
-            } elseif ($urlsToCheck && preg_match('/apps\.apple\.com\/[^\/]+\/app\/([^\/\s|]+)/', $urlsToCheck, $m)) {
-                $productName = str_replace('-', ' ', $m[1]);
-                $productName = ucwords($productName);
-                $productType = 'app';
-                $storePlatform = 'ios';
-                // Extract the full App Store URL
-                preg_match('/(https?:\/\/apps\.apple\.com\/[^\s|]+)/', $urlsToCheck, $fullUrl);
-                $storeUrl = $fullUrl[1] ?? null;
-            }
-
-            // Priority 2: If no store URL found, try to find store link from the raw payload
-            if (!$productName) {
-                $storeLink = $this->findStoreUrlFromPayload($ad['creative_id']);
-                if ($storeLink) {
-                    if (preg_match('/play\.google\.com\/store\/apps\/details\?id=([^&\s]+)/', $storeLink, $m)) {
-                        $packageName = $m[1];
-                        $productName = $this->packageToAppName($packageName);
-                        $productType = 'app';
-                        $storePlatform = 'playstore';
-                        $storeUrl = 'https://play.google.com/store/apps/details?id=' . $packageName;
-                    } elseif (preg_match('/apps\.apple\.com\/[^\/]+\/app\/([^\/\s]+)/', $storeLink, $m)) {
-                        $productName = str_replace('-', ' ', $m[1]);
-                        $productName = ucwords($productName);
-                        $productType = 'app';
-                        $storePlatform = 'ios';
-                        $storeUrl = $storeLink;
-                    }
-                }
-            }
-
-            // Priority 3: Extract from YouTube video title
-            if (!$productName && $headline !== '') {
-                $productName = $this->extractProductFromTitle($headline);
-                if ($productName) {
-                    // Guess type from keywords
-                    $lower = strtolower($productName);
-                    if (preg_match('/\b(game|gaming|play|level|quest)\b/i', $lower)) {
-                        $productType = 'game';
-                    } elseif (preg_match('/\b(app|download|install)\b/i', $headline)) {
-                        $productType = 'app';
-                    }
-                }
-            }
-
-            // Priority 4: Use headline as-is if short enough (likely an app/product name)
-            if (!$productName && $headline !== '' && strlen($headline) <= 60) {
-                $productName = $headline;
-            }
-
-            // Skip if we couldn't detect anything
-            if (!$productName || $productName === '') {
-                // Map to "Unknown" product so we don't re-process
-                $productName = 'Unknown';
-                $productType = 'other';
-            }
-
-            // Normalize product name
-            $productName = trim($productName);
-            if (strlen($productName) > 255) {
-                $productName = substr($productName, 0, 252) . '...';
-            }
+            $result = $this->detectProductForAd($ad, $advertiserStoreUrls);
 
             // Find or create product
             $productId = $this->findOrCreateProduct(
                 $ad['advertiser_id'],
-                $productName,
-                $productType,
-                $storePlatform,
-                $storeUrl
+                $result['name'],
+                $result['type'],
+                $result['platform'],
+                $result['url']
             );
 
             if ($productId) {
-                // Create mapping
                 $exists = $this->db->fetchOne(
                     "SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?",
                     [$ad['creative_id'], $productId]
@@ -889,31 +809,224 @@ class Processor
     }
 
     /**
-     * Search raw payloads for Play Store / App Store URLs associated with a creative.
+     * Re-detect products that were incorrectly classified as 'web'.
+     * Removes old web product mappings and re-processes those ads.
+     * Returns number of ads re-mapped.
      */
-    private function findStoreUrlFromPayload($creativeId)
+    public function redetectWebProducts()
     {
-        // Search in raw payloads for this advertiser's data containing store URLs
-        $rows = $this->db->fetchAll(
-            "SELECT rp.raw_json FROM raw_payloads rp
-             WHERE rp.raw_json LIKE CONCAT('%', ?, '%')
-             LIMIT 3",
-            [$creativeId]
+        // Find ads mapped to web products that might actually be apps
+        $webAds = $this->db->fetchAll(
+            "SELECT a.creative_id, a.advertiser_id, d.headline, d.landing_url,
+                    (SELECT GROUP_CONCAT(ass.original_url SEPARATOR '||')
+                     FROM ad_assets ass WHERE ass.creative_id = a.creative_id) as all_asset_urls,
+                    pm.id as map_id, pm.product_id
+             FROM ads a
+             INNER JOIN ad_product_map pm ON a.creative_id = pm.creative_id
+             INNER JOIN ad_products p ON pm.product_id = p.id AND p.store_platform = 'web'
+             LEFT JOIN ad_details d ON a.creative_id = d.creative_id
+                 AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
+             ORDER BY a.advertiser_id, a.last_seen DESC
+             LIMIT 100"
         );
 
-        foreach ($rows as $row) {
-            $json = $row['raw_json'];
-            // Search for Play Store URLs
-            if (preg_match('/(https?:\/\/play\.google\.com\/store\/apps\/details\?id=[^"\'&\s\\\\]+)/', $json, $m)) {
-                return $m[1];
-            }
-            // Search for App Store URLs
-            if (preg_match('/(https?:\/\/apps\.apple\.com\/[^"\'&\s\\\\]+)/', $json, $m)) {
-                return $m[1];
+        if (empty($webAds)) {
+            return 0;
+        }
+
+        $advertiserStoreUrls = $this->preloadStoreUrlsFromPayloads($webAds);
+        $remapped = 0;
+
+        foreach ($webAds as $ad) {
+            $result = $this->detectProductForAd($ad, $advertiserStoreUrls);
+
+            // Only re-map if we found an actual app store link
+            if ($result['platform'] === 'ios' || $result['platform'] === 'playstore') {
+                // Remove old web mapping
+                $this->db->query("DELETE FROM ad_product_map WHERE id = ?", [$ad['map_id']]);
+
+                $productId = $this->findOrCreateProduct(
+                    $ad['advertiser_id'],
+                    $result['name'],
+                    $result['type'],
+                    $result['platform'],
+                    $result['url']
+                );
+
+                if ($productId) {
+                    $this->db->insert('ad_product_map', [
+                        'creative_id' => $ad['creative_id'],
+                        'product_id'  => $productId,
+                    ]);
+                    $remapped++;
+                }
             }
         }
 
+        // Clean up orphaned web products with no remaining mappings
+        $this->db->query(
+            "DELETE FROM ad_products WHERE store_platform = 'web'
+             AND id NOT IN (SELECT product_id FROM ad_product_map)"
+        );
+
+        $this->log("Re-detected {$remapped} ads from web to app store products");
+        return $remapped;
+    }
+
+    /**
+     * Detect product info for a single ad from all available sources.
+     */
+    private function detectProductForAd(array $ad, array $advertiserStoreUrls): array
+    {
+        $productName = null;
+        $productType = 'other';
+        $storePlatform = 'web';
+        $storeUrl = null;
+
+        $headline = isset($ad['headline']) ? trim($ad['headline']) : '';
+        $landingUrl = isset($ad['landing_url']) ? trim($ad['landing_url']) : '';
+        $allUrls = isset($ad['all_asset_urls']) ? $ad['all_asset_urls'] : '';
+
+        // Collect all URLs to search for store links
+        $urlsToCheck = $landingUrl;
+        if ($allUrls) {
+            $urlsToCheck .= '||' . $allUrls;
+        }
+
+        // Priority 1: Detect from Play Store / App Store URLs in ad URLs
+        $storeResult = $this->extractStoreInfoFromUrls($urlsToCheck);
+        if ($storeResult) {
+            return $storeResult;
+        }
+
+        // Priority 2: Check pre-loaded store URLs from raw payloads for this advertiser
+        $advId = $ad['advertiser_id'];
+        if (isset($advertiserStoreUrls[$advId])) {
+            foreach ($advertiserStoreUrls[$advId] as $payloadStoreUrl) {
+                $storeResult = $this->extractStoreInfoFromUrls($payloadStoreUrl);
+                if ($storeResult) {
+                    return $storeResult;
+                }
+            }
+        }
+
+        // Priority 3: Extract from YouTube video title
+        if ($headline !== '') {
+            $productName = $this->extractProductFromTitle($headline);
+            if ($productName) {
+                $lower = strtolower($productName);
+                if (preg_match('/\b(game|gaming|play|level|quest)\b/i', $lower)) {
+                    $productType = 'game';
+                } elseif (preg_match('/\b(app|download|install)\b/i', $headline)) {
+                    $productType = 'app';
+                }
+            }
+        }
+
+        // Priority 4: Use headline as-is if short enough
+        if (!$productName && $headline !== '' && strlen($headline) <= 60) {
+            $productName = $headline;
+        }
+
+        // Fallback: Unknown
+        if (!$productName || $productName === '') {
+            $productName = 'Unknown';
+            $productType = 'other';
+        }
+
+        // Normalize
+        $productName = trim($productName);
+        if (strlen($productName) > 255) {
+            $productName = substr($productName, 0, 252) . '...';
+        }
+
+        return [
+            'name'     => $productName,
+            'type'     => $productType,
+            'platform' => $storePlatform,
+            'url'      => $storeUrl,
+        ];
+    }
+
+    /**
+     * Extract Play Store / App Store info from a URL string.
+     * Returns associative array with name/type/platform/url or null if not found.
+     */
+    private function extractStoreInfoFromUrls($urlsToCheck)
+    {
+        if (!$urlsToCheck) return null;
+
+        // Check for Play Store URLs (handle both normal and escaped slashes)
+        if (preg_match('/play\.google\.com(?:\\\\\/|\/)+store(?:\\\\\/|\/)+apps(?:\\\\\/|\/)+details\?id=([^&\s|"\'\\\\]+)/', $urlsToCheck, $m)) {
+            $packageName = $m[1];
+            return [
+                'name'     => $this->packageToAppName($packageName),
+                'type'     => 'app',
+                'platform' => 'playstore',
+                'url'      => 'https://play.google.com/store/apps/details?id=' . $packageName,
+            ];
+        }
+
+        // Check for App Store URLs (handle both normal and escaped slashes)
+        if (preg_match('/apps\.apple\.com(?:\\\\\/|\/)+[a-z]{2}(?:\\\\\/|\/)+app(?:\\\\\/|\/)+([^\/\s|"\'\\\\]+)/', $urlsToCheck, $m)) {
+            $slug = $m[1];
+            $productName = str_replace('-', ' ', $slug);
+            $productName = ucwords($productName);
+            // Extract clean URL
+            preg_match('/(https?:\/\/apps\.apple\.com\/[^\s|"\'\\\\]+)/', $urlsToCheck, $fullUrl);
+            return [
+                'name'     => $productName,
+                'type'     => 'app',
+                'platform' => 'ios',
+                'url'      => isset($fullUrl[1]) ? stripslashes($fullUrl[1]) : null,
+            ];
+        }
+
         return null;
+    }
+
+    /**
+     * Pre-load store URLs from raw payloads for the advertisers in the given ads batch.
+     * Uses indexed advertiser_id column instead of slow LIKE search on raw_json.
+     * Returns: [advertiser_id => [store_url1, store_url2, ...]]
+     */
+    private function preloadStoreUrlsFromPayloads(array $ads): array
+    {
+        // Collect unique advertiser IDs
+        $advertiserIds = array_unique(array_column($ads, 'advertiser_id'));
+        if (empty($advertiserIds)) return [];
+
+        $result = [];
+        foreach ($advertiserIds as $advId) {
+            // Use indexed advertiser_id column (fast query)
+            $rows = $this->db->fetchAll(
+                "SELECT raw_json FROM raw_payloads WHERE advertiser_id = ? ORDER BY id DESC LIMIT 5",
+                [$advId]
+            );
+
+            $urls = [];
+            foreach ($rows as $row) {
+                $json = $row['raw_json'];
+                // Find all Play Store URLs (handle escaped slashes in JSON)
+                if (preg_match_all('/play\.google\.com(?:\\\\\/|\/)+store(?:\\\\\/|\/)+apps(?:\\\\\/|\/)+details\?id=([^&\s"\'\\\\]+)/', $json, $matches)) {
+                    foreach ($matches[0] as $match) {
+                        $urls[] = $match;
+                    }
+                }
+                // Find all App Store URLs
+                if (preg_match_all('/(https?:(?:\\\\\/|\/)+(?:\\\\\/|\/)*apps\.apple\.com(?:\\\\\/|\/)+[^\s"\'\\\\]+)/', $json, $matches)) {
+                    foreach ($matches[0] as $match) {
+                        $urls[] = stripslashes($match);
+                    }
+                }
+            }
+
+            if (!empty($urls)) {
+                $result[$advId] = array_unique($urls);
+            }
+        }
+
+        return $result;
     }
 
     /**
