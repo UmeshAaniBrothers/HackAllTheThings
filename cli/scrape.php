@@ -233,11 +233,12 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
     $updateUrl = $serverUrl . '/dashboard/api/ingest.php?action=update_advertiser&token=' . urlencode($token);
     $cronUrl = $serverUrl . '/cron/process.php?token=' . urlencode($token);
 
-    // Step 1: Ensure advertiser exists
+    // Step 1: Ensure advertiser exists (include region for auto-country assignment)
     $advResult = postJson($updateUrl, [
         'advertiser_id' => $advertiserId,
         'name'          => $advertiserName,
         'status'        => 'active',
+        'region'        => $region,
     ]);
     if (!$advResult || empty($advResult['success'])) {
         echo "WARNING: Could not update advertiser record\n";

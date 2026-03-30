@@ -59,6 +59,9 @@ try {
         case 'set_country':
             setCountry($db);
             break;
+        case 'backfill_countries':
+            backfillCountries($db);
+            break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -193,15 +196,20 @@ function updateAdvertiser($db)
     );
 
     if (!$existing) {
-        $db->insert('managed_advertisers', [
+        $insertData = [
             'advertiser_id' => $data['advertiser_id'],
             'name'          => $data['name'] ?? $data['advertiser_id'],
             'status'        => $data['status'] ?? 'new',
-        ]);
+        ];
+        if (!empty($data['region'])) {
+            $insertData['region'] = strtoupper(trim($data['region']));
+        }
+        $db->insert('managed_advertisers', $insertData);
     } else {
         $updates = [];
         if (isset($data['name'])) $updates['name'] = $data['name'];
         if (isset($data['status'])) $updates['status'] = $data['status'];
+        if (!empty($data['region'])) $updates['region'] = strtoupper(trim($data['region']));
         if (!empty($updates)) {
             $db->update('managed_advertisers', $updates, 'advertiser_id = ?', [$data['advertiser_id']]);
         }
@@ -291,6 +299,12 @@ function setCountry($db)
     $advertiserId = $data['advertiser_id'];
     $country = strtoupper(trim($data['country']));
 
+    // Also store region on the advertiser for future auto-assignment
+    $db->query(
+        "UPDATE managed_advertisers SET region = ? WHERE advertiser_id = ? AND (region IS NULL OR region = '')",
+        [$country, $advertiserId]
+    );
+
     // Get all ads for this advertiser that don't have this country yet
     $ads = $db->fetchAll(
         "SELECT a.creative_id FROM ads a
@@ -316,5 +330,74 @@ function setCountry($db)
         'success' => true,
         'updated' => $updated,
         'message' => "Set country {$country} for {$updated} ads",
+    ]);
+}
+
+/**
+ * Backfill countries: set region on advertisers from advertisers.txt,
+ * then assign country to all ads missing targeting based on advertiser region.
+ */
+function backfillCountries($db)
+{
+    $basePath = dirname(dirname(__DIR__));
+    $results = ['advertisers_updated' => 0, 'ads_backfilled' => 0, 'details' => []];
+
+    // Step 1: Read advertisers.txt and set region on managed_advertisers
+    $advFile = $basePath . '/cli/advertisers.txt';
+    if (file_exists($advFile)) {
+        $lines = file($advFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (empty($line) || $line[0] === '#') continue;
+            $parts = explode('|', $line);
+            if (count($parts) >= 3) {
+                $advId = trim($parts[0]);
+                $region = strtoupper(trim($parts[2]));
+                if (!empty($region)) {
+                    $db->query(
+                        "UPDATE managed_advertisers SET region = ? WHERE advertiser_id = ? AND (region IS NULL OR region = '')",
+                        [$region, $advId]
+                    );
+                    $results['advertisers_updated']++;
+                }
+            }
+        }
+    }
+
+    // Step 2: For each advertiser with a region, assign country to ads missing targeting
+    $advertisers = $db->fetchAll(
+        "SELECT advertiser_id, region FROM managed_advertisers WHERE region IS NOT NULL AND region != ''"
+    );
+
+    foreach ($advertisers as $adv) {
+        $ads = $db->fetchAll(
+            "SELECT a.creative_id FROM ads a
+             WHERE a.advertiser_id = ?
+               AND NOT EXISTS (
+                   SELECT 1 FROM ad_targeting t WHERE t.creative_id = a.creative_id
+               )",
+            [$adv['advertiser_id']]
+        );
+
+        $count = 0;
+        foreach ($ads as $ad) {
+            $db->insert('ad_targeting', [
+                'creative_id' => $ad['creative_id'],
+                'country'     => $adv['region'],
+                'platform'    => 'Google Ads',
+            ]);
+            $count++;
+        }
+
+        if ($count > 0) {
+            $results['ads_backfilled'] += $count;
+            $results['details'][] = "{$adv['advertiser_id']}: {$count} ads → {$adv['region']}";
+        }
+    }
+
+    echo json_encode([
+        'success' => true,
+        'message' => "Updated {$results['advertisers_updated']} advertisers, backfilled {$results['ads_backfilled']} ads",
+        'details' => $results['details'],
     ]);
 }

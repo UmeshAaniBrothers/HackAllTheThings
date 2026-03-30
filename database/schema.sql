@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS managed_advertisers (
     advertiser_id VARCHAR(64) NOT NULL UNIQUE,
     name VARCHAR(255) NOT NULL,
     status ENUM('new','active','fetching','paused','error','deleted') DEFAULT 'new',
+    region VARCHAR(10) DEFAULT NULL COMMENT 'Default country/region code for this advertiser (IN, US, GB...)',
     total_ads INT DEFAULT 0,
     active_ads INT DEFAULT 0,
     last_fetch_ads INT DEFAULT 0,

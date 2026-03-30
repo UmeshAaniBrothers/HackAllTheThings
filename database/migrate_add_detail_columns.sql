@@ -13,3 +13,7 @@ ALTER TABLE ad_details
     ADD COLUMN headlines_json TEXT COMMENT 'JSON array of all headline variations (responsive ads)' AFTER ad_height,
     ADD COLUMN descriptions_json TEXT COMMENT 'JSON array of all description variations' AFTER headlines_json,
     ADD COLUMN tracking_ids_json TEXT COMMENT 'JSON array of tracking IDs (GA, GTM, FB Pixel)' AFTER descriptions_json;
+
+-- Add region column to managed_advertisers for auto-country assignment
+ALTER TABLE managed_advertisers
+    ADD COLUMN region VARCHAR(10) DEFAULT NULL COMMENT 'Default country/region code (IN, US, GB...)' AFTER status;
