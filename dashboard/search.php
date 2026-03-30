@@ -422,7 +422,7 @@ function renderAds(ads, count) {
                             <i class="bi bi-building me-1"></i>${escapeHtml(ad.advertiser_name)}
                         </a>
                         ${products.map(p => `<span class="badge bg-light text-success"><i class="bi bi-phone me-1"></i>${escapeHtml(p)}</span>`).join('')}
-                        ${countries.map(c => `<span class="badge bg-light text-primary">${c}</span>`).join('')}
+                        ${countries.map(c => `<span class="badge bg-light text-primary">${countryFlag(c)} ${c}</span>`).join('')}
                     </div>
                 </div>
                 <div class="ad-meta d-flex justify-content-between">

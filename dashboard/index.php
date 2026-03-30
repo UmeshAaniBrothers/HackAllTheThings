@@ -381,8 +381,10 @@
         container.innerHTML = countries.map(c => {
             const count = parseInt(c.ad_count);
             const pct = maxCount > 0 ? ((count / maxCount) * 100) : 0;
+            const flag = countryFlag(c.country);
+            const name = countryName(c.country);
             return `<div class="d-flex align-items-center mb-2">
-                <span class="fw-bold me-2" style="width:32px;font-size:.85rem">${escapeHtml(c.country)}</span>
+                <span class="me-2" style="width:140px;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escapeHtml(name)}">${flag} ${escapeHtml(name)}</span>
                 <div class="flex-grow-1 me-2">
                     <div class="progress" style="height:6px;border-radius:3px">
                         <div class="progress-bar" style="width:${pct}%;background:var(--ai-info);border-radius:3px"></div>

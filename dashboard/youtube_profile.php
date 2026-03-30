@@ -401,8 +401,11 @@
                 ${countries.map(c => {
                     const cnt = parseInt(c.ad_count) || 0;
                     const pct = maxAdCount > 0 ? (cnt / maxAdCount * 100) : 0;
+                    const flag = countryFlag(c.country);
+                    const name = countryName(c.country);
                     return `<div class="yt-country-bar">
-                        <span class="country-code">${escapeHtml(c.country)}</span>
+                        <span class="country-code" title="${escapeHtml(name)}">${flag} ${escapeHtml(c.country)}</span>
+                        <span style="font-size:.75rem;color:#666;min-width:90px">${escapeHtml(name)}</span>
                         <div class="progress">
                             <div class="progress-bar" role="progressbar" style="width:${pct}%;background:var(--ai-primary,#0d6efd)" aria-valuenow="${cnt}" aria-valuemin="0" aria-valuemax="${maxAdCount}">${cnt > 0 ? cnt + ' ads' : ''}</div>
                         </div>
@@ -510,7 +513,7 @@
                                     <td>${parseInt(ad.view_count) > 0 ? formatNumber(ad.view_count) : '-'}</td>
                                     <td>
                                         ${adCountries.length > 0
-                                            ? adCountries.slice(0, 3).map(c => `<span class="badge bg-secondary me-1">${escapeHtml(c)}</span>`).join('') + (adCountries.length > 3 ? `<span class="badge bg-light text-dark">+${adCountries.length - 3}</span>` : '')
+                                            ? adCountries.map(c => `<span class="badge bg-secondary bg-opacity-75 me-1">${countryFlag(c)} ${escapeHtml(c)}</span>`).join('')
                                             : '<span class="text-muted">-</span>'}
                                     </td>
                                     <td class="small text-nowrap">${formatDate(ad.first_seen)}</td>

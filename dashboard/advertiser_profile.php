@@ -340,10 +340,13 @@
             data.countries.forEach(function(c) {
                 const cnt = parseInt(c.ad_count) || 0;
                 const pct = maxCountry > 0 ? (cnt / maxCountry * 100) : 0;
+                const flag = countryFlag(c.country);
+                const name = countryName(c.country);
                 html += `<div class="country-hbar">
-                    <span class="country-code">${escapeHtml(c.country)}</span>
+                    <span class="country-code" title="${escapeHtml(name)}">${flag} ${escapeHtml(c.country)}</span>
+                    <span style="font-size:.75rem;color:#666;min-width:100px">${escapeHtml(name)}</span>
                     <div class="flex-grow-1"><div class="country-fill" style="width:${pct}%"></div></div>
-                    <span class="country-count">${formatNumber(cnt)}</span>
+                    <span class="country-count">${formatNumber(cnt)} ads</span>
                 </div>`;
             });
             html += `</div></div>`;

@@ -277,9 +277,11 @@
                 ${countries.slice(0, 15).map(c => {
                     const cnt = parseInt(c.ad_count) || 0;
                     const pct = maxAdCount > 0 ? (cnt / maxAdCount * 100) : 0;
+                    const flag = countryFlag(c.country);
+                    const name = countryName(c.country);
                     return `<div class="mb-2">
                         <div class="d-flex justify-content-between mb-1">
-                            <span class="fw-semibold small">${escapeHtml(c.country)}</span>
+                            <span class="fw-semibold small">${flag} ${escapeHtml(name)} (${escapeHtml(c.country)})</span>
                             <span class="text-muted small">${formatNumber(cnt)} ads</span>
                         </div>
                         <div class="progress" style="height:6px;border-radius:3px">
@@ -434,7 +436,7 @@
                 if (Array.isArray(countryList) && countryList.length > 0) {
                     const shown = countryList.slice(0, 3);
                     const extra = countryList.length - shown.length;
-                    countriesHtml = `<div class="d-flex flex-wrap gap-1 mb-1">${shown.map(c => `<span class="badge bg-light text-dark border" style="font-size:.65rem">${escapeHtml(typeof c === 'object' ? c.country || c.code : c)}</span>`).join('')}${extra > 0 ? `<span class="badge bg-light text-muted border" style="font-size:.65rem">+${extra}</span>` : ''}</div>`;
+                    countriesHtml = `<div class="d-flex flex-wrap gap-1 mb-1">${shown.map(c => { const code = typeof c === 'object' ? c.country || c.code : c; return `<span class="badge bg-light text-dark border" style="font-size:.65rem">${countryFlag(code)} ${escapeHtml(code)}</span>`; }).join('')}${extra > 0 ? `<span class="badge bg-light text-muted border" style="font-size:.65rem">+${extra}</span>` : ''}</div>`;
                 }
             } catch(e) {}
         }

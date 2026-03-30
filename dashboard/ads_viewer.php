@@ -578,12 +578,17 @@
                     </div>
                     <div class="ad-body">
                         <div class="ad-headline">${escapeHtml(headline)}</div>
+                        ${ad.description ? `<div class="ad-description">${escapeHtml(ad.description.substring(0, 100))}</div>` : ''}
                         ${productName && productName !== 'Unknown' ? `<div class="mt-1">
                             <a href="app_profile.php?id=${encodeURIComponent(productIdVal)}" class="badge bg-warning text-dark me-1 text-decoration-none" onclick="event.stopPropagation()" title="View App Profile"><i class="bi bi-app-indicator me-1"></i>${escapeHtml(productName)}</a>
                             <span class="badge ${platformColors[storePlatform] || 'bg-info'} viewer-clickable" data-filter="platform" data-value="${escapeHtml(storePlatform)}" title="Platform"><i class="bi ${platformIcons[storePlatform] || 'bi-globe'} me-1"></i>${platformLabels[storePlatform] || 'Web'}</span>
-                            ${storeUrl ? `<a href="${escapeHtml(storeUrl)}" target="_blank" rel="noopener" class="badge ${storePlatform === 'ios' ? 'bg-dark' : 'bg-success'} text-decoration-none" onclick="event.stopPropagation()" title="${storePlatform === 'ios' ? 'App Store' : 'Play Store'}"><i class="bi ${storePlatform === 'ios' ? 'bi-apple' : 'bi-google-play'} me-1"></i>${storePlatform === 'ios' ? 'App Store' : 'Play Store'}</a>` : ''}
                         </div>` : ''}
-                        ${ad.cta ? `<span class="badge bg-primary mt-1 viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
+                        <div class="d-flex flex-wrap gap-1 mt-1">
+                            ${ad.cta ? `<span class="badge bg-primary viewer-clickable" data-filter="cta" data-value="${escapeHtml(ad.cta)}">${escapeHtml(ad.cta)}</span>` : ''}
+                            ${ad.landing_url && !ad.landing_url.includes('displayads-formats') ? (() => { try { const h = new URL(ad.landing_url).hostname.replace('www.',''); return `<a href="${escapeHtml(ad.landing_url)}" target="_blank" rel="noopener" class="badge bg-light text-dark text-decoration-none" onclick="event.stopPropagation()" title="${escapeHtml(ad.landing_url)}"><i class="bi bi-link-45deg"></i> ${escapeHtml(h.substring(0,25))}</a>`; } catch(e) { return ''; } })() : ''}
+                            ${ad.display_url ? `<span class="badge bg-light text-muted" style="font-size:.65rem"><i class="bi bi-globe2"></i> ${escapeHtml(ad.display_url)}</span>` : ''}
+                            ${ad.ad_width && ad.ad_height ? `<span class="badge bg-light text-dark" style="font-size:.65rem">${ad.ad_width}×${ad.ad_height}</span>` : ''}
+                        </div>
                         <div class="mt-2">
                             ${isVideo && ad.youtube_url ? `<a href="youtube_profile.php?id=${encodeURIComponent(extractYouTubeId(ad.youtube_url))}" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()">
                                 <i class="bi bi-youtube me-1"></i>YouTube
@@ -595,10 +600,8 @@
                     </div>
                     <div class="ad-meta">
                         <div class="d-flex flex-wrap gap-1 mb-1">
-                            ${countries.slice(0, 3).map(c =>
-                                `<span class="badge bg-secondary viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="font-size:.7rem">${escapeHtml(c)}</span>`
-                            ).join('')}
-                            ${countries.length > 3 ? `<span class="badge bg-light text-dark" style="font-size:.7rem">+${countries.length - 3}</span>` : ''}
+                            ${countries.map(c => countryBadge(c)).join('')}
+                            ${countries.length === 0 ? '<span class="badge bg-light text-muted" style="font-size:.65rem"><i class="bi bi-geo-alt"></i> No country data</span>' : ''}
                         </div>
                         <div class="d-flex justify-content-between align-items-center">
                             <a href="advertiser_profile.php?id=${encodeURIComponent(ad.advertiser_id)}" class="small text-muted text-decoration-none" onclick="event.stopPropagation()" title="View Advertiser Profile"><i class="bi bi-person-fill me-1"></i>${escapeHtml(advName)}</a>
@@ -647,7 +650,7 @@
                 <td>${tblViewCount > 0 ? `<strong>${formatNumber(tblViewCount)}</strong>` : '<small class="text-muted">-</small>'}</td>
                 <td><span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type}</span></td>
                 <td><span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span></td>
-                <td>${countries.slice(0, 3).map(c => `<span class="badge bg-secondary viewer-clickable me-1" data-filter="country" data-value="${escapeHtml(c)}" style="font-size:.7rem">${escapeHtml(c)}</span>`).join('')}${countries.length > 3 ? `<span class="badge bg-light text-dark" style="font-size:.7rem">+${countries.length-3}</span>` : ''}</td>
+                <td>${countries.map(c => countryBadge(c)).join('')}${countries.length === 0 ? '<small class="text-muted">-</small>' : ''}</td>
                 <td><small>${formatDate(ad.first_seen)}</small></td>
                 <td><small>${formatDate(ad.last_seen)}</small></td>
                 <td><a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right"></i></a>${ad.youtube_url ? ` <a href="${escapeHtml(ad.youtube_url)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-youtube"></i></a>` : ''}</td>
@@ -854,14 +857,26 @@
                 html += '</div>';
             }
 
-            // Targeting — countries + platforms
+            // Targeting — countries with full names + flags + platforms
             const ctryList = countries.length > 0 ? countries : [...new Set(targeting.map(t => t.country).filter(Boolean))];
             const platList = [...new Set(targeting.map(t => t.platform).filter(Boolean))];
-            if (ctryList.length > 0 || platList.length > 0) {
-                html += '<h6 class="mt-3 mb-2"><i class="bi bi-geo-alt me-1"></i>Targeting</h6><div class="mb-3">';
-                html += ctryList.map(c => `<span class="badge bg-secondary me-1 mb-1 viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="cursor:pointer">${escapeHtml(c)}</span>`).join('');
-                html += platList.map(p => `<span class="badge bg-dark me-1 mb-1">${escapeHtml(p)}</span>`).join('');
+            html += '<h6 class="mt-3 mb-2"><i class="bi bi-geo-alt me-1"></i>Targeting Countries (' + ctryList.length + ')</h6>';
+            if (ctryList.length > 0) {
+                html += '<div class="mb-3"><div class="d-flex flex-wrap gap-1 mb-2">';
+                ctryList.forEach(c => {
+                    const flag = countryFlag(c);
+                    const name = countryName(c);
+                    html += `<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="cursor:pointer;font-size:.8rem">${flag} ${escapeHtml(name)} (${escapeHtml(c)})</span>`;
+                });
                 html += '</div>';
+                if (platList.length > 0) {
+                    html += '<div class="d-flex flex-wrap gap-1">';
+                    platList.forEach(p => { html += `<span class="badge bg-dark bg-opacity-75"><i class="bi bi-broadcast me-1"></i>${escapeHtml(p)}</span>`; });
+                    html += '</div>';
+                }
+                html += '</div>';
+            } else {
+                html += '<div class="mb-3 text-muted small"><i class="bi bi-info-circle me-1"></i>No country targeting data available for this ad.</div>';
             }
 
             // Version history
