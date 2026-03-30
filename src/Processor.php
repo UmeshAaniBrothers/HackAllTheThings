@@ -862,14 +862,12 @@ class Processor
                 $this->db->update('ad_details', [
                     'headline'    => $headline,
                     'description' => $description ?: null,
-                    'landing_url' => $youtubeUrl,
                 ], 'id = ?', [$existingDetail['id']]);
             } else {
                 $this->db->insert('ad_details', [
                     'creative_id' => $ad['creative_id'],
                     'headline'    => $headline,
                     'description' => $description ?: null,
-                    'landing_url' => $youtubeUrl,
                 ]);
             }
 
