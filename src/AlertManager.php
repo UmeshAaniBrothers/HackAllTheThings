@@ -241,12 +241,13 @@ class AlertManager
         $channels = json_decode($rule['channels'] ?? '[]', true);
 
         foreach ($channels as $channel) {
-            $success = match ($channel) {
-                'email'    => $this->sendEmail($rule, $data),
-                'telegram' => $this->sendTelegram($rule, $data),
-                'slack'    => $this->sendSlack($rule, $data),
-                default    => false,
-            };
+            $channelMethods = ['email' => 'sendEmail', 'telegram' => 'sendTelegram', 'slack' => 'sendSlack'];
+            if (isset($channelMethods[$channel])) {
+                $m = $channelMethods[$channel];
+                $success = $this->$m($rule, $data);
+            } else {
+                $success = false;
+            }
 
             $this->db->insert('alert_log', [
                 'rule_id'         => $rule['id'],

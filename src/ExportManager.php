@@ -98,12 +98,13 @@ class ExportManager
         $filename = "report_{$type}_" . date('Y-m-d_His') . '.html';
         $filepath = $this->exportPath . $filename;
 
-        $content = match ($type) {
-            'overview'    => $this->buildOverviewReport($params),
-            'advertiser'  => $this->buildAdvertiserReport($params),
-            'watchlist'   => $this->buildWatchlistReport($params),
-            default       => $this->buildOverviewReport($params),
-        };
+        $reportBuilders = [
+            'overview'   => 'buildOverviewReport',
+            'advertiser' => 'buildAdvertiserReport',
+            'watchlist'  => 'buildWatchlistReport',
+        ];
+        $method = $reportBuilders[$type] ?? 'buildOverviewReport';
+        $content = $this->$method($params);
 
         file_put_contents($filepath, $content);
         return $filepath;
@@ -211,12 +212,15 @@ class ExportManager
         foreach ($reports as $report) {
             if ($this->isDue($report)) {
                 $filters = json_decode($report['filters'] ?? '{}', true);
-                $filepath = match ($report['format']) {
-                    'csv'  => $this->exportAdsCsv($filters),
-                    'pdf'  => $this->generateHtmlReport($report['report_type'], $filters),
-                    'json' => $this->exportJson($filters),
-                    default => null,
-                };
+                $formatMap = ['csv' => 'exportAdsCsv', 'json' => 'exportJson'];
+                if (isset($formatMap[$report['format']])) {
+                    $m = $formatMap[$report['format']];
+                    $filepath = $this->$m($filters);
+                } elseif ($report['format'] === 'pdf') {
+                    $filepath = $this->generateHtmlReport($report['report_type'], $filters);
+                } else {
+                    $filepath = null;
+                }
 
                 if ($filepath) {
                     $this->db->update('scheduled_reports', ['last_run_at' => date('Y-m-d H:i:s')], 'id = ?', [$report['id']]);

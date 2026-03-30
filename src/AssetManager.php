@@ -115,12 +115,8 @@ class AssetManager
      */
     private function getSubDirectory(string $type): string
     {
-        return match ($type) {
-            'video'     => 'videos',
-            'image'     => 'images',
-            'thumbnail' => 'thumbnails',
-            default     => 'other',
-        };
+        $dirs = ['video' => 'videos', 'image' => 'images', 'thumbnail' => 'thumbnails'];
+        return isset($dirs[$type]) ? $dirs[$type] : 'other';
     }
 
     /**
@@ -136,10 +132,7 @@ class AssetManager
             }
         }
 
-        return match ($type) {
-            'video' => 'mp4',
-            default => 'jpg',
-        };
+        return ($type === 'video') ? 'mp4' : 'jpg';
     }
 
     /**
@@ -149,22 +142,19 @@ class AssetManager
     {
         $header = substr($data, 0, 8);
 
-        if (str_starts_with($header, "\xFF\xD8\xFF")) {
+        if (strpos($header, "\xFF\xD8\xFF") === 0) {
             return 'jpg';
         }
-        if (str_starts_with($header, "\x89PNG")) {
+        if (strpos($header, "\x89PNG") === 0) {
             return 'png';
         }
-        if (str_starts_with($header, "GIF8")) {
+        if (strpos($header, "GIF8") === 0) {
             return 'gif';
         }
-        if (str_starts_with($header, "RIFF") && substr($data, 8, 4) === 'WEBP') {
+        if (strpos($header, "RIFF") === 0 && substr($data, 8, 4) === 'WEBP') {
             return 'webp';
         }
 
-        return match ($type) {
-            'video' => 'mp4',
-            default => 'jpg',
-        };
+        return ($type === 'video') ? 'mp4' : 'jpg';
     }
 }

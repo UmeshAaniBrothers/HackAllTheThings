@@ -104,7 +104,7 @@ class Processor
             ];
         }
 
-        return array_filter($ads, fn($ad) => $ad['creative_id'] !== null);
+        return array_filter($ads, function($ad) { return $ad['creative_id'] !== null; });
     }
 
     /**

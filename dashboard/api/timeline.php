@@ -29,7 +29,7 @@ try {
         ? array_sum(array_column($velocity, 'count')) / count($velocity)
         : 0;
 
-    $spikes = array_filter($velocity, fn($v) => $v['count'] > ($avgPerDay * 1.5));
+    $spikes = array_filter($velocity, function($v) use ($avgPerDay) { return $v['count'] > ($avgPerDay * 1.5); });
 
     echo json_encode([
         'success'  => true,

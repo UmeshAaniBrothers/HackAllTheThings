@@ -15,13 +15,18 @@
  */
 class Scraper
 {
-    private Database $db;
-    private array $config;
-    private string $baseUrl = 'https://adstransparency.google.com';
-    private ?string $cookieFile = null;
-    private array $errors = [];
+    /** @var Database */
+    private $db;
+    /** @var array */
+    private $config;
+    /** @var string */
+    private $baseUrl = 'https://adstransparency.google.com';
+    /** @var string|null */
+    private $cookieFile = null;
+    /** @var array */
+    private $errors = [];
 
-    public function __construct(Database $db, array $config)
+    public function __construct($db, $config)
     {
         $this->db = $db;
         $this->config = $config;
@@ -37,7 +42,7 @@ class Scraper
     /**
      * Get accumulated errors from the last operation.
      */
-    public function getErrors(): array
+    public function getErrors()
     {
         return $this->errors;
     }
@@ -46,7 +51,10 @@ class Scraper
      * Initialize session by visiting the main page to get cookies.
      * Must be called before any API requests.
      */
-    public function initSession(): bool
+    /**
+     * @return bool
+     */
+    public function initSession()
     {
         $this->cookieFile = tempnam(sys_get_temp_dir(), 'gads_cookie_');
 
@@ -92,7 +100,7 @@ class Scraper
     /**
      * Fetch all ads for a given advertiser, following pagination.
      */
-    public function fetchAdvertiser(string $advertiserId): array
+    public function fetchAdvertiser($advertiserId)
     {
         $this->errors = [];
         $allAds = [];
@@ -154,7 +162,7 @@ class Scraper
     /**
      * Search for advertisers by keyword using SearchSuggestions endpoint.
      */
-    public function searchAdvertisers(string $keyword, int $limit = 10): array
+    public function searchAdvertisers($keyword, $limit = 10)
     {
         $this->errors = [];
 
@@ -196,13 +204,13 @@ class Scraper
             }
         }
 
-        return array_filter($results, fn($r) => $r['advertiser_id'] !== null);
+        return array_filter($results, function($r) { return $r['advertiser_id'] !== null; });
     }
 
     /**
      * Test if the API is reachable (no CAPTCHA, no rate-limit).
      */
-    public function testConnection(): array
+    public function testConnection()
     {
         $this->errors = [];
 
@@ -237,7 +245,7 @@ class Scraper
     /**
      * Fetch a single page of ads for an advertiser.
      */
-    private function fetchPage(string $advertiserId, ?string $pageToken = null): ?array
+    private function fetchPage($advertiserId, $pageToken = null)
     {
         $url = $this->baseUrl . '/anji/_/rpc/SearchService/SearchCreatives?authuser=0';
 
@@ -277,7 +285,7 @@ class Scraper
     /**
      * Make an HTTP POST request with cookie session and retry logic.
      */
-    private function makeRequest(string $url, string $body): ?string
+    private function makeRequest($url, $body)
     {
         $maxRetries = $this->config['max_retries'] ?? 3;
 
@@ -371,7 +379,7 @@ class Scraper
      *   "4" = estimated total count (lower)
      *   "5" = estimated total count (upper)
      */
-    private function extractAdsFromResponse(array $response): array
+    private function extractAdsFromResponse($response)
     {
         $ads = [];
 
@@ -398,7 +406,7 @@ class Scraper
     /**
      * Parse a single creative item from the response.
      */
-    private function parseCreative(array $c): array
+    private function parseCreative($c)
     {
         // Correct field mapping per protobuf structure
         $advertiserId = $this->extractStringField($c, ['1']);
@@ -407,14 +415,10 @@ class Scraper
 
         // Format: 1=text, 2=image, 3=video
         $format = $c['4'] ?? $c[4] ?? null;
+        $typeMap = [1 => 'text', 2 => 'image', 3 => 'video'];
         $adType = 'text';
-        if (is_numeric($format)) {
-            $adType = match((int)$format) {
-                1 => 'text',
-                2 => 'image',
-                3 => 'video',
-                default => 'text',
-            };
+        if (is_numeric($format) && isset($typeMap[(int)$format])) {
+            $adType = $typeMap[(int)$format];
         }
 
         // Timestamps: nested under "6" and "7"
@@ -526,7 +530,7 @@ class Scraper
     /**
      * Try to extract a string value from an array, checking multiple keys.
      */
-    private function extractStringField(array $data, array $keys): ?string
+    private function extractStringField($data, $keys)
     {
         foreach ($keys as $key) {
             $val = $data[$key] ?? $data[(int)$key] ?? null;
@@ -550,7 +554,7 @@ class Scraper
     /**
      * Extract the next page token for pagination.
      */
-    private function extractNextPageToken(array $response): ?string
+    private function extractNextPageToken($response)
     {
         $token = $response['2'] ?? $response[2] ?? null;
         return is_string($token) && $token !== '' ? $token : null;
@@ -559,7 +563,7 @@ class Scraper
     /**
      * Store raw API response in the database.
      */
-    public function storeRawPayload(string $advertiserId, string $json): string
+    public function storeRawPayload($advertiserId, $json)
     {
         return $this->db->insert('raw_payloads', [
             'advertiser_id'  => $advertiserId,
@@ -571,7 +575,7 @@ class Scraper
     /**
      * Rotate between user agents to reduce fingerprinting.
      */
-    private function getUserAgent(): string
+    private function getUserAgent()
     {
         $agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -585,7 +589,7 @@ class Scraper
     /**
      * Log a message with timestamp.
      */
-    private function log(string $message): void
+    private function log($message)
     {
         $timestamp = date('Y-m-d H:i:s');
         echo "[{$timestamp}] {$message}\n";

@@ -153,11 +153,8 @@ class ProxyManager
 
         curl_setopt($ch, CURLOPT_PROXY, $proxy['proxy_url']);
 
-        $proxyType = match ($proxy['proxy_type']) {
-            'socks5' => CURLPROXY_SOCKS5,
-            'https'  => CURLPROXY_HTTPS,
-            default  => CURLPROXY_HTTP,
-        };
+        $proxyTypes = ['socks5' => CURLPROXY_SOCKS5, 'https' => CURLPROXY_HTTPS];
+        $proxyType = isset($proxyTypes[$proxy['proxy_type']]) ? $proxyTypes[$proxy['proxy_type']] : CURLPROXY_HTTP;
         curl_setopt($ch, CURLOPT_PROXYTYPE, $proxyType);
         curl_setopt($ch, CURLOPT_USERAGENT, $this->getRandomUserAgent());
 

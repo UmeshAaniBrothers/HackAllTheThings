@@ -216,13 +216,11 @@ class AIIntelligence
         $overall = round($longevityScore + $geoScore + $dupScore, 2);
 
         // Label
-        $label = match (true) {
-            $overall >= 70 => 'winner',
-            $overall >= 50 => 'strong',
-            $overall >= 30 => 'average',
-            $overall >= 15 => 'weak',
-            default        => 'testing',
-        };
+        if ($overall >= 70) $label = 'winner';
+        elseif ($overall >= 50) $label = 'strong';
+        elseif ($overall >= 30) $label = 'average';
+        elseif ($overall >= 15) $label = 'weak';
+        else $label = 'testing';
 
         // Store score
         $existing = $this->db->fetchOne("SELECT id FROM performance_scores WHERE creative_id = ?", [$creativeId]);
