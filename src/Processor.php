@@ -533,14 +533,19 @@ class Processor
      * that don't have a YouTube URL yet.
      * Returns the number of YouTube URLs extracted.
      */
+    /**
+     * Extract YouTube video IDs from Google Ads Transparency preview content.
+     * Only extracts YouTube URLs — does NOT touch app/store detection.
+     */
     public function extractYouTubeUrls()
     {
         $ads = $this->db->fetchAll(
-            "SELECT a.creative_id, a.advertiser_id, a.ad_type, ass.original_url as preview_url
+            "SELECT a.creative_id, a.advertiser_id, ass.original_url as preview_url
              FROM ads a
              INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
                 AND ass.original_url LIKE '%displayads-formats%'
-             WHERE NOT EXISTS (
+             WHERE a.ad_type = 'video'
+               AND NOT EXISTS (
                    SELECT 1 FROM ad_assets v
                    WHERE v.creative_id = a.creative_id
                      AND v.type = 'video'
@@ -565,7 +570,7 @@ class Processor
             if (!$data) continue;
 
             $ytId = $data['youtube_id'];
-            if ($ytId && $ad['ad_type'] === 'video') {
+            if ($ytId) {
                 $youtubeUrl = 'https://www.youtube.com/watch?v=' . $ytId;
                 $thumbnail = 'https://i.ytimg.com/vi/' . $ytId . '/hqdefault.jpg';
 
@@ -598,22 +603,18 @@ class Processor
                 $extracted++;
             }
 
-            // Save store URL if found in the preview content
-            if ($data['store_url'] && $data['store_platform']) {
-                $this->saveStoreUrlForAd($ad['creative_id'], $ad['advertiser_id'], $data['store_url'], $data['store_platform']);
-            }
-
             usleep(300000); // 300ms rate limit
         }
 
-        $this->log("Extracted {$extracted} YouTube URLs from " . count($ads) . " video ads");
+        $this->log("Extracted {$extracted} YouTube URLs from video ads");
         return $extracted;
     }
 
     /**
-     * Enrich store URLs by fetching preview content.js for ads that already have
-     * YouTube URLs but are missing store URLs.
-     * Returns number of store URLs found.
+     * Detect apps from Google Ads Transparency preview content.js ONLY.
+     * Fetches the preview URL (displayads-formats.googleusercontent.com) and
+     * extracts App Store / Play Store URLs embedded in the ad creative.
+     * This is the ONLY source of app/store detection.
      */
     public function enrichStoreUrlsFromPreview()
     {
