@@ -5,6 +5,11 @@
  *
  * Fetches advertiser data from the Google Ads Transparency Center
  * reverse-engineered API, handles pagination, and stores raw payloads.
+ *
+ * API details:
+ *   Endpoint: POST https://adstransparency.google.com/anji/_/rpc/SearchService/SearchCreatives?authuser=0
+ *   Body: application/x-www-form-urlencoded with f.req= containing protobuf-style JSON
+ *   Response: JSON with numeric keys ("1" = creatives array, "2" = next page token)
  */
 class Scraper
 {
@@ -33,7 +38,7 @@ class Scraper
             $response = $this->fetchPage($advertiserId, $pageToken);
 
             if ($response === null) {
-                $this->log("Failed to fetch page {$pageCount} for {$advertiserId}");
+                $this->log("Failed to fetch page " . ($pageCount + 1) . " for {$advertiserId}");
                 break;
             }
 
@@ -57,20 +62,69 @@ class Scraper
     }
 
     /**
+     * Search for advertisers by keyword using SearchSuggestions endpoint.
+     */
+    public function searchAdvertisers(string $keyword, int $limit = 10): array
+    {
+        $url = $this->baseUrl . '/anji/_/rpc/SearchService/SearchSuggestions?authuser=0';
+
+        $freqJson = json_encode([
+            '1' => $keyword,
+            '2' => $limit,
+            '3' => $limit,
+        ]);
+
+        $body = 'f.req=' . urlencode($freqJson);
+        $response = $this->makeRequest($url, $body);
+
+        if ($response === null) {
+            return [];
+        }
+
+        $decoded = json_decode($response, true);
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
+            return [];
+        }
+
+        $results = [];
+        $suggestions = $decoded['1'] ?? $decoded[1] ?? [];
+        if (is_array($suggestions)) {
+            foreach ($suggestions as $item) {
+                $results[] = [
+                    'advertiser_id' => $item['1'] ?? $item[1] ?? null,
+                    'name'          => $item['2'] ?? $item[2] ?? null,
+                ];
+            }
+        }
+
+        return array_filter($results, fn($r) => $r['advertiser_id'] !== null);
+    }
+
+    /**
      * Fetch a single page of ads for an advertiser.
      */
     private function fetchPage(string $advertiserId, ?string $pageToken = null): ?array
     {
-        $params = [
-            'advertiser_id' => $advertiserId,
+        $url = $this->baseUrl . '/anji/_/rpc/SearchService/SearchCreatives?authuser=0';
+
+        // Build the protobuf-style JSON payload
+        $freqData = [
+            '2' => 100,  // results per page (max 100)
+            '3' => [
+                '12' => ['1' => '', '2' => true],
+                '13' => ['1' => [$advertiserId]],
+            ],
+            '7' => ['1' => 1],
         ];
 
         if ($pageToken !== null) {
-            $params['page_token'] = $pageToken;
+            $freqData['4'] = $pageToken;
         }
 
-        $url = $this->baseUrl . '/anji/_/rpc/SearchCreativeService/SearchCreatives';
-        $jsonResponse = $this->makeRequest($url, $params);
+        $freqJson = json_encode($freqData);
+        $body = 'f.req=' . urlencode($freqJson);
+
+        $jsonResponse = $this->makeRequest($url, $body);
 
         if ($jsonResponse === null) {
             return null;
@@ -86,9 +140,10 @@ class Scraper
     }
 
     /**
-     * Make an HTTP request with retry logic.
+     * Make an HTTP POST request with retry logic.
+     * Body is already URL-encoded (f.req=...).
      */
-    private function makeRequest(string $url, array $params): ?string
+    private function makeRequest(string $url, string $body): ?string
     {
         $maxRetries = $this->config['max_retries'] ?? 3;
 
@@ -98,17 +153,21 @@ class Scraper
             curl_setopt_array($ch, [
                 CURLOPT_URL            => $url,
                 CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => json_encode($params),
+                CURLOPT_POSTFIELDS     => $body,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_TIMEOUT        => 30,
                 CURLOPT_CONNECTTIMEOUT => 10,
                 CURLOPT_HTTPHEADER     => [
-                    'Content-Type: application/json',
-                    'Accept: application/json',
-                    'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Content-Type: application/x-www-form-urlencoded',
+                    'Accept: */*',
+                    'Accept-Language: en-US,en;q=0.9',
+                    'Origin: https://adstransparency.google.com',
+                    'Referer: https://adstransparency.google.com/',
                 ],
+                CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 CURLOPT_SSL_VERIFYPEER => true,
                 CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_ENCODING       => 'gzip, deflate, br',
             ]);
 
             $response = curl_exec($ch);
@@ -123,7 +182,6 @@ class Scraper
             $this->log("Request attempt {$attempt}/{$maxRetries} failed. HTTP: {$httpCode}, Error: {$curlError}");
 
             if ($attempt < $maxRetries) {
-                // Exponential backoff on failure
                 sleep(pow(2, $attempt));
             }
         }
@@ -132,36 +190,28 @@ class Scraper
     }
 
     /**
-     * Extract ads array from the API response structure.
+     * Extract ads array from the API response (protobuf-style numeric keys).
      */
     private function extractAdsFromResponse(array $response): array
     {
-        // The response structure from Google Ads Transparency Center
-        // is nested - adapt based on actual API structure
         $ads = [];
 
-        $creatives = $response['creatives'] ?? $response[1] ?? [];
+        // Response: "1" = array of creative wrappers, each has "2" = creative data
+        $creatives = $response['1'] ?? $response[1] ?? [];
 
         if (!is_array($creatives)) {
             return $ads;
         }
 
-        foreach ($creatives as $creative) {
-            $ad = [
-                'creative_id'   => $creative['creativeId'] ?? $creative[0] ?? null,
-                'advertiser_id' => $creative['advertiserId'] ?? $creative[1] ?? null,
-                'ad_type'       => $this->determineAdType($creative),
-                'headline'      => $creative['headline'] ?? $creative[2] ?? null,
-                'description'   => $creative['description'] ?? $creative[3] ?? null,
-                'cta'           => $creative['callToAction'] ?? $creative[4] ?? null,
-                'landing_url'   => $creative['landingPageUrl'] ?? $creative[5] ?? null,
-                'assets'        => $this->extractAssets($creative),
-                'countries'     => $this->extractCountries($creative),
-                'platforms'     => $this->extractPlatforms($creative),
-                'first_seen'    => $creative['firstShown'] ?? $creative[8] ?? null,
-                'last_seen'     => $creative['lastShown'] ?? $creative[9] ?? null,
-            ];
+        foreach ($creatives as $wrapper) {
+            // Each item in the array may be wrapped: {"2": {creative data}}
+            $creative = $wrapper['2'] ?? $wrapper[2] ?? $wrapper;
 
+            if (!is_array($creative)) {
+                continue;
+            }
+
+            $ad = $this->parseCreative($creative);
             if ($ad['creative_id'] !== null) {
                 $ads[] = $ad;
             }
@@ -171,11 +221,64 @@ class Scraper
     }
 
     /**
+     * Parse a single creative from protobuf-style response into structured array.
+     */
+    private function parseCreative(array $c): array
+    {
+        // Try both named keys and numeric keys
+        $creativeId  = $c['creativeId']    ?? $c['1'] ?? $c[1] ?? $c[0] ?? null;
+        $advertiserId = $c['advertiserId'] ?? $c['2'] ?? $c[2] ?? $c[1] ?? null;
+        $headline    = $c['headline']      ?? $c['3'] ?? $c[3] ?? $c[2] ?? null;
+        $description = $c['description']   ?? $c['4'] ?? $c[4] ?? $c[3] ?? null;
+        $cta         = $c['callToAction']  ?? $c['5'] ?? $c[5] ?? $c[4] ?? null;
+        $landingUrl  = $c['landingPageUrl'] ?? $c['6'] ?? $c[6] ?? $c[5] ?? null;
+        $firstSeen   = $c['firstShown']    ?? $c['9'] ?? $c[9] ?? $c[8] ?? null;
+        $lastSeen    = $c['lastShown']     ?? $c['10'] ?? $c[10] ?? $c[9] ?? null;
+
+        // Extract nested text content if present
+        if (is_array($headline)) {
+            $headline = $headline['1'] ?? $headline[1] ?? $headline[0] ?? json_encode($headline);
+        }
+        if (is_array($description)) {
+            $description = $description['1'] ?? $description[1] ?? $description[0] ?? json_encode($description);
+        }
+        if (is_array($cta)) {
+            $cta = $cta['1'] ?? $cta[1] ?? $cta[0] ?? json_encode($cta);
+        }
+        if (is_array($landingUrl)) {
+            $landingUrl = $landingUrl['1'] ?? $landingUrl[1] ?? $landingUrl[0] ?? null;
+        }
+
+        // Ensure creative_id is a string
+        if (is_array($creativeId)) {
+            $creativeId = $creativeId['1'] ?? $creativeId[1] ?? $creativeId[0] ?? null;
+        }
+        if (is_array($advertiserId)) {
+            $advertiserId = $advertiserId['1'] ?? $advertiserId[1] ?? $advertiserId[0] ?? null;
+        }
+
+        return [
+            'creative_id'   => is_string($creativeId) ? $creativeId : null,
+            'advertiser_id' => is_string($advertiserId) ? $advertiserId : null,
+            'ad_type'       => $this->determineAdType($c),
+            'headline'      => is_string($headline) ? $headline : null,
+            'description'   => is_string($description) ? $description : null,
+            'cta'           => is_string($cta) ? $cta : null,
+            'landing_url'   => is_string($landingUrl) ? $landingUrl : null,
+            'assets'        => $this->extractAssets($c),
+            'countries'     => $this->extractCountries($c),
+            'platforms'     => $this->extractPlatforms($c),
+            'first_seen'    => $firstSeen,
+            'last_seen'     => $lastSeen,
+        ];
+    }
+
+    /**
      * Determine ad type from creative data.
      */
     private function determineAdType(array $creative): string
     {
-        $type = $creative['type'] ?? $creative['adType'] ?? null;
+        $type = $creative['type'] ?? $creative['adType'] ?? $creative['11'] ?? $creative[11] ?? null;
 
         if (is_string($type)) {
             $type = strtolower($type);
@@ -184,16 +287,31 @@ class Scraper
             }
         }
 
+        // Numeric type mapping from protobuf
+        if (is_numeric($type)) {
+            $typeMap = [1 => 'text', 2 => 'image', 3 => 'video'];
+            if (isset($typeMap[(int)$type])) {
+                return $typeMap[(int)$type];
+            }
+        }
+
         // Detect from assets
-        $assets = $creative['assets'] ?? $creative['mediaAssets'] ?? [];
-        if (!empty($assets)) {
+        $assets = $creative['assets'] ?? $creative['mediaAssets'] ?? $creative['7'] ?? $creative[7] ?? $creative['8'] ?? $creative[8] ?? [];
+        if (is_array($assets)) {
             foreach ($assets as $asset) {
-                $assetType = $asset['type'] ?? '';
-                if (stripos($assetType, 'video') !== false) {
-                    return 'video';
+                if (!is_array($asset)) continue;
+                $assetType = $asset['type'] ?? $asset['1'] ?? $asset[1] ?? '';
+                $assetUrl = $asset['url'] ?? $asset['2'] ?? $asset[2] ?? $asset['3'] ?? $asset[3] ?? '';
+
+                if (is_string($assetType) && stripos($assetType, 'video') !== false) return 'video';
+                if (is_string($assetUrl)) {
+                    if (preg_match('/\.(mp4|webm|avi|mov)/i', $assetUrl)) return 'video';
+                    if (preg_match('/youtube\.com|youtu\.be/i', $assetUrl)) return 'video';
+                    if (preg_match('/\.(jpg|jpeg|png|gif|webp|svg)/i', $assetUrl)) return 'image';
                 }
-                if (stripos($assetType, 'image') !== false) {
-                    return 'image';
+                if (is_numeric($assetType)) {
+                    if ((int)$assetType === 2 || (int)$assetType === 3) return 'video';
+                    if ((int)$assetType === 1) return 'image';
                 }
             }
         }
@@ -207,17 +325,57 @@ class Scraper
     private function extractAssets(array $creative): array
     {
         $assets = [];
-        $rawAssets = $creative['assets'] ?? $creative['mediaAssets'] ?? $creative[6] ?? [];
+        // Try multiple possible keys for assets
+        $rawAssets = $creative['assets'] ?? $creative['mediaAssets']
+            ?? $creative['7'] ?? $creative[7]
+            ?? $creative['8'] ?? $creative[8]
+            ?? $creative['6'] ?? $creative[6]
+            ?? [];
 
         if (!is_array($rawAssets)) {
             return $assets;
         }
 
         foreach ($rawAssets as $asset) {
-            $assets[] = [
-                'type' => $asset['type'] ?? 'image',
-                'url'  => $asset['url'] ?? $asset['imageUrl'] ?? $asset['videoUrl'] ?? null,
+            if (!is_array($asset)) {
+                // Could be a direct URL string
+                if (is_string($asset) && (str_starts_with($asset, 'http') || str_starts_with($asset, '//'))) {
+                    $assets[] = ['type' => 'image', 'url' => $asset];
+                }
+                continue;
+            }
+
+            $type = $asset['type'] ?? $asset['1'] ?? $asset[1] ?? 'image';
+            $url = $asset['url'] ?? $asset['imageUrl'] ?? $asset['videoUrl']
+                ?? $asset['2'] ?? $asset[2]
+                ?? $asset['3'] ?? $asset[3]
+                ?? null;
+
+            if (is_array($url)) {
+                $url = $url['1'] ?? $url[1] ?? $url[0] ?? null;
+            }
+
+            // Convert numeric type
+            if (is_numeric($type)) {
+                $type = match((int)$type) {
+                    1 => 'image',
+                    2, 3 => 'video',
+                    default => 'image',
+                };
+            }
+
+            $entry = [
+                'type' => is_string($type) ? $type : 'image',
+                'url'  => is_string($url) ? $url : null,
             ];
+
+            if (isset($asset['base64']) || isset($asset['encodedData'])) {
+                $entry['base64'] = $asset['base64'] ?? $asset['encodedData'];
+            }
+
+            if ($entry['url'] !== null || isset($entry['base64'])) {
+                $assets[] = $entry;
+            }
         }
 
         return $assets;
@@ -228,8 +386,30 @@ class Scraper
      */
     private function extractCountries(array $creative): array
     {
-        $countries = $creative['countries'] ?? $creative['targetedCountries'] ?? $creative[10] ?? [];
-        return is_array($countries) ? $countries : [];
+        $countries = $creative['countries'] ?? $creative['targetedCountries']
+            ?? $creative['10'] ?? $creative[10]
+            ?? $creative['12'] ?? $creative[12]
+            ?? $creative['14'] ?? $creative[14]
+            ?? [];
+
+        if (!is_array($countries)) {
+            return [];
+        }
+
+        // Flatten if nested
+        $result = [];
+        foreach ($countries as $c) {
+            if (is_string($c) && !empty($c)) {
+                $result[] = $c;
+            } elseif (is_array($c)) {
+                $val = $c['1'] ?? $c[1] ?? $c[0] ?? null;
+                if (is_string($val) && !empty($val)) {
+                    $result[] = $val;
+                }
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -237,16 +417,51 @@ class Scraper
      */
     private function extractPlatforms(array $creative): array
     {
-        $platforms = $creative['platforms'] ?? $creative['adPlatforms'] ?? $creative[11] ?? [];
-        return is_array($platforms) ? $platforms : [];
+        $platforms = $creative['platforms'] ?? $creative['adPlatforms']
+            ?? $creative['11'] ?? $creative[11]
+            ?? $creative['13'] ?? $creative[13]
+            ?? $creative['15'] ?? $creative[15]
+            ?? [];
+
+        if (!is_array($platforms)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($platforms as $p) {
+            if (is_string($p) && !empty($p)) {
+                $result[] = $p;
+            } elseif (is_array($p)) {
+                $val = $p['1'] ?? $p[1] ?? $p[0] ?? null;
+                if (is_string($val) && !empty($val)) {
+                    $result[] = $val;
+                }
+            } elseif (is_numeric($p)) {
+                // Map numeric platform IDs to names
+                $platformMap = [
+                    1 => 'Google Search',
+                    2 => 'YouTube',
+                    3 => 'Google Display',
+                    4 => 'Google Shopping',
+                    5 => 'Google Maps',
+                    6 => 'Google Play',
+                ];
+                $result[] = $platformMap[(int)$p] ?? 'Platform_' . $p;
+            }
+        }
+
+        return $result;
     }
 
     /**
      * Extract the next page token for pagination.
+     * In the protobuf response, it's at key "2".
      */
     private function extractNextPageToken(array $response): ?string
     {
-        $token = $response['nextPageToken'] ?? $response['paginationToken'] ?? $response[2] ?? null;
+        $token = $response['2'] ?? $response[2]
+            ?? $response['nextPageToken'] ?? $response['paginationToken']
+            ?? null;
         return is_string($token) && $token !== '' ? $token : null;
     }
 
