@@ -1113,14 +1113,16 @@ class Processor
      */
     public function enrichStoreUrls()
     {
-        // Get products classified as playstore or ios but missing store_url
+        // Get ALL products missing store_url (including 'web' — they might be real apps)
+        // Exclude 'Unknown' and already-searched products (store_url = '')
         $products = $this->db->fetchAll(
             "SELECT id, product_name, store_platform, advertiser_id
              FROM ad_products
-             WHERE store_url IS NULL
-               AND store_platform IN ('playstore', 'ios')
+             WHERE (store_url IS NULL OR store_url = '')
                AND product_name != 'Unknown'
-             ORDER BY id DESC
+             ORDER BY
+               CASE WHEN store_platform IN ('playstore','ios') THEN 0 ELSE 1 END,
+               id DESC
              LIMIT 20"
         );
 
@@ -1133,26 +1135,34 @@ class Processor
         foreach ($products as $product) {
             $storeUrl = null;
             $appName = null;
+            $detectedPlatform = null;
 
-            if ($product['store_platform'] === 'playstore') {
-                $result = $this->searchPlayStore($product['product_name']);
-                if ($result) {
-                    $storeUrl = $result['url'];
-                    $appName = $result['name'];
-                }
-            } elseif ($product['store_platform'] === 'ios') {
+            // Try Play Store first (most ads are Android app install ads)
+            $result = $this->searchPlayStore($product['product_name']);
+            if ($result) {
+                $storeUrl = $result['url'];
+                $appName = $result['name'];
+                $detectedPlatform = 'playstore';
+            }
+
+            // If not found on Play Store, try App Store
+            if (!$storeUrl) {
                 $result = $this->searchAppStore($product['product_name']);
                 if ($result) {
                     $storeUrl = $result['url'];
                     $appName = $result['name'];
+                    $detectedPlatform = 'ios';
                 }
             }
 
             if ($storeUrl) {
-                $updateData = ['store_url' => $storeUrl];
+                $updateData = [
+                    'store_url'      => $storeUrl,
+                    'store_platform' => $detectedPlatform,
+                    'product_type'   => 'app',
+                ];
                 // Update product name to the official app name if found
                 if ($appName && $appName !== $product['product_name']) {
-                    // Check if a product with the official name already exists
                     $existing = $this->db->fetchOne(
                         "SELECT id FROM ad_products WHERE advertiser_id = ? AND product_name = ?",
                         [$product['advertiser_id'], $appName]
@@ -1164,9 +1174,9 @@ class Processor
                 $this->db->update('ad_products', $updateData, 'id = ?', [$product['id']]);
                 $enriched++;
             } else {
-                // Mark as searched so we don't re-search (set empty store_url)
+                // Mark as searched so we don't re-search next run
                 $this->db->update('ad_products', [
-                    'store_url' => '',
+                    'store_url' => 'not_found',
                 ], 'id = ?', [$product['id']]);
             }
 

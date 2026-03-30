@@ -127,8 +127,7 @@ try {
     );
     $remainingStoreUrls = (int) $db->fetchColumn(
         "SELECT COUNT(*) FROM ad_products
-         WHERE store_platform IN ('playstore', 'ios')
-           AND (store_url IS NULL)
+         WHERE (store_url IS NULL OR store_url = '')
            AND product_name != 'Unknown'"
     );
 

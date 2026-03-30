@@ -110,7 +110,7 @@ try {
                 adv.name as advertiser_name,
                 (SELECT GROUP_CONCAT(DISTINCT p.product_name SEPARATOR '||') FROM ad_product_map pm INNER JOIN ad_products p ON pm.product_id = p.id WHERE pm.creative_id = a.creative_id AND p.store_platform IN ('ios', 'playstore')) as product_names,
                 (SELECT pm2.product_id FROM ad_product_map pm2 INNER JOIN ad_products p2x ON pm2.product_id = p2x.id WHERE pm2.creative_id = a.creative_id AND p2x.store_platform IN ('ios', 'playstore') LIMIT 1) as product_id,
-                (SELECT p2.store_url FROM ad_product_map pm3 INNER JOIN ad_products p2 ON pm3.product_id = p2.id WHERE pm3.creative_id = a.creative_id AND p2.store_platform IN ('ios', 'playstore') AND p2.store_url IS NOT NULL LIMIT 1) as store_url,
+                (SELECT p2.store_url FROM ad_product_map pm3 INNER JOIN ad_products p2 ON pm3.product_id = p2.id WHERE pm3.creative_id = a.creative_id AND p2.store_platform IN ('ios', 'playstore') AND p2.store_url IS NOT NULL AND p2.store_url != '' AND p2.store_url != 'not_found' LIMIT 1) as store_url,
                 (SELECT p3.store_platform FROM ad_product_map pm4 INNER JOIN ad_products p3 ON pm4.product_id = p3.id WHERE pm4.creative_id = a.creative_id AND p3.store_platform IN ('ios', 'playstore') LIMIT 1) as store_platform
          FROM ads a
          LEFT JOIN ad_details d ON a.creative_id = d.creative_id
