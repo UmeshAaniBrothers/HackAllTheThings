@@ -2055,6 +2055,11 @@ class Processor
      */
     private function findOrCreateProduct($advertiserId, $productName, $productType, $storePlatform, $storeUrl)
     {
+        // Reject JS error text as product names
+        if ($productName && preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(/i', $productName)) {
+            $productName = 'Unknown';
+        }
+
         // Match by store_url first (most reliable), then by name
         $existing = null;
         if ($storeUrl) {
