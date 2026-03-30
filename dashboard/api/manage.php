@@ -56,13 +56,20 @@ try {
 // ── Helper Functions ──────────────────────────────────────
 
 /**
- * Create a Scraper instance with proxy rotation enabled.
+ * Create a basic Scraper instance (no proxy, lightweight).
  */
 function createScraper(Database $db, array $config): Scraper
 {
-    $scraper = createScraper($db, $config);
-    // Always try proxy rotation on the server since direct requests get 429
-    $scraper->enableProxyRotation(2, 40);
+    return new Scraper($db, $config['scraper'] ?? []);
+}
+
+/**
+ * Create a Scraper with proxy rotation (for actual Google API calls).
+ */
+function createProxyScraper(Database $db, array $config): Scraper
+{
+    $scraper = new Scraper($db, $config['scraper'] ?? []);
+    $scraper->enableProxyRotation(1, 15);
     return $scraper;
 }
 
@@ -122,7 +129,7 @@ function scrapeAdvertiser(Database $db, array $config): void
         [$advertiserId]
     );
 
-    $scraper = createScraper($db, $config);
+    $scraper = createProxyScraper($db, $config);
 
     ob_start();
     try {
@@ -291,7 +298,7 @@ function runFullPipeline(Database $db, array $config, string $basePath): void
     }
 
     // Step 2: Scrape
-    $scraper = createScraper($db, $config);
+    $scraper = createProxyScraper($db, $config);
     ob_start();
     try {
         $ads = $scraper->fetchAdvertiser($advertiserId);
@@ -456,7 +463,7 @@ function searchAdvertisers(Database $db, array $config): void
         return;
     }
 
-    $scraper = createScraper($db, $config);
+    $scraper = createProxyScraper($db, $config);
     ob_start();
     $results = $scraper->searchAdvertisers($keyword);
     $log = ob_get_clean();
@@ -480,7 +487,7 @@ function searchAdvertisers(Database $db, array $config): void
 
 function testApiConnection(Database $db, array $config): void
 {
-    $scraper = createScraper($db, $config);
+    $scraper = createProxyScraper($db, $config);
     ob_start();
     $result = $scraper->testConnection();
     ob_get_clean();

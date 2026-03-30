@@ -171,9 +171,9 @@ class FreeProxyRotator
                 break;
         }
 
-        // Shorter timeout for proxy connections
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        // Short timeouts for proxy connections
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
     }
 
     /**
@@ -186,8 +186,8 @@ class FreeProxyRotator
             CURLOPT_URL            => 'https://adstransparency.google.com/?region=anywhere',
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT        => 10,
-            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 6,
+            CURLOPT_CONNECTTIMEOUT => 3,
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             CURLOPT_SSL_VERIFYPEER => false,
         ]);
