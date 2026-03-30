@@ -335,8 +335,14 @@ class Processor
             $type = $asset['type'] ?? 'image';
             $localPath = null;
 
-            // Handle base64-encoded assets
-            if (isset($asset['base64'])) {
+            // Skip downloading preview URLs (Google JS files, not useful locally)
+            // and displayads-formats URLs — YouTube extraction handles video content
+            $isPreviewUrl = strpos($url, 'displayads-formats') !== false;
+
+            if ($type === 'preview' || $isPreviewUrl) {
+                // Store URL reference only, don't download
+                $localPath = null;
+            } elseif (isset($asset['base64'])) {
                 $localPath = $this->assetManager->saveBase64Asset(
                     $asset['base64'],
                     $ad['creative_id'],

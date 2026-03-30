@@ -249,7 +249,7 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
 
     // Step 3: Trigger processing on server
     echo "Processing payloads on server...";
-    $procResult = postJson($processUrl, []);
+    $procResult = postJson($processUrl, [], 300);
     if ($procResult && !empty($procResult['success'])) {
         echo " OK: " . ($procResult['message'] ?? 'done') . "\n";
     } else {
