@@ -511,8 +511,8 @@
                             <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()">
                                 <i class="bi bi-box-arrow-up-right me-1"></i>View on Google
                             </a>
-                            ${isVideo ? `<a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm ms-1 viewer-ext-link" onclick="event.stopPropagation()">
-                                <i class="bi bi-youtube me-1"></i>Watch Video
+                            ${isVideo && ad.youtube_url ? `<a href="${escapeHtml(ad.youtube_url)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm ms-1 viewer-ext-link" onclick="event.stopPropagation()">
+                                <i class="bi bi-youtube me-1"></i>YouTube
                             </a>` : ''}
                         </div>
                     </div>
@@ -567,7 +567,7 @@
                 <td>${countries.slice(0, 3).map(c => `<span class="badge bg-secondary viewer-clickable me-1" data-filter="country" data-value="${escapeHtml(c)}" style="font-size:.7rem">${escapeHtml(c)}</span>`).join('')}${countries.length > 3 ? `<span class="badge bg-light text-dark" style="font-size:.7rem">+${countries.length-3}</span>` : ''}</td>
                 <td><small>${formatDate(ad.first_seen)}</small></td>
                 <td><small>${formatDate(ad.last_seen)}</small></td>
-                <td><a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right"></i></a>${ad.ad_type === 'video' ? ` <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-youtube"></i></a>` : ''}</td>
+                <td><a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right"></i></a>${ad.youtube_url ? ` <a href="${escapeHtml(ad.youtube_url)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-youtube"></i></a>` : ''}</td>
             </tr>`;
         });
 
@@ -638,9 +638,6 @@
                         <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">
                             <i class="bi bi-box-arrow-up-right me-1"></i>View on Google Ads Transparency
                         </a>
-                        ${ad.ad_type === 'video' ? `<a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm ms-1">
-                            <i class="bi bi-youtube me-1"></i>Watch Video Ad
-                        </a>` : ''}
                     </div>
                 </div>
                 <div class="col-md-4 text-md-end">
@@ -679,7 +676,10 @@
                     const url = asset.original_url || '';
                     const ytId = extractYouTubeId(url);
                     if (ytId) {
-                        html += `<div class="col-md-6 mb-2"><div class="ratio ratio-16x9"><iframe src="https://www.youtube.com/embed/${escapeHtml(ytId)}" allowfullscreen class="rounded"></iframe></div></div>`;
+                        html += `<div class="col-md-8 mb-2">
+                            <div class="ratio ratio-16x9 mb-2"><iframe src="https://www.youtube.com/embed/${escapeHtml(ytId)}" allowfullscreen class="rounded"></iframe></div>
+                            <a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm"><i class="bi bi-youtube me-1"></i>Open on YouTube</a>
+                        </div>`;
                     }
                 });
                 html += '</div>';

@@ -54,6 +54,9 @@ try {
         case 'update_advertiser':
             updateAdvertiser($db);
             break;
+        case 'enrich_ads':
+            enrichAds($db);
+            break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -203,4 +206,68 @@ function updateAdvertiser($db)
     }
 
     echo json_encode(['success' => true, 'message' => 'Advertiser updated']);
+}
+
+/**
+ * Enrich ads with YouTube URLs, thumbnails, etc.
+ * Called by CLI scraper after extracting video details from preview URLs.
+ */
+function enrichAds($db)
+{
+    $input = file_get_contents('php://input');
+    $data = json_decode($input, true);
+
+    if (!$data || empty($data['enrichments'])) {
+        echo json_encode(['success' => false, 'error' => 'enrichments array required']);
+        return;
+    }
+
+    $enrichments = $data['enrichments'];
+    $updated = 0;
+    $added = 0;
+
+    foreach ($enrichments as $item) {
+        $creativeId = $item['creative_id'] ?? null;
+        if (!$creativeId) continue;
+
+        // Add YouTube video asset
+        if (!empty($item['youtube_url'])) {
+            $exists = $db->fetchOne(
+                "SELECT id FROM ad_assets WHERE creative_id = ? AND type = 'video' AND original_url = ?",
+                [$creativeId, $item['youtube_url']]
+            );
+            if (!$exists) {
+                $db->insert('ad_assets', [
+                    'creative_id'  => $creativeId,
+                    'type'         => 'video',
+                    'original_url' => $item['youtube_url'],
+                    'local_path'   => null,
+                ]);
+                $added++;
+            }
+        }
+
+        // Add YouTube thumbnail as image asset
+        if (!empty($item['thumbnail'])) {
+            $exists = $db->fetchOne(
+                "SELECT id FROM ad_assets WHERE creative_id = ? AND type = 'image' AND original_url = ?",
+                [$creativeId, $item['thumbnail']]
+            );
+            if (!$exists) {
+                $db->insert('ad_assets', [
+                    'creative_id'  => $creativeId,
+                    'type'         => 'image',
+                    'original_url' => $item['thumbnail'],
+                    'local_path'   => null,
+                ]);
+            }
+        }
+
+        $updated++;
+    }
+
+    echo json_encode([
+        'success' => true,
+        'message' => "Enriched {$updated} ads, added {$added} video assets",
+    ]);
 }
