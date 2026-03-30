@@ -324,6 +324,202 @@ body {
     opacity: 0.3;
 }
 
+/* Profile pages: Breadcrumb */
+.profile-breadcrumb {
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.profile-breadcrumb a {
+    color: var(--ai-primary);
+    text-decoration: none;
+}
+
+.profile-breadcrumb a:hover {
+    text-decoration: underline;
+}
+
+/* Profile pages: Header card */
+.profile-header {
+    border-left: 4px solid var(--ai-primary);
+}
+
+.profile-header .app-icon {
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.profile-header .app-icon-placeholder {
+    width: 80px;
+    height: 80px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #e9ecef, #dee2e6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Profile pages: Entity cards */
+.entity-card {
+    transition: transform 0.15s, box-shadow 0.15s;
+    overflow: hidden;
+}
+
+.entity-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+/* Profile pages: Video thumbnail */
+.video-thumb {
+    position: relative;
+    aspect-ratio: 16/9;
+    overflow: hidden;
+    background: #000;
+    border-radius: 8px 8px 0 0;
+}
+
+.video-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s;
+}
+
+.entity-card:hover .video-thumb img {
+    transform: scale(1.05);
+}
+
+.video-thumb .play-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 2.5rem;
+    color: rgba(255, 255, 255, 0.85);
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.entity-card:hover .play-overlay {
+    opacity: 1;
+}
+
+.video-thumb .duration-badge {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    background: rgba(0, 0, 0, 0.8);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.video-thumb .views-badge {
+    position: absolute;
+    bottom: 6px;
+    left: 6px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+}
+
+/* Profile pages: Sidebar entity list */
+.sidebar-entity {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: inherit;
+    transition: background-color 0.15s;
+}
+
+.sidebar-entity:hover {
+    background-color: rgba(67, 97, 238, 0.06);
+    color: inherit;
+}
+
+/* Profile pages: Country bars */
+.country-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+}
+
+.country-bar .country-code {
+    font-weight: 700;
+    font-size: 0.85rem;
+    width: 32px;
+    flex-shrink: 0;
+}
+
+.country-bar .progress {
+    flex-grow: 1;
+    height: 6px;
+}
+
+.country-bar .count {
+    font-size: 0.8rem;
+    color: #6c757d;
+    width: 50px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+/* Profile pages: Stacked timeline bar */
+.timeline-bar-segment {
+    border-radius: 0;
+}
+
+.timeline-bar-segment:first-child {
+    border-radius: 4px 4px 0 0;
+}
+
+.timeline-bar-segment:last-child {
+    border-radius: 0 0 4px 4px;
+}
+
+/* Profile pages: Screenshot gallery */
+.screenshot-gallery {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+    scroll-snap-type: x mandatory;
+}
+
+.screenshot-gallery img {
+    height: 200px;
+    border-radius: 8px;
+    cursor: zoom-in;
+    scroll-snap-align: start;
+    transition: transform 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.screenshot-gallery img:hover {
+    transform: scale(1.03);
+}
+
+/* Star rating */
+.star-rating .bi-star-fill {
+    color: #ffc107;
+}
+
+.star-rating .bi-star {
+    color: #dee2e6;
+}
+
 /* Responsive tweaks */
 @media (max-width: 768px) {
     .kpi-card .kpi-value {
