@@ -19,10 +19,13 @@ async function fetchAPI(endpoint, params = {}) {
     });
 
     const response = await fetch(url);
+    const data = await response.json().catch(function() { return null; });
     if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        var msg = (data && data.error) ? data.error : ('API error: ' + response.status);
+        var file = (data && data.file) ? (' [' + data.file + ']') : '';
+        throw new Error(msg + file);
     }
-    return response.json();
+    return data;
 }
 
 function showLoading(containerId) {
