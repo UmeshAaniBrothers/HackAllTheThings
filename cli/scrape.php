@@ -65,6 +65,9 @@ switch ($command) {
     case 'countriesall':
         scanCountriesAll($ADVERTISERS_FILE, $GOOGLE_BASE, $SERVER_URL, $AUTH_TOKEN);
         break;
+    case 'text':
+        enrichTextFromCli($SERVER_URL, $AUTH_TOKEN);
+        break;
     default:
         echo "Ads Intelligent - CLI Scraper\n";
         echo "==============================\n\n";
@@ -77,6 +80,7 @@ switch ($command) {
         echo "  php cli/scrape.php list                              Show saved advertisers\n";
         echo "  php cli/scrape.php fetchall                          Fetch ALL saved advertisers\n";
         echo "  php cli/scrape.php enrich                            Extract YouTube URLs locally\n";
+        echo "  php cli/scrape.php text                              Extract ad text from preview URLs locally\n";
         echo "  php cli/scrape.php countries AR1234...               Deep scan countries for one advertiser\n";
         echo "  php cli/scrape.php countriesall                      Deep scan countries for ALL advertisers\n\n";
         echo "Regions: IN (India), US (USA), GB (UK), AU, CA, DE, FR, JP, BR, anywhere\n\n";
@@ -754,6 +758,286 @@ function enrichYouTubeFromCli($serverUrl, $token)
     } else {
         echo "Server processing triggered (may still be running).\n";
     }
+}
+
+function enrichTextFromCli($serverUrl, $token)
+{
+    echo "Fetching ads that need text extraction...\n";
+
+    // Get ads with preview URLs but missing/bad headlines from server
+    $apiUrl = $serverUrl . '/dashboard/api/ads.php?per_page=200&sort=newest';
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $apiUrl,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 30,
+    ]);
+    $resp = curl_exec($ch);
+    unset($ch);
+
+    $data = json_decode($resp, true);
+    if (!$data || empty($data['ads'])) {
+        echo "No ads found.\n";
+        return;
+    }
+
+    // Find ads missing headlines (empty or null)
+    $needsText = [];
+    foreach ($data['ads'] as $ad) {
+        $headline = $ad['headline'] ?? '';
+        $hasBadHeadline = empty($headline)
+            || stripos($headline, 'Cannot find') !== false
+            || stripos($headline, 'global object') !== false;
+
+        if ($hasBadHeadline) {
+            $needsText[] = $ad;
+        }
+    }
+
+    if (empty($needsText)) {
+        echo "All ads already have text. Nothing to do.\n";
+        return;
+    }
+
+    echo "Found " . count($needsText) . " ads needing text extraction.\n";
+
+    $texts = [];
+
+    foreach ($needsText as $i => $ad) {
+        $num = $i + 1;
+        echo "  [{$num}/" . count($needsText) . "] {$ad['creative_id']}...";
+
+        // Get creative detail to find preview URL
+        $detailUrl = $serverUrl . '/dashboard/api/creative.php?id=' . urlencode($ad['creative_id']);
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $detailUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+        ]);
+        $detailResp = curl_exec($ch);
+        unset($ch);
+
+        $detail = json_decode($detailResp, true);
+        if (!$detail || empty($detail['assets'])) {
+            echo " no assets\n";
+            continue;
+        }
+
+        // Find displayads-formats preview URL
+        $previewUrl = null;
+        foreach ($detail['assets'] as $asset) {
+            if (isset($asset['original_url']) && strpos($asset['original_url'], 'displayads-formats') !== false) {
+                $previewUrl = $asset['original_url'];
+                break;
+            }
+        }
+
+        if (!$previewUrl) {
+            echo " no preview URL\n";
+            continue;
+        }
+
+        // Fetch preview locally and extract text
+        $extracted = extractTextFromPreview($previewUrl);
+        if ($extracted && (!empty($extracted['headline']) || !empty($extracted['description']))) {
+            $extracted['creative_id'] = $ad['creative_id'];
+            $texts[] = $extracted;
+            echo " headline: " . substr($extracted['headline'] ?? '(none)', 0, 50) . "\n";
+        } else {
+            echo " no text found\n";
+        }
+
+        usleep(400000); // 400ms between requests
+    }
+
+    if (empty($texts)) {
+        echo "\nNo text extracted from any ads.\n";
+        return;
+    }
+
+    // Send to server in batches of 50
+    echo "\nSending " . count($texts) . " text records to server...\n";
+    $batches = array_chunk($texts, 50);
+    $totalSaved = 0;
+
+    foreach ($batches as $bi => $batch) {
+        $textUrl = $serverUrl . '/dashboard/api/ingest.php?action=set_ad_text&token=' . urlencode($token);
+        $result = postJson($textUrl, ['texts' => $batch]);
+
+        if ($result && !empty($result['success'])) {
+            $saved = ($result['updated'] ?? 0) + ($result['inserted'] ?? 0);
+            $totalSaved += $saved;
+            echo "  Batch " . ($bi + 1) . ": saved {$saved}\n";
+        } else {
+            echo "  Batch " . ($bi + 1) . " failed: " . ($result['error'] ?? 'Unknown error') . "\n";
+        }
+    }
+
+    echo "\nDone: extracted text for {$totalSaved} ads.\n";
+}
+
+/**
+ * Fetch a Google Ads preview URL locally and extract headline, description, CTA, landing URL.
+ * Mirrors the extraction patterns from Processor::fetchPreviewData().
+ */
+function extractTextFromPreview($previewUrl)
+{
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $previewUrl,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 15,
+        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        CURLOPT_HTTPHEADER     => [
+            'Referer: https://adstransparency.google.com/',
+            'Accept: */*',
+        ],
+        CURLOPT_ENCODING       => 'gzip, deflate',
+    ]);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    unset($ch);
+
+    if ($response === false || $httpCode !== 200 || strlen($response) < 100) {
+        return null;
+    }
+
+    // Prepare decoded content
+    $decoded = $response;
+    if (strpos($response, '%20') !== false || strpos($response, '%3A') !== false) {
+        $decoded .= "\n" . urldecode($response);
+    }
+    if (strpos($response, '\\u') !== false) {
+        $decoded .= "\n" . (json_decode('"' . str_replace('"', '\\"', $response) . '"') ?: '');
+    }
+
+    $result = [];
+
+    // ── Headlines ──
+    $headlines = [];
+
+    // appName
+    if (preg_match('/[\'"]appName[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $m)) {
+        $headlines[] = $m[1];
+    }
+    // shortAppName
+    if (preg_match('/[\'"]shortAppName[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $m)) {
+        $headlines[] = $m[1];
+    }
+    // headline(s) field
+    if (preg_match_all('/[\'"]headlines?[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $m)) {
+        $headlines = array_merge($headlines, $m[1]);
+    }
+    // headlines array
+    if (preg_match('/[\'"]headlines?[\'"]\s*:\s*\[([^\]]+)\]/', $decoded, $m)) {
+        if (preg_match_all('/[\'"]([^"\']{3,200})[\'"]/', $m[1], $items)) {
+            $headlines = array_merge($headlines, $items[1]);
+        }
+    }
+    // title field
+    if (preg_match_all('/[\'"]title[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $m)) {
+        $headlines = array_merge($headlines, $m[1]);
+    }
+    // HTML headings
+    if (preg_match_all('/<h[1-3][^>]*>([^<]{3,200})<\/h[1-3]>/i', $decoded, $m)) {
+        $headlines = array_merge($headlines, array_map('trim', $m[1]));
+    }
+    // Headline-class divs
+    if (preg_match_all('/<(?:div|span)[^>]*class="[^"]*(?:headline|title|header)[^"]*"[^>]*>([^<]{3,200})/i', $decoded, $m)) {
+        $headlines = array_merge($headlines, array_map('trim', $m[1]));
+    }
+    // Bold text
+    if (preg_match_all('/<(?:b|strong|em)[^>]*>([^<]{5,150})<\/(?:b|strong|em)>/i', $decoded, $m)) {
+        $headlines = array_merge($headlines, array_map('trim', $m[1]));
+    }
+
+    // Clean headlines
+    $headlines = array_values(array_unique(array_filter($headlines, function($h) {
+        $h = trim($h);
+        return strlen($h) >= 3 && strlen($h) <= 200
+            && !preg_match('/^https?:/', $h)
+            && !preg_match('/^\{|\}$/', $h)
+            && !preg_match('/Cannot find|Error|undefined|function|var |const |let |null|true|false|^\d+$/i', $h)
+            && preg_match('/[a-zA-Z]{2,}/', $h);
+    })));
+
+    if (!empty($headlines)) {
+        $result['headline'] = $headlines[0];
+        $result['headlines_json'] = json_encode(array_slice($headlines, 0, 10));
+    }
+
+    // ── Descriptions ──
+    $descriptions = [];
+
+    if (preg_match('/[\'"]shortDescription[\'"]\s*:\s*[\'"]([^"\']{5,500})[\'"]/', $decoded, $m)) {
+        $descriptions[] = $m[1];
+    }
+    if (preg_match('/[\'"]longDescription[\'"]\s*:\s*[\'"]([^"\']{5,2000})[\'"]/', $decoded, $m)) {
+        $descriptions[] = $m[1];
+    }
+    if (preg_match_all('/[\'"]descriptions?[\'"]\s*:\s*[\'"]([^"\']{8,500})[\'"]/', $decoded, $m)) {
+        $descriptions = array_merge($descriptions, $m[1]);
+    }
+    if (preg_match('/[\'"]descriptions?[\'"]\s*:\s*\[([^\]]+)\]/', $decoded, $m)) {
+        if (preg_match_all('/[\'"]([^"\']{8,500})[\'"]/', $m[1], $items)) {
+            $descriptions = array_merge($descriptions, $items[1]);
+        }
+    }
+    // body/bodyText fields
+    if (preg_match_all('/[\'"](?:body|bodyText|body_text)[\'"]\s*:\s*[\'"]([^"\']{8,500})[\'"]/', $decoded, $m)) {
+        $descriptions = array_merge($descriptions, $m[1]);
+    }
+    // HTML paragraphs
+    if (preg_match_all('/<p[^>]*>([^<]{10,500})<\/p>/i', $decoded, $m)) {
+        $descriptions = array_merge($descriptions, array_map('trim', $m[1]));
+    }
+
+    // Clean descriptions
+    $descriptions = array_values(array_unique(array_filter($descriptions, function($d) {
+        $d = trim($d);
+        return strlen($d) >= 8
+            && !preg_match('/^https?:/', $d)
+            && !preg_match('/Cannot find|Error|undefined|function|var |const |let |null|true|false/i', $d)
+            && preg_match('/[a-zA-Z]{2,}/', $d);
+    })));
+
+    if (!empty($descriptions)) {
+        $result['description'] = $descriptions[0];
+        $result['descriptions_json'] = json_encode(array_slice($descriptions, 0, 5));
+    }
+
+    // ── CTA ──
+    if (preg_match('/[\'"](?:callToAction|call_to_action|cta|ctaText|cta_text|buttonText|button_text)[\'"]\s*:\s*[\'"]([^"\']{2,50})[\'"]/', $decoded, $m)) {
+        $result['cta'] = $m[1];
+    }
+    if (empty($result['cta']) && preg_match('/<(?:button|a)[^>]*class="[^"]*(?:cta|button|action)[^"]*"[^>]*>([^<]{2,50})/i', $decoded, $m)) {
+        $result['cta'] = trim($m[1]);
+    }
+
+    // ── Landing URL ──
+    if (preg_match('/(?:adurl|clickurl|click_url|redirect|landing_?url|finalUrl|final_url|destinationUrl|destination_url)["\'\s:=]+["\']?(https?[^"\'\\\\&\s]{10,500})/', $decoded, $m)) {
+        $landingUrl = urldecode($m[1]);
+        if (strpos($landingUrl, 'displayads-formats') === false) {
+            $result['landing_url'] = $landingUrl;
+        }
+    }
+    if (empty($result['landing_url']) && preg_match('/googleadservices\.com.*?(?:adurl|url)=(https?(?:%3A|:)[^&\s"\']{10,500})/', $decoded, $m)) {
+        $landingUrl = urldecode($m[1]);
+        if (strpos($landingUrl, 'displayads-formats') === false) {
+            $result['landing_url'] = $landingUrl;
+        }
+    }
+
+    // ── Display URL ──
+    if (preg_match('/[\'"](?:displayUrl|display_url|visible_url)[\'"]\s*:\s*[\'"]([^"\']{5,100})[\'"]/', $decoded, $m)) {
+        $result['display_url'] = $m[1];
+    }
+
+    return !empty($result) ? $result : null;
 }
 
 function extractYouTubeIdFromPreview($previewUrl)

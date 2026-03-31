@@ -65,6 +65,9 @@ try {
         case 'set_ad_countries':
             setAdCountries($db);
             break;
+        case 'set_ad_text':
+            setAdText($db);
+            break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -464,5 +467,88 @@ function setAdCountries($db)
         'countries_added' => $totalNew,
         'total_entries' => $totalUpdated,
         'message' => "Processed {$adsProcessed} ads, added {$totalNew} new country entries",
+    ]);
+}
+
+/**
+ * Set ad text (headline, description, CTA, etc.) from CLI-extracted preview data.
+ * Receives: { texts: [ { creative_id, headline, description, cta, landing_url, ... }, ... ] }
+ */
+function setAdText($db)
+{
+    $input = file_get_contents('php://input');
+    $data = json_decode($input, true);
+
+    if (!$data || empty($data['texts'])) {
+        echo json_encode(['success' => false, 'error' => 'texts array required']);
+        return;
+    }
+
+    $updated = 0;
+    $inserted = 0;
+
+    foreach ($data['texts'] as $item) {
+        $creativeId = $item['creative_id'] ?? null;
+        if (!$creativeId) continue;
+
+        // Verify ad exists
+        $exists = $db->fetchOne("SELECT creative_id FROM ads WHERE creative_id = ?", [$creativeId]);
+        if (!$exists) continue;
+
+        // Filter out JS error text
+        foreach (['headline', 'description'] as $field) {
+            if (!empty($item[$field]) && preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(/i', $item[$field])) {
+                $item[$field] = null;
+            }
+        }
+
+        // Skip if no useful text extracted
+        if (empty($item['headline']) && empty($item['description']) && empty($item['cta'])) continue;
+
+        // Build update data
+        $detailData = [];
+        if (!empty($item['headline'])) $detailData['headline'] = $item['headline'];
+        if (!empty($item['description'])) $detailData['description'] = $item['description'];
+        if (!empty($item['cta'])) $detailData['cta'] = $item['cta'];
+        if (!empty($item['landing_url']) && strpos($item['landing_url'], 'displayads-formats') === false) {
+            $detailData['landing_url'] = $item['landing_url'];
+        }
+        if (!empty($item['display_url'])) $detailData['display_url'] = $item['display_url'];
+        if (!empty($item['headlines_json'])) $detailData['headlines_json'] = $item['headlines_json'];
+        if (!empty($item['descriptions_json'])) $detailData['descriptions_json'] = $item['descriptions_json'];
+
+        if (empty($detailData)) continue;
+
+        // Check existing detail row
+        $existing = $db->fetchOne(
+            "SELECT id, headline FROM ad_details WHERE creative_id = ? ORDER BY id DESC LIMIT 1",
+            [$creativeId]
+        );
+
+        if ($existing) {
+            // Only update if existing headline is empty or bad
+            $existingBad = empty($existing['headline'])
+                || stripos($existing['headline'], 'Cannot find') !== false
+                || stripos($existing['headline'], 'global object') !== false;
+
+            if ($existingBad || !empty($detailData['description']) || !empty($detailData['cta'])) {
+                if (!$existingBad) unset($detailData['headline']); // Don't overwrite good headline
+                if (!empty($detailData)) {
+                    $db->update('ad_details', $detailData, 'id = ?', [$existing['id']]);
+                    $updated++;
+                }
+            }
+        } else {
+            $detailData['creative_id'] = $creativeId;
+            $db->insert('ad_details', $detailData);
+            $inserted++;
+        }
+    }
+
+    echo json_encode([
+        'success' => true,
+        'updated' => $updated,
+        'inserted' => $inserted,
+        'message' => "Updated {$updated}, inserted {$inserted} ad text entries",
     ]);
 }
