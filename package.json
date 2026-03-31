@@ -1,0 +1,26 @@
+{
+  "name": "ads-intelligent",
+  "version": "1.0.0",
+  "description": "Google Ads Transparency Center scraper and dashboard. Scrapes ad data locally via CLI, processes on server, and displays in a web dashboard.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/UmeshAaniBrothers/Ads-Intelligent.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/UmeshAaniBrothers/Ads-Intelligent/issues"
+  },
+  "homepage": "https://github.com/UmeshAaniBrothers/Ads-Intelligent#readme",
+  "dependencies": {
+    "puppeteer": "^24.40.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}

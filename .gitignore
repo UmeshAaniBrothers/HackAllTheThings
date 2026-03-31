@@ -6,4 +6,6 @@ storage/*
 !storage/.gitkeep
 !logs/.gitkeep
 cli/cookies.txt
+cli/cookies_raw.txt
 cron/*.log
+node_modules/
