@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS ad_details (
     headlines_json TEXT COMMENT 'JSON array of all headline variations (responsive ads)',
     descriptions_json TEXT COMMENT 'JSON array of all description variations',
     tracking_ids_json TEXT COMMENT 'JSON array of tracking IDs (GA, GTM, FB Pixel)',
+    headline_source VARCHAR(20) DEFAULT NULL COMMENT 'Source: ad (creative/preview), youtube (video title)',
     snapshot_date DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_creative (creative_id),
     INDEX idx_snapshot (snapshot_date),

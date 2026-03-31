@@ -567,6 +567,8 @@
                 var advName = ad.advertiser_name || ad.advertiser_id || '';
                 var transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
                 var headline = ad.headline || advName;
+                var headlineSource = ad.headline_source || '';
+                var sourceLabel = headlineSource === 'youtube' ? ' <span class="badge bg-danger bg-opacity-75" style="font-size:.6rem;vertical-align:middle"><i class="bi bi-youtube me-1"></i>YouTube Title</span>' : '';
                 var productName = ad.product_names ? ad.product_names.split('||')[0] : '';
                 var productIdVal = ad.product_id || '';
                 var storePlatform = ad.store_platform || 'web';
@@ -634,7 +636,7 @@
                     '<span class="badge ' + (ad.status === 'active' ? 'badge-active' : 'badge-inactive') + ' viewer-clickable" data-filter="status" data-value="' + escapeHtml(ad.status) + '">' + ad.status + '</span>' +
                     '</div><small class="text-muted">' + formatDate(ad.last_seen) + '</small></div></div>' +
                     '<div class="ad-body">' +
-                    '<div class="ad-headline">' + escapeHtml(headline) + '</div>' +
+                    '<div class="ad-headline">' + escapeHtml(headline) + sourceLabel + '</div>' +
                     (ad.description ? '<div class="ad-description">' + escapeHtml(ad.description.substring(0, 150)) + '</div>' : '') +
                     (ad.cta ? '<div class="mt-1"><span class="badge bg-primary">' + escapeHtml(ad.cta) + '</span></div>' : '') +
                     productHtml +
@@ -683,6 +685,8 @@
                 var vCount = parseInt(ad.view_count) || 0;
                 var tUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
                 var hl = ad.headline || '';
+                var hlSource = ad.headline_source || '';
+                var hlSourceBadge = hlSource === 'youtube' ? ' <span class="badge bg-danger bg-opacity-75" style="font-size:.55rem;vertical-align:middle"><i class="bi bi-youtube"></i> YT</span>' : '';
 
                 var countryTd = countries.length > 0 ? countries.map(function(c) {
                     return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="' + escapeHtml(c) + '" style="cursor:pointer" title="' + escapeHtml(countryName(c)) + '">' + countryFlag(c) + '</span>';
@@ -690,7 +694,7 @@
 
                 html += '<tr class="viewer-row" role="button" data-id="' + escapeHtml(ad.creative_id) + '">' +
                     '<td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="' + escapeHtml(ad.advertiser_id) + '" style="cursor:pointer">' + escapeHtml(advName) + '</span></td>' +
-                    '<td style="max-width:200px"><div class="text-truncate fw-bold">' + escapeHtml(hl || '-') + '</div>' + (ad.description ? '<div class="text-truncate text-muted small">' + escapeHtml(ad.description.substring(0,60)) + '</div>' : '') + '</td>' +
+                    '<td style="max-width:200px"><div class="text-truncate fw-bold">' + escapeHtml(hl || '-') + hlSourceBadge + '</div>' + (ad.description ? '<div class="text-truncate text-muted small">' + escapeHtml(ad.description.substring(0,60)) + '</div>' : '') + '</td>' +
                     '<td>' + (pName && pName !== 'Unknown' ? '<span class="badge bg-warning text-dark" style="font-size:.75rem">' + escapeHtml(pName) + '</span>' : '<small class="text-muted">-</small>') + '</td>' +
                     '<td><span class="badge bg-info" style="font-size:.75rem">' + (tblPlatformLabels[sPlatform] || 'Web') + '</span></td>' +
                     '<td>' + (vCount > 0 ? '<strong>' + formatNumber(vCount) + '</strong>' : '<small class="text-muted">-</small>') + '</td>' +
@@ -774,9 +778,11 @@
             try { if (detail.tracking_ids_json) trackingArr = JSON.parse(detail.tracking_ids_json); } catch(e) {}
 
             // Header row
+            const detailHlSource = detail.headline_source || '';
+            const detailSourceBadge = detailHlSource === 'youtube' ? '<span class="badge bg-danger bg-opacity-75 ms-2" style="font-size:.65rem;vertical-align:middle"><i class="bi bi-youtube me-1"></i>YouTube Title</span>' : (detailHlSource === 'ad' ? '<span class="badge bg-success bg-opacity-75 ms-2" style="font-size:.65rem;vertical-align:middle"><i class="bi bi-megaphone me-1"></i>Ad Text</span>' : '');
             html += `<div class="row mb-3">
                 <div class="col-md-8">
-                    ${detail.headline ? `<h5>${escapeHtml(detail.headline)}</h5>` : ''}
+                    ${detail.headline ? `<h5>${escapeHtml(detail.headline)}${detailSourceBadge}</h5>` : ''}
                     ${detail.description ? `<p class="text-muted">${escapeHtml(detail.description)}</p>` : ''}
                     <div class="d-flex flex-wrap gap-1 mb-2">
                         ${detail.cta ? `<span class="badge bg-primary viewer-clickable" data-filter="cta" data-value="${escapeHtml(detail.cta)}" style="cursor:pointer">${escapeHtml(detail.cta)}</span>` : ''}

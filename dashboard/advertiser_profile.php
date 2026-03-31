@@ -260,7 +260,7 @@
                         ? '<img src="' + escapeHtml(thumbSrc) + '" class="thumb" loading="lazy" alt="">'
                         : '<div class="thumb d-flex align-items-center justify-content-center" style="background:#e9ecef"><i class="bi bi-image text-muted"></i></div>'}
                     <div class="meta">
-                        <div class="headline">${escapeHtml(ad.headline || 'Untitled')}</div>
+                        <div class="headline">${escapeHtml(ad.headline || 'Untitled')}${ad.headline_source === 'youtube' ? ' <span class="badge bg-danger bg-opacity-75" style="font-size:.55rem;vertical-align:middle"><i class="bi bi-youtube"></i> YT</span>' : ''}</div>
                         <div class="d-flex gap-1 mt-1">
                             <span class="badge badge-${escapeHtml(ad.ad_type || 'text')}">${escapeHtml(ad.ad_type || 'text')}</span>
                             <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'}">${escapeHtml(ad.status || 'unknown')}</span>
@@ -452,7 +452,7 @@
                         ${typeBadge(ad.ad_type || 'text')}
                         ${statusBadge(ad.status || 'unknown')}
                     </div>
-                    <div class="ad-headline">${escapeHtml(ad.headline || 'Untitled')}</div>
+                    <div class="ad-headline">${escapeHtml(ad.headline || 'Untitled')}${ad.headline_source === 'youtube' ? ' <span class="badge bg-danger bg-opacity-75" style="font-size:.55rem;vertical-align:middle"><i class="bi bi-youtube"></i> YT</span>' : ''}</div>
                     ${ad.description ? '<div class="ad-desc">' + escapeHtml(ad.description) + '</div>' : ''}
                     ${ad.cta ? '<span class="badge bg-outline-primary mt-1" style="border:1px solid var(--ai-primary);color:var(--ai-primary);font-size:.68rem">' + escapeHtml(ad.cta) + '</span>' : ''}
                     ${linksHtml ? '<div class="ad-links">' + linksHtml + '</div>' : ''}

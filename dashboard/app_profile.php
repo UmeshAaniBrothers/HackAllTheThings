@@ -220,8 +220,10 @@
                         <tbody>
                             ${topAds.map(ad => {
                                 const ytId = ad.youtube_url ? extractYouTubeId(ad.youtube_url) : null;
+                                const topAdSource = ad.headline_source || '';
+                                const topAdSourceBadge = topAdSource === 'youtube' ? ' <span class="badge bg-danger bg-opacity-75" style="font-size:.55rem;vertical-align:middle"><i class="bi bi-youtube me-1"></i>YT Title</span>' : '';
                                 return `<tr class="top-entity-row">
-                                    <td><span class="text-truncate d-inline-block" style="max-width:320px">${escapeHtml(ad.headline || 'Untitled')}</span></td>
+                                    <td><span class="text-truncate d-inline-block" style="max-width:320px">${escapeHtml(ad.headline || 'Untitled')}${topAdSourceBadge}</span></td>
                                     <td><span class="badge badge-${ad.ad_type || 'text'}">${escapeHtml(ad.ad_type || 'text')}</span></td>
                                     <td class="text-end fw-semibold">${formatNumber(ad.view_count || 0)}</td>
                                     <td class="text-center">
@@ -453,7 +455,7 @@
                         <span class="badge badge-${ad.ad_type || 'text'}">${escapeHtml(ad.ad_type || 'text')}</span>
                         <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'}">${escapeHtml(ad.status || 'unknown')}</span>
                     </div>
-                    <div class="fw-semibold text-truncate small mb-1">${escapeHtml(ad.headline || 'Untitled')}</div>
+                    <div class="fw-semibold text-truncate small mb-1">${escapeHtml(ad.headline || 'Untitled')}${ad.headline_source === 'youtube' ? ' <span class="badge bg-danger bg-opacity-75" style="font-size:.5rem;vertical-align:middle"><i class="bi bi-youtube"></i> YT</span>' : ''}</div>
                     ${ad.description ? `<div class="text-muted text-truncate small mb-1" style="font-size:.75rem">${escapeHtml(ad.description)}</div>` : ''}
                     ${countriesHtml}
                     <div class="text-muted small" style="font-size:.7rem"><i class="bi bi-calendar-range me-1"></i>${formatDate(ad.first_seen)} - ${formatDate(ad.last_seen)}</div>

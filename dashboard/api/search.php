@@ -56,7 +56,7 @@ try {
         $adRows = $db->fetchAll(
             "SELECT a.creative_id, a.advertiser_id, a.ad_type, a.first_seen, a.last_seen,
                     a.status, a.view_count,
-                    d.headline, d.description AS ad_description, d.cta, d.landing_url,
+                    d.headline, d.description AS ad_description, d.cta, d.landing_url, d.headline_source,
                     d.display_url, d.ad_width, d.ad_height,
                     COALESCE(ma.name, a.advertiser_id) AS advertiser_name,
                     (SELECT GROUP_CONCAT(DISTINCT t.country) FROM ad_targeting t WHERE t.creative_id = a.creative_id) AS countries,

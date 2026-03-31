@@ -392,11 +392,12 @@ class Processor
         if ($latestDetail === null) {
             // First entry — always insert
             $this->db->insert('ad_details', [
-                'creative_id' => $ad['creative_id'],
-                'headline'    => $ad['headline'],
-                'description' => $ad['description'],
-                'cta'         => $ad['cta'],
-                'landing_url' => $ad['landing_url'],
+                'creative_id'     => $ad['creative_id'],
+                'headline'        => $ad['headline'],
+                'description'     => $ad['description'],
+                'cta'             => $ad['cta'],
+                'landing_url'     => $ad['landing_url'],
+                'headline_source' => !empty($ad['headline']) ? 'ad' : null,
             ]);
             return;
         }
@@ -411,11 +412,12 @@ class Processor
         if ($oldHash !== $ad['hash_signature']) {
             // Content changed — insert new version
             $this->db->insert('ad_details', [
-                'creative_id' => $ad['creative_id'],
-                'headline'    => $ad['headline'],
-                'description' => $ad['description'],
-                'cta'         => $ad['cta'],
-                'landing_url' => $ad['landing_url'],
+                'creative_id'     => $ad['creative_id'],
+                'headline'        => $ad['headline'],
+                'description'     => $ad['description'],
+                'cta'             => $ad['cta'],
+                'landing_url'     => $ad['landing_url'],
+                'headline_source' => !empty($ad['headline']) ? 'ad' : null,
             ]);
         }
     }
@@ -978,6 +980,7 @@ class Processor
                     || stripos($existing['headline'], 'global object') !== false;
                 if (!empty($detailData['headline']) && $existingHeadlineBad) {
                     $updateFields['headline'] = $detailData['headline'];
+                    $updateFields['headline_source'] = 'ad';
                 }
                 // Always update these if we have new data
                 foreach (['description', 'cta', 'landing_url', 'display_url', 'ad_width', 'ad_height', 'headlines_json', 'descriptions_json', 'tracking_ids_json'] as $field) {
@@ -991,6 +994,7 @@ class Processor
                 }
             } else {
                 $detailData['creative_id'] = $ad['creative_id'];
+                $detailData['headline_source'] = !empty($detailData['headline']) ? 'ad' : null;
                 $this->db->insert('ad_details', $detailData);
                 $enriched++;
             }
@@ -1843,14 +1847,16 @@ class Processor
 
             if ($existingDetail) {
                 $this->db->update('ad_details', [
-                    'headline'    => $headline,
-                    'description' => $description ?: null,
+                    'headline'        => $headline,
+                    'description'     => $description ?: null,
+                    'headline_source' => 'youtube',
                 ], 'id = ?', [$existingDetail['id']]);
             } else {
                 $this->db->insert('ad_details', [
-                    'creative_id' => $ad['creative_id'],
-                    'headline'    => $headline,
-                    'description' => $description ?: null,
+                    'creative_id'     => $ad['creative_id'],
+                    'headline'        => $headline,
+                    'description'     => $description ?: null,
+                    'headline_source' => 'youtube',
                 ]);
             }
 

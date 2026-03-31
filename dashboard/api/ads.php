@@ -114,7 +114,7 @@ try {
 
     $ads = $db->fetchAll(
         "SELECT a.creative_id, a.advertiser_id, a.ad_type, a.first_seen, a.last_seen, a.status, a.view_count,
-                d.headline, d.description, d.cta, d.landing_url, d.display_url, d.ad_width, d.ad_height, d.headlines_json, d.descriptions_json, d.tracking_ids_json,
+                d.headline, d.description, d.cta, d.landing_url, d.display_url, d.ad_width, d.ad_height, d.headlines_json, d.descriptions_json, d.tracking_ids_json, d.headline_source,
                 (SELECT GROUP_CONCAT(DISTINCT t.country) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as countries,
                 (SELECT GROUP_CONCAT(DISTINCT t.platform) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as platforms,
                 (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'image' AND ass.original_url NOT LIKE '%displayads-formats%' ORDER BY (ass.original_url LIKE '%ytimg.com%') DESC, ass.id DESC LIMIT 1) as preview_image,

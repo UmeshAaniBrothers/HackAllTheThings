@@ -75,7 +75,7 @@ try {
 
     $ads = $db->fetchAll(
         "SELECT a.creative_id, a.advertiser_id, a.ad_type, a.first_seen, a.last_seen, a.status, a.view_count,
-                d.headline, d.description, d.cta,
+                d.headline, d.description, d.cta, d.headline_source,
                 (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url,
                 (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'image' AND ass.original_url LIKE '%ytimg.com%' LIMIT 1) as preview_image,
                 (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.original_url LIKE '%displayads-formats%' LIMIT 1) as preview_url,
@@ -181,7 +181,7 @@ try {
 
     // 12. Top performing ads (by view count)
     $topAds = $db->fetchAll(
-        "SELECT a.creative_id, a.view_count, a.ad_type, d.headline,
+        "SELECT a.creative_id, a.view_count, a.ad_type, d.headline, d.headline_source,
                 (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url
          FROM ads a
          INNER JOIN ad_product_map pm ON pm.creative_id = a.creative_id
