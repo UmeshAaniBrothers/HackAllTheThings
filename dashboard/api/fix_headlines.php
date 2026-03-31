@@ -161,7 +161,7 @@ try {
          FROM ad_products p
          INNER JOIN app_metadata m ON p.id = m.product_id
          WHERE m.app_name IS NOT NULL AND m.app_name != ''
-           AND p.product_name != m.app_name
+           AND p.product_name COLLATE utf8mb4_unicode_ci != m.app_name COLLATE utf8mb4_unicode_ci
            AND p.store_platform IN ('ios', 'playstore')"
     );
     foreach ($badNameProducts as $row) {
