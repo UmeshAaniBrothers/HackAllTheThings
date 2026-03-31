@@ -5,3 +5,5 @@ logs/*
 storage/*
 !storage/.gitkeep
 !logs/.gitkeep
+cli/cookies.txt
+cron/*.log

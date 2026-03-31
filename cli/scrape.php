@@ -1107,16 +1107,40 @@ function initGoogleSession($googleBase, $region = 'anywhere')
     if ($regionParam === 'anywhere' || $regionParam === '') {
         $regionParam = 'anywhere';
     }
+
+    // Try to use Chrome cookies for better session (avoids 429)
+    $projectDir = dirname(__DIR__);
+    $chromeCookieFile = $projectDir . '/cli/cookies.txt';
     $cookieFile = tempnam(sys_get_temp_dir(), 'gads_');
+
+    if (file_exists($chromeCookieFile)) {
+        copy($chromeCookieFile, $cookieFile);
+        echo "[info] Using Chrome cookies for session\n";
+    }
+
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL            => $googleBase . '/?region=' . $regionParam,
         CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_COOKIEFILE     => $cookieFile,
         CURLOPT_COOKIEJAR      => $cookieFile,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_TIMEOUT        => 15,
-        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
         CURLOPT_ENCODING       => 'gzip, deflate, br',
+        CURLOPT_HTTPHEADER     => [
+            'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language: en-US,en;q=0.9',
+            'Cache-Control: no-cache',
+            'Sec-Ch-Ua: "Chromium";v="134", "Google Chrome";v="134", "Not:A-Brand";v="24"',
+            'Sec-Ch-Ua-Mobile: ?0',
+            'Sec-Ch-Ua-Platform: "macOS"',
+            'Sec-Fetch-Dest: document',
+            'Sec-Fetch-Mode: navigate',
+            'Sec-Fetch-Site: none',
+            'Sec-Fetch-User: ?1',
+            'Upgrade-Insecure-Requests: 1',
+        ],
     ]);
     curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -1141,10 +1165,17 @@ function googleRequest($url, $body, $cookieFile)
         CURLOPT_HTTPHEADER     => [
             'Content-Type: application/x-www-form-urlencoded',
             'Accept: */*',
+            'Accept-Language: en-US,en;q=0.9',
             'Origin: https://adstransparency.google.com',
             'Referer: https://adstransparency.google.com/',
+            'Sec-Ch-Ua: "Chromium";v="134", "Google Chrome";v="134", "Not:A-Brand";v="24"',
+            'Sec-Ch-Ua-Mobile: ?0',
+            'Sec-Ch-Ua-Platform: "macOS"',
+            'Sec-Fetch-Dest: empty',
+            'Sec-Fetch-Mode: cors',
+            'Sec-Fetch-Site: same-origin',
         ],
-        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
         CURLOPT_ENCODING       => 'gzip, deflate, br',
         CURLOPT_FOLLOWLOCATION => true,
     ];
