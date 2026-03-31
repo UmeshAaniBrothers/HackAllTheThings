@@ -553,98 +553,142 @@ function extractCreativeIdsFromPayload(rawJson) {
 
 // ── Scrape ads for one advertiser ───────────────────────
 // Uses NETWORK INTERCEPTION — navigates to advertiser page and captures
-// the API responses as the page naturally loads them. This is exactly how
-// the Chrome extension works and is undetectable by Google.
+// Uses TWO strategies:
+// 1. DIRECT API (fast) — page.evaluate(fetch()) from the Google domain context
+// 2. PAGE NAVIGATION (fallback) — navigate + scroll + intercept responses
+// The persistent Chrome profile provides real cookies, making direct API work.
 async function scrapeAdvertiser(page, advertiserId) {
     const allPayloads = [];
     let totalAds = 0;
 
-    // Set up response interception to capture SearchCreatives API responses
-    const capturedResponses = [];
-    let listening = true;
-    const responseHandler = async (response) => {
-        if (!listening) return;
+    // Strategy 1: Direct API calls (like the Python scraper / Chrome extension)
+    // This works because we're on adstransparency.google.com with real cookies
+    log('  Fetching ads...');
+    let pageToken = null;
+    let pageNum = 0;
+    let directApiWorks = true;
+
+    do {
+        pageNum++;
+
+        const reqData = {
+            '2': 100,
+            '3': { '12': { '1': '', '2': true }, '13': { '1': [advertiserId] } },
+            '7': { '1': 1 },
+        };
+        if (pageToken) reqData['4'] = pageToken;
+
+        if (pageNum > 1) await sleep(1000 + Math.random() * 500);
+
+        let result;
         try {
-            const url = response.url();
-            if (url.includes('SearchService/SearchCreatives') || url.includes('SearchService/ListCreatives')) {
-                const text = await response.text().catch(() => null);
-                if (text && text.startsWith('{')) {
-                    capturedResponses.push(text);
-                }
-            }
-        } catch {} // Silently ignore detached frame errors
-    };
-    page.on('response', responseHandler);
-
-    try {
-        // Navigate to the advertiser's page — this triggers the natural API calls
-        const advUrl = `${GOOGLE_BASE}/advertiser/${advertiserId}?region=anywhere`;
-        await page.goto(advUrl, { waitUntil: 'networkidle2', timeout: 45000 }).catch(() => {});
-        await sleep(3000);
-
-        // Check if page loaded properly
-        const currentUrl = page.url();
-        if (currentUrl.includes('google.com/sorry')) {
-            log('  BLOCKED by Google. Try solving CAPTCHA.');
-            return [];
+            result = await page.evaluate(async (reqData) => {
+                try {
+                    const body = 'f.req=' + encodeURIComponent(JSON.stringify(reqData));
+                    const resp = await fetch('/anji/_/rpc/SearchService/SearchCreatives?authuser=0', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body,
+                        credentials: 'include',
+                    });
+                    if (!resp.ok) return { error: `HTTP ${resp.status}` };
+                    return { data: await resp.text() };
+                } catch (e) { return { error: e.message }; }
+            }, reqData);
+        } catch (e) {
+            result = { error: e.message };
         }
 
-        // Capture the initial page load response
-        log(`  Initial load: ${capturedResponses.length} responses captured`);
+        if (result.error) {
+            if (pageNum === 1) {
+                log(`  Direct API failed (${result.error}), trying page navigation...`);
+                directApiWorks = false;
+            }
+            break;
+        }
 
-        // Scroll down repeatedly to trigger "load more" / pagination
-        let lastCount = capturedResponses.length;
-        let noNewDataRetries = 0;
-        const MAX_SCROLLS = 200; // Safety limit
+        let data;
+        try { data = JSON.parse(result.data); } catch { break; }
 
-        for (let scroll = 0; scroll < MAX_SCROLLS; scroll++) {
-            // Scroll to bottom
+        const ads = data['1'] || [];
+        const count = Array.isArray(ads) ? ads.length : 0;
+
+        if (count > 0) {
+            allPayloads.push(result.data);
+            totalAds += count;
+            process.stdout.write(`  Page ${pageNum}: ${count} ads (total: ${totalAds})\n`);
+        } else {
+            if (pageNum === 1) process.stdout.write(`  Page 1: 0 ads\n`);
+        }
+
+        pageToken = (data['2'] && typeof data['2'] === 'string' && data['2'] !== '') ? data['2'] : null;
+    } while (pageToken !== null && directApiWorks);
+
+    // Strategy 2: Page navigation fallback (if direct API failed)
+    if (!directApiWorks) {
+        const capturedResponses = [];
+        let listening = true;
+        const responseHandler = async (response) => {
+            if (!listening) return;
             try {
-                await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-            } catch { break; } // Page navigated away
-            await sleep(1500);
-
-            // Also click "Show more" / "Load more" button if present
-            try {
-                const moreBtn = await page.$('button[aria-label*="more"], .load-more-button, [data-load-more], button.mat-mdc-paginator-navigation-next');
-                if (moreBtn) {
-                    await moreBtn.click();
-                    await sleep(2000);
+                const url = response.url();
+                if (url.includes('SearchService/SearchCreatives') || url.includes('SearchService/ListCreatives')) {
+                    const text = await response.text().catch(() => null);
+                    if (text && text.startsWith('{')) {
+                        capturedResponses.push(text);
+                    }
                 }
             } catch {}
+        };
+        page.on('response', responseHandler);
 
-            // Check if we got new responses
-            if (capturedResponses.length > lastCount) {
-                const newResponses = capturedResponses.length - lastCount;
-                process.stdout.write(`  Scroll ${scroll + 1}: +${newResponses} responses (total: ${capturedResponses.length})\n`);
-                lastCount = capturedResponses.length;
-                noNewDataRetries = 0;
-            } else {
-                noNewDataRetries++;
-                if (noNewDataRetries >= 3) {
-                    // No new data after 3 scrolls — we've reached the end
-                    break;
+        try {
+            const advUrl = `${GOOGLE_BASE}/advertiser/${advertiserId}?region=anywhere`;
+            await page.goto(advUrl, { waitUntil: 'networkidle2', timeout: 45000 }).catch(() => {});
+            await sleep(3000);
+
+            if (page.url().includes('google.com/sorry')) {
+                log('  ❌ BLOCKED. Run with --visible to solve CAPTCHA.');
+                return [];
+            }
+
+            log(`  Initial: ${capturedResponses.length} responses`);
+
+            // Scroll to load more
+            let lastCount = capturedResponses.length;
+            let noNew = 0;
+            for (let s = 0; s < 200 && noNew < 3; s++) {
+                try { await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); } catch { break; }
+                await sleep(1500);
+                try {
+                    const btn = await page.$('button[aria-label*="more"], .load-more-button, [data-load-more]');
+                    if (btn) { await btn.click(); await sleep(2000); }
+                } catch {}
+
+                if (capturedResponses.length > lastCount) {
+                    process.stdout.write(`  Scroll ${s + 1}: +${capturedResponses.length - lastCount} (total: ${capturedResponses.length})\n`);
+                    lastCount = capturedResponses.length;
+                    noNew = 0;
+                } else {
+                    noNew++;
                 }
             }
+
+            for (const raw of capturedResponses) {
+                try {
+                    const data = JSON.parse(raw);
+                    const ads = data['1'] || [];
+                    totalAds += Array.isArray(ads) ? ads.length : 0;
+                    allPayloads.push(raw);
+                } catch {}
+            }
+        } finally {
+            listening = false;
+            page.off('response', responseHandler);
         }
-
-        // Count total ads in captured responses
-        for (const raw of capturedResponses) {
-            try {
-                const data = JSON.parse(raw);
-                const ads = data['1'] || [];
-                totalAds += Array.isArray(ads) ? ads.length : 0;
-                allPayloads.push(raw);
-            } catch {}
-        }
-
-        log(`  Captured ${allPayloads.length} pages, ${totalAds} total ads`);
-
-    } finally {
-        listening = false;
-        page.off('response', responseHandler);
     }
 
+    log(`  Total: ${allPayloads.length} pages, ${totalAds} ads`);
     return allPayloads;
 }
 
