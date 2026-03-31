@@ -634,7 +634,7 @@
                     '<div class="ad-card-header"><div class="d-flex justify-content-between align-items-center"><div>' +
                     '<span class="badge badge-' + (ad.ad_type || 'text') + ' viewer-clickable" data-filter="ad_type" data-value="' + escapeHtml(ad.ad_type) + '">' + (ad.ad_type || 'text') + '</span> ' +
                     '<span class="badge ' + (ad.status === 'active' ? 'badge-active' : 'badge-inactive') + ' viewer-clickable" data-filter="status" data-value="' + escapeHtml(ad.status) + '">' + ad.status + '</span>' +
-                    '</div><small class="text-muted">' + formatDate(ad.last_seen) + '</small></div></div>' +
+                    '</div>' + (viewCount > 0 ? '<small class="text-muted"><i class="bi bi-eye-fill me-1"></i>' + viewCountStr + '</small>' : '') + '<small class="text-muted">' + formatDate(ad.last_seen) + '</small></div></div>' +
                     '<div class="ad-body">' +
                     '<div class="ad-headline">' + escapeHtml(headline) + sourceLabel + '</div>' +
                     (ad.description ? '<div class="ad-description">' + escapeHtml(ad.description.substring(0, 150)) + '</div>' : '') +
