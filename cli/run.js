@@ -91,13 +91,50 @@ const ADS_ONLY = args.includes('--ads-only');
             const page = await browser.newPage();
             await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
 
-            // Init session
+            // Init session — must fully load and handle any consent screens
             log('Opening Google Ads Transparency Center...');
             await page.goto(`${GOOGLE_BASE}/?region=anywhere`, {
                 waitUntil: 'networkidle2',
-                timeout: 30000,
+                timeout: 45000,
             });
-            await sleep(2000);
+            await sleep(3000);
+
+            // Handle Google consent screen if present
+            try {
+                const consentBtn = await page.$('button[aria-label="Accept all"], form[action*="consent"] button, button[jsname="higCR"]');
+                if (consentBtn) {
+                    log('  Accepting Google consent...');
+                    await consentBtn.click();
+                    await sleep(2000);
+                }
+            } catch {}
+
+            // Wait for the page app to be ready (search input appears when Angular/JS is loaded)
+            try {
+                await page.waitForSelector('input[type="text"], creative-preview, .search-bar', { timeout: 10000 });
+            } catch {}
+            await sleep(1000);
+
+            // Warm up the session by doing a small test fetch
+            log('  Warming up session...');
+            const warmup = await page.evaluate(async (base) => {
+                try {
+                    const body = 'f.req=' + encodeURIComponent(JSON.stringify({ '2': 1, '3': { '12': { '1': 'test', '2': true } }, '7': { '1': 1 } }));
+                    const resp = await fetch(base + '/anji/_/rpc/SearchService/SearchCreatives?authuser=0', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body, credentials: 'include',
+                    });
+                    return { status: resp.status, ok: resp.ok };
+                } catch (e) { return { error: e.message }; }
+            }, GOOGLE_BASE);
+
+            if (warmup.error || !warmup.ok) {
+                log(`  ⚠ Warmup failed (${warmup.error || 'HTTP ' + warmup.status}), reloading...`);
+                await page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
+                await sleep(3000);
+            }
+
             log('Session ready.\n');
 
             let adsSuccess = 0;
@@ -487,18 +524,35 @@ async function scrapeAdvertiser(page, advertiserId) {
         if (pageNum > 1) await sleep(1500);
         else await sleep(500);
 
-        const result = await page.evaluate(async (reqData, base) => {
-            try {
-                const body = 'f.req=' + encodeURIComponent(JSON.stringify(reqData));
-                const resp = await fetch(base + '/anji/_/rpc/SearchService/SearchCreatives?authuser=0', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body, credentials: 'include',
-                });
-                if (!resp.ok) return { error: `HTTP ${resp.status}` };
-                return { data: await resp.text() };
-            } catch (e) { return { error: e.message }; }
-        }, reqData, GOOGLE_BASE);
+        let result;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            result = await page.evaluate(async (reqData, base) => {
+                try {
+                    const body = 'f.req=' + encodeURIComponent(JSON.stringify(reqData));
+                    const resp = await fetch(base + '/anji/_/rpc/SearchService/SearchCreatives?authuser=0', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body, credentials: 'include',
+                    });
+                    if (!resp.ok) return { error: `HTTP ${resp.status}` };
+                    return { data: await resp.text() };
+                } catch (e) { return { error: e.message }; }
+            }, reqData, GOOGLE_BASE);
+
+            if (!result.error) break;
+
+            if (attempt < 3) {
+                process.stdout.write(` retry ${attempt}...`);
+                // On first failure, try reloading the page to refresh the session
+                if (attempt === 1) {
+                    try {
+                        await page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
+                        await sleep(3000);
+                    } catch {}
+                }
+                await sleep(2000 * attempt);
+            }
+        }
 
         if (result.error) { console.log(` FAILED (${result.error})`); break; }
 
