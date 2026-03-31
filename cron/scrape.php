@@ -391,15 +391,48 @@ function initGoogleSession($googleBase, $cookieFile)
     ]);
     $html = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
     curl_close($ch);
+
+    output("  Session HTTP {$code}, URL: {$finalUrl}");
 
     // Check for CAPTCHA / block
     if ($html && (strpos($html, 'google.com/sorry') !== false || strpos($html, 'detected unusual traffic') !== false)) {
-        output("WARNING: Server IP may be blocked by Google");
+        output("WARNING: Server IP blocked (sorry page)");
         return false;
     }
 
-    return $code === 200;
+    // Google consent page is NOT a block — just means cookies need consent
+    if ($html && strpos($html, 'consent.google') !== false) {
+        output("  Consent page detected — trying to accept...");
+        // Accept consent by posting to the consent form
+        $consentCh = curl_init();
+        curl_setopt_array($consentCh, [
+            CURLOPT_URL            => 'https://consent.google.com/save',
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => http_build_query([
+                'gl' => 'US',
+                'pc' => 'atc',
+                'm'  => '0',
+                'hl'  => 'en',
+                'src' => '1',
+                'continue' => $googleBase . '/?region=anywhere',
+            ]),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_COOKIEFILE     => $cookieFile,
+            CURLOPT_COOKIEJAR      => $cookieFile,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_USERAGENT      => chromeUA(),
+        ]);
+        curl_exec($consentCh);
+        curl_close($consentCh);
+        output("  Consent accepted");
+    }
+
+    // Even if session init returned non-200, try the API anyway
+    // Some servers get 302 redirect but cookies still work
+    return true;
 }
 
 function googleRequest($url, $body, $cookieFile)
@@ -433,14 +466,21 @@ function googleRequest($url, $body, $cookieFile)
 
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
     curl_close($ch);
 
     if ($response === false || $httpCode !== 200) {
+        output("    API HTTP {$httpCode}" . ($curlError ? " ({$curlError})" : "") . " len=" . strlen($response ?: ''));
+        // Show first 200 chars of response for debugging
+        if ($response && $httpCode !== 200) {
+            output("    Response preview: " . substr(strip_tags($response), 0, 200));
+        }
         return null;
     }
 
     // Check for HTML (CAPTCHA page instead of JSON)
     if (strpos($response, '<!DOCTYPE') !== false || strpos($response, 'google.com/sorry') !== false) {
+        output("    Got HTML instead of JSON (CAPTCHA/block)");
         return null;
     }
 
