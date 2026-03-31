@@ -56,9 +56,28 @@ try {
         "SELECT COUNT(DISTINCT country) FROM ad_targeting"
     );
 
-    // Advertiser list
+    // New ads in last 24h, 7d
+    $stats['new_ads_24h'] = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ads WHERE first_seen >= DATE_SUB(NOW(), INTERVAL 24 HOUR)" .
+        ($advertiserId ? " AND advertiser_id = ?" : ""),
+        $advertiserId ? [$advertiserId] : []
+    );
+    $stats['new_ads_7d'] = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ads WHERE first_seen >= DATE_SUB(NOW(), INTERVAL 7 DAY)" .
+        ($advertiserId ? " AND advertiser_id = ?" : ""),
+        $advertiserId ? [$advertiserId] : []
+    );
+
+    // New apps in last 7d
+    $stats['new_apps_7d'] = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ad_products WHERE store_platform IN ('ios', 'playstore') AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)"
+    );
+
+    // Advertiser list with new ads count
     $advertisers = $db->fetchAll(
-        "SELECT ma.advertiser_id, ma.name, ma.status, ma.total_ads, ma.active_ads, ma.last_fetched_at
+        "SELECT ma.advertiser_id, ma.name, ma.status, ma.total_ads, ma.active_ads, ma.last_fetched_at,
+                (SELECT COUNT(*) FROM ads a WHERE a.advertiser_id = ma.advertiser_id AND a.first_seen >= DATE_SUB(NOW(), INTERVAL 24 HOUR)) as new_ads_24h,
+                (SELECT COUNT(*) FROM ads a WHERE a.advertiser_id = ma.advertiser_id AND a.first_seen >= DATE_SUB(NOW(), INTERVAL 7 DAY)) as new_ads_7d
          FROM managed_advertisers ma
          WHERE ma.status NOT IN ('deleted')
          ORDER BY ma.total_ads DESC"

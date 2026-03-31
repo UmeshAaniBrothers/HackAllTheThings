@@ -578,6 +578,15 @@
                 var viewCount = parseInt(ad.view_count) || 0;
                 var viewCountStr = viewCount > 0 ? formatNumber(viewCount) : '';
 
+                // "New" badge for ads discovered in last 48 hours
+                var isNew = false;
+                if (ad.first_seen) {
+                    var firstSeenDate = new Date(ad.first_seen);
+                    var hoursSinceFirst = (Date.now() - firstSeenDate.getTime()) / (1000 * 60 * 60);
+                    isNew = hoursSinceFirst < 48;
+                }
+                var newBadge = isNew ? '<span class="badge bg-danger ms-1" style="font-size:.6rem;animation:pulse 2s infinite">NEW</span> ' : '';
+
                 // Thumbnail
                 var thumbHtml = '';
                 var ytId = ad.youtube_url ? extractYouTubeId(ad.youtube_url) : null;
@@ -632,6 +641,7 @@
                     '<div class="ad-card viewer-card" role="button" data-id="' + escapeHtml(ad.creative_id) + '">' +
                     thumbHtml +
                     '<div class="ad-card-header"><div class="d-flex justify-content-between align-items-center"><div>' +
+                    newBadge +
                     '<span class="badge badge-' + (ad.ad_type || 'text') + ' viewer-clickable" data-filter="ad_type" data-value="' + escapeHtml(ad.ad_type) + '">' + (ad.ad_type || 'text') + '</span> ' +
                     '<span class="badge ' + (ad.status === 'active' ? 'badge-active' : 'badge-inactive') + ' viewer-clickable" data-filter="status" data-value="' + escapeHtml(ad.status) + '">' + ad.status + '</span>' +
                     '</div>' + (viewCount > 0 ? '<small class="text-muted"><i class="bi bi-eye-fill me-1"></i>' + viewCountStr + '</small>' : '') + '<small class="text-muted">' + formatDate(ad.last_seen) + '</small></div></div>' +
@@ -1172,6 +1182,7 @@
 .ad-meta { padding: 8px 12px; border-top: 1px solid #f0f0f0; background: #fafafa; }
 .ad-headline { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ad-description { font-size: 0.85rem; color: #6c757d; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 .viewer-ext-link { font-size: 0.75rem; }
 .viewer-clickable:hover { opacity: 0.8; filter: brightness(1.1); }
 .viewer-pill { font-size: 0.78rem; }

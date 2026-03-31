@@ -337,7 +337,7 @@
                 <div class="d-flex align-items-center">
                     <span class="badge bg-light text-dark me-2" style="width:24px">${i + 1}</span>
                     <div>
-                        <div class="fw-bold small">${escapeHtml(a.name || a.advertiser_id)}</div>
+                        <div class="fw-bold small">${escapeHtml(a.name || a.advertiser_id)}${parseInt(a.new_ads_24h) > 0 ? ' <span class="badge bg-danger" style="font-size:.55rem;animation:pulse 2s infinite">+' + a.new_ads_24h + ' new</span>' : ''}</div>
                         <small class="text-muted">${formatNumber(a.active_ads || 0)} active</small>
                     </div>
                 </div>
@@ -466,6 +466,7 @@
 .top-entity-row { transition: background-color 0.15s; }
 .top-entity-row:hover { background-color: rgba(67, 97, 238, 0.05); }
 .timeline-bar { transition: height 0.3s ease; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 </style>
 
 <?php require_once 'includes/footer.php'; ?>

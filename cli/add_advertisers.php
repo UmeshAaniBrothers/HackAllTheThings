@@ -94,35 +94,23 @@ echo "\n📊 Summary: {$added} added, {$reactivated} reactivated, {$existing} al
 if (!empty($newIds)) {
     echo "\n🔍 Triggering scrape on server for new advertisers...\n\n";
 
-    foreach ($newIds as $advId) {
-        echo "  Scraping: {$advId}... ";
+    echo "  Triggering server cron (this runs in background on server)...\n";
 
-        $scrapeUrl = $serverUrl . '/cron/process.php?token=' . urlencode($token)
-            . '&advertiser=' . urlencode($advId);
+    $scrapeUrl = $serverUrl . '/cron/process.php?token=' . urlencode($token);
+    $ch = curl_init($scrapeUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 5,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_USERAGENT => 'AdsIntelligent-CLI/1.0',
+    ]);
+    curl_exec($ch); // Fire and forget — don't wait for response
 
-        $ch = curl_init($scrapeUrl);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 120,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_USERAGENT => 'AdsIntelligent-CLI/1.0',
-        ]);
-        $rawResp = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        $data = json_decode($rawResp, true);
-        if ($data && isset($data['success']) && $data['success']) {
-            $newAds = $data['new_ads'] ?? $data['ads_found'] ?? '?';
-            echo "✅ Done ({$newAds} ads)\n";
-        } elseif ($httpCode === 200) {
-            echo "✅ Done\n";
-        } else {
-            echo "⚠️  HTTP {$httpCode}\n";
-        }
-    }
-
-    echo "\n✅ All done! Cron will handle enrichment (countries, text, YouTube, apps).\n";
+    echo "\n✅ All done!\n";
+    echo "  • Advertisers added to server database\n";
+    echo "  • Server cron triggered — it will scrape ads in the background\n";
+    echo "  • Enrichment (countries, text, YouTube, apps) runs automatically\n";
+    echo "\n  Check progress at: {$serverUrl}/dashboard/\n";
 } else {
     echo "\nNo new advertisers to scrape.\n";
 }
