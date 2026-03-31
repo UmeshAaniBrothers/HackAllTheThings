@@ -173,12 +173,14 @@ function searchAdvertisers($keyword, $googleBase)
     echo "\nTo fetch ads: php cli/scrape.php fetch <ADVERTISER_ID> \"Name\"\n";
 }
 
-function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl, $token, $region = 'anywhere')
+function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl, $token, $region = 'anywhere', $sharedCookieFile = null)
 {
     $region = strtoupper(trim($region));
     echo "Fetching ads for: {$advertiserId} ({$advertiserName}) [Region: {$region}]\n\n";
 
-    $cookieFile = initGoogleSession($googleBase, $region);
+    // Use shared session if provided, otherwise create new one
+    $cookieFile = $sharedCookieFile ?: initGoogleSession($googleBase, $region);
+    $ownsCookieFile = ($sharedCookieFile === null);
     $allPayloads = [];
     $totalAds = 0;
     $pageToken = null;
@@ -236,7 +238,9 @@ function fetchAdvertiser($advertiserId, $advertiserName, $googleBase, $serverUrl
 
     } while ($pageToken !== null);
 
-    cleanupCookies($cookieFile);
+    if ($ownsCookieFile) {
+        cleanupCookies($cookieFile);
+    }
 
     echo "\nTotal: {$totalAds} ads across {$pageCount} page(s)\n";
 
@@ -405,6 +409,11 @@ function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
     echo "=== Fetching " . count($advertisers) . " advertisers ===\n";
     echo "Started: " . date('Y-m-d H:i:s') . "\n\n";
 
+    // Create ONE session and reuse for all advertisers (avoids multiple 429s)
+    $firstRegion = $advertisers[0]['region'] ?? 'anywhere';
+    $sharedCookieFile = initGoogleSession($googleBase, $firstRegion);
+    echo "\n";
+
     $success = 0;
     $failed = 0;
 
@@ -417,7 +426,7 @@ function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
         $done = false;
         while (!$done && $retries <= $maxRetries) {
             try {
-                fetchAdvertiser($adv['id'], $adv['name'], $googleBase, $serverUrl, $token, $adv['region']);
+                fetchAdvertiser($adv['id'], $adv['name'], $googleBase, $serverUrl, $token, $adv['region'], $sharedCookieFile);
                 $success++;
                 $done = true;
             } catch (Exception $e) {
@@ -426,6 +435,8 @@ function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
                     $wait = 60 * $retries; // 60s, then 120s
                     echo "Rate limited (429). Waiting {$wait}s before retry {$retries}/{$maxRetries}...\n";
                     sleep($wait);
+                    // Re-init session after rate limit
+                    $sharedCookieFile = initGoogleSession($googleBase, $adv['region']);
                 } else {
                     echo "ERROR: " . $e->getMessage() . "\n";
                     $failed++;
@@ -441,6 +452,8 @@ function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
             sleep($delay);
         }
     }
+
+    cleanupCookies($sharedCookieFile);
 
     echo "\n=== Batch Complete ===\n";
     echo "Success: {$success}, Failed: {$failed}\n";
