@@ -472,7 +472,17 @@
     // ── Populate dropdowns ────────────────────────────────
     function populateViewerDropdowns(options) {
         addOptions('vFilterAdvertiser', options.advertisers || [], 'advertiser_id', 'name');
-        addOptions('vFilterCountry', options.countries || [], 'country', 'country');
+        // Country dropdown: show flag + full name
+        var countrySel = document.getElementById('vFilterCountry');
+        if (countrySel && countrySel.options.length <= 1) {
+            (options.countries || []).forEach(function(item) {
+                var code = item.country;
+                var opt = document.createElement('option');
+                opt.value = code;
+                opt.textContent = countryFlag(code) + ' ' + countryName(code) + ' (' + code + ')';
+                countrySel.appendChild(opt);
+            });
+        }
         refreshAppDropdown();
         syncFormFromState();
     }
@@ -576,7 +586,7 @@
                     countryHtml = countries.map(function(c) {
                         var flag = countryFlag(c);
                         var name = countryName(c);
-                        return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="' + escapeHtml(c) + '" style="cursor:pointer" title="' + escapeHtml(name) + '">' + flag + ' ' + escapeHtml(name) + ' (' + escapeHtml(c) + ')</span>';
+                        return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="' + escapeHtml(c) + '" style="cursor:pointer" title="' + escapeHtml(name) + '">' + flag + ' ' + escapeHtml(c) + '</span>';
                     }).join(' ');
                 } else {
                     countryHtml = '<span class="badge bg-light text-muted" style="font-size:.65rem"><i class="bi bi-geo-alt"></i> No country data</span>';
@@ -651,7 +661,7 @@
                 var hl = ad.headline || '';
 
                 var countryTd = countries.length > 0 ? countries.map(function(c) {
-                    return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="' + escapeHtml(c) + '" style="cursor:pointer" title="' + escapeHtml(countryName(c)) + '">' + countryFlag(c) + ' ' + escapeHtml(c) + '</span>';
+                    return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="' + escapeHtml(c) + '" style="cursor:pointer" title="' + escapeHtml(countryName(c)) + '">' + countryFlag(c) + '</span>';
                 }).join(' ') : '<small class="text-muted">-</small>';
 
                 html += '<tr class="viewer-row" role="button" data-id="' + escapeHtml(ad.creative_id) + '">' +
