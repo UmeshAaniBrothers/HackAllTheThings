@@ -64,7 +64,28 @@ try {
     }
     $results['bad_products_deleted'] = $badProducts;
 
-    // 4. Clean bad descriptions in ad_details (JS error text)
+    // 4. Remove fake app products (marked as playstore/ios but no real store URL)
+    $fakeApps = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ad_products
+         WHERE store_platform IN ('playstore', 'ios')
+           AND (store_url IS NULL OR store_url = '' OR store_url = 'not_found')"
+    );
+    if ($fakeApps > 0) {
+        $fakeAppIds = $db->fetchAll(
+            "SELECT id FROM ad_products
+             WHERE store_platform IN ('playstore', 'ios')
+               AND (store_url IS NULL OR store_url = '' OR store_url = 'not_found')"
+        );
+        $ids = array_column($fakeAppIds, 'id');
+        if (!empty($ids)) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $db->query("DELETE FROM ad_product_map WHERE product_id IN ({$placeholders})", $ids);
+            $db->query("DELETE FROM ad_products WHERE id IN ({$placeholders})", $ids);
+        }
+    }
+    $results['fake_apps_deleted'] = $fakeApps;
+
+    // 5. Clean bad descriptions in ad_details (JS error text)
     $badDescs = (int) $db->fetchColumn(
         "SELECT COUNT(*) FROM ad_details WHERE description LIKE '%Cannot find%' OR description LIKE '%global object%'"
     );

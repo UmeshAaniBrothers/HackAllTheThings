@@ -2053,21 +2053,12 @@ class Processor
         $isGooglePlay = (stripos($adPlatforms, 'Google Play') !== false);
 
         // Priority 4: Extract product name from headline
+        // Only classify as playstore/ios if there's actual platform evidence (not just keywords)
         if ($headline !== '') {
             $productName = $this->extractProductFromTitle($headline);
-            if ($productName) {
-                $lower = strtolower($productName);
-                if ($isGooglePlay) {
-                    $productType = 'app';
-                    $storePlatform = 'playstore';
-                } elseif (preg_match('/\b(game|gaming|play|level|quest)\b/i', $lower)) {
-                    $productType = 'game';
-                    // Games advertised on YouTube/Display are very likely Play Store apps
-                    $storePlatform = 'playstore';
-                } elseif (preg_match('/\b(app|download|install)\b/i', $headline)) {
-                    $productType = 'app';
-                    $storePlatform = 'playstore';
-                }
+            if ($productName && $isGooglePlay) {
+                $productType = 'app';
+                $storePlatform = 'playstore';
             }
         }
 
@@ -2078,12 +2069,6 @@ class Processor
                 $productType = 'app';
                 $storePlatform = 'playstore';
             }
-        }
-
-        // If platform is Google Play but we still have 'web', force playstore
-        if ($isGooglePlay && $storePlatform === 'web' && $productName) {
-            $storePlatform = 'playstore';
-            $productType = ($productType === 'other') ? 'app' : $productType;
         }
 
         // Fallback: Unknown
