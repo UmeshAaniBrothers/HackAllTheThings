@@ -31,6 +31,14 @@ $arg2 = $argv[3] ?? '';
 
 $ADVERTISERS_FILE = __DIR__ . '/advertisers.txt';
 
+define('SCAN_REGIONS', [
+    'IN','US','GB','CA','AU','DE','FR','JP','BR','MX',
+    'IT','ES','NL','SE','NO','DK','FI','PL','CZ','AT',
+    'CH','BE','PT','IE','NZ','SG','HK','TW','KR','TH',
+    'MY','PH','ID','VN','ZA','NG','KE','EG','SA','AE',
+    'IL','TR','RU','UA','AR','CL','CO','PE','RO','GR',
+]);
+
 switch ($command) {
     case 'test':
         testConnection($GOOGLE_BASE, $SERVER_URL, $AUTH_TOKEN);
