@@ -1,0 +1,34 @@
+{
+  "// SETUP": "Get residential proxies from smartproxy.com, brightdata.com, or oxylabs.io",
+  "// FREE TRIAL": "Most providers offer free trial with 1GB — enough to test everything",
+
+  "enabled": false,
+  "provider": "smartproxy",
+
+  "// OPTION 1 — Smartproxy (recommended, cheapest)": "",
+  "// Sign up at https://smartproxy.com → Residential Proxies → Get rotating endpoint": "",
+  "proxies": [
+    "http://USERNAME:PASSWORD@gate.smartproxy.com:7000",
+    "http://USERNAME:PASSWORD@gate.smartproxy.com:7001",
+    "http://USERNAME:PASSWORD@gate.smartproxy.com:7002",
+    "http://USERNAME:PASSWORD@gate.smartproxy.com:7003"
+  ],
+
+  "// OPTION 2 — Bright Data": "",
+  "// proxies": [
+  "//   http://USERNAME:PASSWORD@brd.superproxy.io:22225"
+  "// ]": "",
+
+  "// OPTION 3 — Free SOCKS5 (unreliable, for testing only)": "",
+  "// proxies": [
+  "//   socks5://IP:PORT"
+  "// ]": "",
+
+  "workers": 4,
+  "ads_per_page": 100,
+  "delay_between_pages_ms": [2000, 4000],
+  "delay_between_advertisers_ms": [8000, 15000],
+  "max_advertisers_per_session": 50,
+  "retry_on_block": true,
+  "session_rotation": true
+}
