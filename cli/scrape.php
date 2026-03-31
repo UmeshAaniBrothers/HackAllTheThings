@@ -412,18 +412,33 @@ function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
         $num = $i + 1;
         echo "--- [{$num}/" . count($advertisers) . "] {$adv['name']} ({$adv['id']}) [Region: {$adv['region']}] ---\n";
 
-        try {
-            fetchAdvertiser($adv['id'], $adv['name'], $googleBase, $serverUrl, $token, $adv['region']);
-            $success++;
-        } catch (Exception $e) {
-            echo "ERROR: " . $e->getMessage() . "\n";
-            $failed++;
+        $retries = 0;
+        $maxRetries = 2;
+        $done = false;
+        while (!$done && $retries <= $maxRetries) {
+            try {
+                fetchAdvertiser($adv['id'], $adv['name'], $googleBase, $serverUrl, $token, $adv['region']);
+                $success++;
+                $done = true;
+            } catch (Exception $e) {
+                $retries++;
+                if ($retries <= $maxRetries && stripos($e->getMessage(), '429') !== false) {
+                    $wait = 60 * $retries; // 60s, then 120s
+                    echo "Rate limited (429). Waiting {$wait}s before retry {$retries}/{$maxRetries}...\n";
+                    sleep($wait);
+                } else {
+                    echo "ERROR: " . $e->getMessage() . "\n";
+                    $failed++;
+                    $done = true;
+                }
+            }
         }
 
         // Wait between advertisers to avoid rate limiting
         if ($i < count($advertisers) - 1) {
-            echo "Waiting 5 seconds before next advertiser...\n\n";
-            sleep(5);
+            $delay = 15 + rand(5, 15); // 15-30 seconds random delay
+            echo "Waiting {$delay} seconds before next advertiser...\n\n";
+            sleep($delay);
         }
     }
 
