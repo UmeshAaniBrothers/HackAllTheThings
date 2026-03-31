@@ -47,69 +47,90 @@ try {
     $assetManager = new AssetManager($config['storage'] ?? array());
     $processor = new Processor($db, $assetManager);
 
-    // Step 1: Process raw payloads (with optional limit to avoid PHP timeout)
-    $limit = isset($_GET['limit']) ? max(1, min(50, (int)$_GET['limit'])) : 0; // 0 = no limit
+    // When called with ?step=X, run only that step (avoids HTTP timeout)
+    // When called without step (or from CLI), run all steps
+    $step = $_GET['step'] ?? ($isCli ? 'all' : 'all');
+    $limit = isset($_GET['limit']) ? max(1, min(50, (int)$_GET['limit'])) : 0;
+
     $processed = 0;
-    try {
-        $processed = $processor->processAll($limit);
-    } catch (Exception $e) {
-        logMsg("Payload processing error: " . $e->getMessage());
+    $textEnriched = 0;
+    $ytExtracted = 0;
+    $ytEnriched = 0;
+    $storeEnriched = 0;
+    $countriesEnriched = 0;
+    $productsMapped = 0;
+    $redetected = 0;
+
+    // Step 1: Process raw payloads
+    if ($step === 'all' || $step === 'process') {
+        try {
+            $processed = $processor->processAll($limit);
+        } catch (Exception $e) {
+            logMsg("Payload processing error: " . $e->getMessage());
+        }
     }
 
-    // Step 1b: Enrich ad text (headline, description) from preview content
-    $textEnriched = 0;
-    try {
-        $textEnriched = $processor->enrichAdText();
-    } catch (Exception $e) {
-        logMsg("Text enrichment error: " . $e->getMessage());
+    // Step 1b: Enrich ad text
+    if ($step === 'all' || $step === 'text') {
+        try {
+            $textEnriched = $processor->enrichAdText();
+        } catch (Exception $e) {
+            logMsg("Text enrichment error: " . $e->getMessage());
+        }
     }
 
     // Step 2: Extract YouTube URLs
-    $ytExtracted = 0;
-    try {
-        $ytExtracted = $processor->extractYouTubeUrls();
-    } catch (Exception $e) {
-        logMsg("YouTube extraction error: " . $e->getMessage());
+    if ($step === 'all' || $step === 'youtube') {
+        try {
+            $ytExtracted = $processor->extractYouTubeUrls();
+        } catch (Exception $e) {
+            logMsg("YouTube extraction error: " . $e->getMessage());
+        }
     }
 
-    // Step 3: Enrich YouTube metadata (title, view count, thumbnail)
-    $ytEnriched = 0;
-    try {
-        $ytEnriched = $processor->enrichYouTubeMetadata();
-    } catch (Exception $e) {
-        logMsg("YouTube enrichment error: " . $e->getMessage());
+    // Step 3: Enrich YouTube metadata
+    if ($step === 'all' || $step === 'youtube') {
+        try {
+            $ytEnriched = $processor->enrichYouTubeMetadata();
+        } catch (Exception $e) {
+            logMsg("YouTube enrichment error: " . $e->getMessage());
+        }
     }
 
-    // Step 4: Detect apps from Google Ads Transparency preview content only
-    $storeEnriched = 0;
-    try {
-        $storeEnriched = $processor->enrichStoreUrlsFromPreview();
-    } catch (Exception $e) {
-        logMsg("Store URL enrichment error: " . $e->getMessage());
+    // Step 4: Detect apps from preview content
+    if ($step === 'all' || $step === 'apps') {
+        try {
+            $storeEnriched = $processor->enrichStoreUrlsFromPreview();
+        } catch (Exception $e) {
+            logMsg("Store URL enrichment error: " . $e->getMessage());
+        }
     }
 
-    // Step 4b: Enrich per-ad countries from Google Lookup API
-    $countriesEnriched = 0;
-    try {
-        $countriesEnriched = $processor->enrichCountriesFromGoogle();
-    } catch (Exception $e) {
-        logMsg("Country enrichment error: " . $e->getMessage());
+    // Step 4b: Enrich countries from Google
+    if ($step === 'all' || $step === 'countries') {
+        try {
+            $countriesEnriched = $processor->enrichCountriesFromGoogle();
+        } catch (Exception $e) {
+            logMsg("Country enrichment error: " . $e->getMessage());
+        }
     }
 
-    // Step 5: Detect products from headlines/URLs for unmapped ads
-    $productsMapped = 0;
-    try {
-        $productsMapped = $processor->detectProducts();
-    } catch (Exception $e) {
-        logMsg("Product detection error: " . $e->getMessage());
+    // Step 5: Detect products
+    if ($step === 'all' || $step === 'products') {
+        try {
+            $productsMapped = $processor->detectProducts();
+        } catch (Exception $e) {
+            logMsg("Product detection error: " . $e->getMessage());
+        }
     }
 
-    // Step 5b: Re-detect web products that might be apps
-    $redetected = 0;
-    try {
-        $redetected = $processor->redetectWebProducts();
-    } catch (Exception $e) {
-        logMsg("Product re-detection error: " . $e->getMessage());
+    // Step 5b: Re-detect web products
+    if ($step === 'all' || $step === 'products') {
+        try {
+            $redetected = $processor->redetectWebProducts();
+        } catch (Exception $e) {
+            logMsg("Product re-detection error: " . $e->getMessage());
+        }
     }
 
     // Step 6: Fetch app metadata (icons, ratings, descriptions) from stores

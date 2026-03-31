@@ -236,13 +236,16 @@ const ADS_ONLY = args.includes('--ads-only');
 
             // ── STEP 3: Process on Server ───────────────
             log('━━━ Step 3: Processing ads on server ━━━\n');
-            // Call with limit param to process in small chunks (avoids PHP timeout)
-            let processedAny = true;
-            let batchNum = 0;
-            while (processedAny && batchNum < 50) {
-                batchNum++;
-                processedAny = await triggerProcessing(`  Batch ${batchNum}...`);
-                if (processedAny) await sleep(1000);
+            // Process payloads in small chunks (each step separately to avoid timeout)
+            const steps = ['process', 'text', 'youtube', 'apps', 'countries', 'products'];
+            for (const step of steps) {
+                let didWork = true;
+                let batch = 0;
+                while (didWork && batch < 30) {
+                    batch++;
+                    didWork = await triggerProcessing(`  ${step} #${batch}...`, step);
+                    if (didWork) await sleep(500);
+                }
             }
           } // end if (sessionReady)
         }
@@ -442,12 +445,14 @@ const ADS_ONLY = args.includes('--ads-only');
 
             /// ── STEP 6: Final Processing ────────────────
             log('\n━━━ Step 6: Final processing ━━━\n');
-            let finalBatch = 0;
-            let finalDidWork = true;
-            while (finalDidWork && finalBatch < 20) {
-                finalBatch++;
-                finalDidWork = await triggerProcessing(`  Batch ${finalBatch}...`);
-                if (finalDidWork) await sleep(1000);
+            for (const step of ['process', 'text', 'products']) {
+                let didWork = true;
+                let batch = 0;
+                while (didWork && batch < 10) {
+                    batch++;
+                    didWork = await triggerProcessing(`  ${step} #${batch}...`, step);
+                    if (didWork) await sleep(500);
+                }
             }
         }
 
@@ -874,11 +879,11 @@ async function fetchYouTubeMetadata(page, videoId) {
 }
 
 // ── Trigger server processing ───────────────────────────
-async function triggerProcessing(label) {
+async function triggerProcessing(label, step = 'all') {
     process.stdout.write(label + ' ');
     try {
-        // Add limit=5 to process only 5 payloads per call (avoids PHP timeout)
-        const url = `${SERVER_URL}/cron/process.php?token=${AUTH_TOKEN}&limit=5`;
+        // Call one step at a time with limit to avoid PHP timeout
+        const url = `${SERVER_URL}/cron/process.php?token=${AUTH_TOKEN}&limit=5&step=${step}`;
         const result = JSON.parse(await httpGet(url, 120000)); // 2 min timeout
         const parts = [];
         let didWork = false;
