@@ -412,7 +412,14 @@
         resultDiv.innerHTML = '<div class="alert alert-info mb-0"><i class="bi bi-hourglass-split me-1"></i>Running full pipeline for all advertisers... This may take a few minutes.</div>';
 
         try {
-            const data = await fetchAPI('manage.php', { action: 'fetch_all' });
+            // Use longer timeout for full pipeline (5 minutes)
+            const url = new URL('api/manage.php', window.location.href);
+            url.searchParams.set('action', 'fetch_all');
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 300000);
+            const resp = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            const data = await resp.json();
             if (data.success) {
                 const r = data.results || {};
                 let msg = '<strong>Pipeline complete!</strong><br>';
