@@ -1,0 +1,11 @@
+# Add advertisers here - one per line
+# Format: ADVERTISER_ID | Display Name
+# Example: AR12345678901234567890 | Nike Inc
+#
+# Just the ID also works (name will be auto-fetched):
+# AR12345678901234567890
+#
+# Lines starting with # are ignored
+# After editing, run: php cli/add_advertisers.php
+
+AR00744063166606950977 | NIRAJKUMAR KANUBHAI MANGUKIYA
