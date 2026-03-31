@@ -618,11 +618,12 @@
                     ytLink = '<a href="youtube_profile.php?id=' + encodeURIComponent(ytId) + '" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()"><i class="bi bi-youtube me-1"></i>YouTube</a> ';
                 }
 
-                // Product badge
+                // Product link
                 var productHtml = '';
                 if (productName && productName !== 'Unknown') {
-                    productHtml = '<div class="mt-1"><a href="app_profile.php?id=' + encodeURIComponent(productIdVal) + '" class="badge bg-warning text-dark me-1 text-decoration-none" onclick="event.stopPropagation()" title="View App Profile"><i class="bi bi-app-indicator me-1"></i>' + escapeHtml(productName) + '</a>' +
-                        '<span class="badge ' + (platformColors[storePlatform] || 'bg-info') + ' viewer-clickable" data-filter="platform" data-value="' + escapeHtml(storePlatform) + '" title="Platform"><i class="bi ' + (platformIcons[storePlatform] || 'bi-globe') + ' me-1"></i>' + (platformLabels[storePlatform] || 'Web') + '</span></div>';
+                    var pIcon = storePlatform === 'ios' ? 'bi-apple' : (storePlatform === 'playstore' ? 'bi-google-play' : 'bi-globe');
+                    var pLabel = storePlatform === 'ios' ? 'iOS' : (storePlatform === 'playstore' ? 'Play' : 'Web');
+                    productHtml = '<div class="mt-1"><a href="app_profile.php?id=' + encodeURIComponent(productIdVal) + '" class="text-decoration-none d-inline-flex align-items-center" onclick="event.stopPropagation()" title="View App Profile" style="color:var(--ai-primary);font-weight:600;font-size:.85rem"><i class="bi ' + pIcon + ' me-1"></i>' + escapeHtml(productName) + ' <span class="badge bg-secondary ms-1" style="font-size:.65rem">' + pLabel + '</span></a></div>';
                 }
 
                 cards.push('<div class="col-md-6 col-lg-4 col-xl-3 mb-4">' +
