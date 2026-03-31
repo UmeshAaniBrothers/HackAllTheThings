@@ -154,7 +154,23 @@ try {
     }
     $results['duplicate_products_merged'] = $dupesDeleted;
 
-    // 8. Clean bad descriptions in ad_details (JS error text)
+    // 8. Fix product names from app metadata (replace ad text with real app name)
+    $fixedNames = 0;
+    $badNameProducts = $db->fetchAll(
+        "SELECT p.id, p.product_name, m.app_name
+         FROM ad_products p
+         INNER JOIN app_metadata m ON p.id = m.product_id
+         WHERE m.app_name IS NOT NULL AND m.app_name != ''
+           AND p.product_name != m.app_name
+           AND p.store_platform IN ('ios', 'playstore')"
+    );
+    foreach ($badNameProducts as $row) {
+        $db->update('ad_products', ['product_name' => $row['app_name']], 'id = ?', [$row['id']]);
+        $fixedNames++;
+    }
+    $results['product_names_fixed_from_metadata'] = $fixedNames;
+
+    // 9. Clean bad descriptions in ad_details (JS error text)
     $badDescs = (int) $db->fetchColumn(
         "SELECT COUNT(*) FROM ad_details WHERE description LIKE '%Cannot find%' OR description LIKE '%global object%'"
     );

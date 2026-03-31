@@ -2112,11 +2112,32 @@ class Processor
         }
 
         // Check for App Store URLs (handle both normal and escaped slashes)
+        if (preg_match('/apps\.apple\.com(?:\\\\\/|\/)+(?:[a-z]{2}(?:\\\\\/|\/)+)?app(?:\\\\\/|\/)+(?:([^\/\s|"\'\\\\]+)(?:\\\\\/|\/)+)?id(\d+)/', $urlsToCheck, $m)) {
+            $slug = isset($m[1]) && $m[1] ? $m[1] : '';
+            $appId = $m[2];
+            $storeUrl = 'https://apps.apple.com/app/id' . $appId;
+
+            // Try to get real name from iTunes API
+            $productName = $this->fetchAppStoreAppName($appId);
+            if (!$productName && $slug) {
+                $productName = ucwords(str_replace('-', ' ', $slug));
+            }
+            if (!$productName) {
+                $productName = 'iOS App ' . $appId;
+            }
+
+            return [
+                'name'     => $productName,
+                'type'     => 'app',
+                'platform' => 'ios',
+                'url'      => $storeUrl,
+            ];
+        }
+
+        // Fallback: apps.apple.com without /id pattern
         if (preg_match('/apps\.apple\.com(?:\\\\\/|\/)+[a-z]{2}(?:\\\\\/|\/)+app(?:\\\\\/|\/)+([^\/\s|"\'\\\\]+)/', $urlsToCheck, $m)) {
             $slug = $m[1];
-            $productName = str_replace('-', ' ', $slug);
-            $productName = ucwords($productName);
-            // Extract clean URL
+            $productName = ucwords(str_replace('-', ' ', $slug));
             preg_match('/(https?:\/\/apps\.apple\.com\/[^\s|"\'\\\\]+)/', $urlsToCheck, $fullUrl);
             return [
                 'name'     => $productName,
