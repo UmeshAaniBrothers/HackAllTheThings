@@ -40,8 +40,8 @@ try {
     $ytMatches = $db->fetchAll(
         "SELECT d.id FROM ad_details d
          INNER JOIN ad_assets ass ON ass.creative_id = d.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%'
-         INNER JOIN youtube_metadata ym ON CONCAT('https://www.youtube.com/watch?v=', ym.video_id) = ass.original_url
-         WHERE d.headline IS NOT NULL AND d.headline = ym.title AND d.headline_source IS NULL"
+         INNER JOIN youtube_metadata ym ON CONCAT('https://www.youtube.com/watch?v=', ym.video_id) COLLATE utf8mb4_unicode_ci = ass.original_url COLLATE utf8mb4_unicode_ci
+         WHERE d.headline IS NOT NULL AND d.headline COLLATE utf8mb4_unicode_ci = ym.title COLLATE utf8mb4_unicode_ci AND d.headline_source IS NULL"
     );
     if (!empty($ytMatches)) {
         $ids = array_column($ytMatches, 'id');
