@@ -44,7 +44,7 @@ try {
         $failedCount = (int) $db->fetchColumn(
             "SELECT COUNT(DISTINCT a.creative_id) FROM ads a
              INNER JOIN ad_assets ass ON ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%'
-             WHERE a.ad_type = 'video' AND a.view_count = -1"
+             WHERE a.ad_type = 'video' AND a.view_count = 1"
         );
         $resp = [
             'success' => true,
@@ -134,8 +134,8 @@ try {
         }
 
         if ($viewCount === null && $oembedCode !== 200) {
-            // Both failed — mark as checked with -1 so we don't retry endlessly
-            $db->update('ads', ['view_count' => -1], 'creative_id = ?', [$ad['creative_id']]);
+            // Both failed — mark as checked so we don't retry endlessly
+            $db->update('ads', ['view_count' => 1], 'creative_id = ?', [$ad['creative_id']]);
             $failed++;
             if ($failed >= 5) {
                 $errors[] = "Stopped early: {$failed} consecutive failures (rate limited?)";
