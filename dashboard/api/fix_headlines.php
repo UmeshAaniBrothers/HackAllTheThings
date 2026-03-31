@@ -85,7 +85,76 @@ try {
     }
     $results['fake_apps_deleted'] = $fakeApps;
 
-    // 5. Clean bad descriptions in ad_details (JS error text)
+    // 5. Remove products with video/file names (e.g. GGL_PCOL_250417_OT_0_EN_PT_4.mp4)
+    $videoProducts = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ad_products
+         WHERE product_name REGEXP '\\.(mp4|mov|avi|webm|mkv)$'
+            OR product_name REGEXP '^GGL_'
+            OR product_name REGEXP '^[A-Z0-9_]{10,}$'"
+    );
+    if ($videoProducts > 0) {
+        $vpIds = $db->fetchAll(
+            "SELECT id FROM ad_products
+             WHERE product_name REGEXP '\\.(mp4|mov|avi|webm|mkv)$'
+                OR product_name REGEXP '^GGL_'
+                OR product_name REGEXP '^[A-Z0-9_]{10,}$'"
+        );
+        $ids = array_column($vpIds, 'id');
+        if (!empty($ids)) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $db->query("DELETE FROM ad_product_map WHERE product_id IN ({$placeholders})", $ids);
+            $db->query("DELETE FROM ad_products WHERE id IN ({$placeholders})", $ids);
+        }
+    }
+    $results['video_name_products_deleted'] = $videoProducts;
+
+    // 6. Remove products named "Unknown"
+    $unknownProducts = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ad_products WHERE product_name = 'Unknown'"
+    );
+    if ($unknownProducts > 0) {
+        $ukIds = $db->fetchAll("SELECT id FROM ad_products WHERE product_name = 'Unknown'");
+        $ids = array_column($ukIds, 'id');
+        if (!empty($ids)) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $db->query("DELETE FROM ad_product_map WHERE product_id IN ({$placeholders})", $ids);
+            $db->query("DELETE FROM ad_products WHERE id IN ({$placeholders})", $ids);
+        }
+    }
+    $results['unknown_products_deleted'] = $unknownProducts;
+
+    // 7. Remove duplicate products: keep only one per store_url (the one with best name)
+    $dupeStoreUrls = $db->fetchAll(
+        "SELECT store_url, COUNT(*) as cnt FROM ad_products
+         WHERE store_url IS NOT NULL AND store_url != '' AND store_url != 'not_found'
+         GROUP BY store_url HAVING cnt > 1"
+    );
+    $dupesDeleted = 0;
+    foreach ($dupeStoreUrls as $dupe) {
+        // Keep the product with the longest non-Unknown name
+        $products = $db->fetchAll(
+            "SELECT id, product_name FROM ad_products WHERE store_url = ? ORDER BY
+             CASE WHEN product_name = 'Unknown' THEN 1 ELSE 0 END,
+             LENGTH(product_name) DESC",
+            [$dupe['store_url']]
+        );
+        $keepId = $products[0]['id'];
+        $removeIds = [];
+        for ($i = 1; $i < count($products); $i++) {
+            $removeIds[] = $products[$i]['id'];
+        }
+        if (!empty($removeIds)) {
+            $placeholders = implode(',', array_fill(0, count($removeIds), '?'));
+            // Re-map ads from duplicates to the keeper
+            $db->query("UPDATE ad_product_map SET product_id = ? WHERE product_id IN ({$placeholders})",
+                array_merge([$keepId], $removeIds));
+            $db->query("DELETE FROM ad_products WHERE id IN ({$placeholders})", $removeIds);
+            $dupesDeleted += count($removeIds);
+        }
+    }
+    $results['duplicate_products_merged'] = $dupesDeleted;
+
+    // 8. Clean bad descriptions in ad_details (JS error text)
     $badDescs = (int) $db->fetchColumn(
         "SELECT COUNT(*) FROM ad_details WHERE description LIKE '%Cannot find%' OR description LIKE '%global object%'"
     );

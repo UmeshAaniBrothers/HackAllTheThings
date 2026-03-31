@@ -2231,8 +2231,14 @@ class Processor
      */
     private function findOrCreateProduct($advertiserId, $productName, $productType, $storePlatform, $storeUrl)
     {
-        // Reject JS error text as product names
+        // Reject JS error text and video filenames as product names
         if ($productName && preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(/i', $productName)) {
+            $productName = 'Unknown';
+        }
+        if ($productName && preg_match('/\.(mp4|mov|avi|webm|mkv)$/i', $productName)) {
+            $productName = 'Unknown';
+        }
+        if ($productName && preg_match('/^GGL_/i', $productName)) {
             $productName = 'Unknown';
         }
 
