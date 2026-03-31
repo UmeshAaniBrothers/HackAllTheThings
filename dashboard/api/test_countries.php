@@ -4,8 +4,9 @@
  * Usage: /dashboard/api/test_countries.php?token=ads-intelligent-2024&limit=3
  */
 
-require_once __DIR__ . '/../../src/Database.php';
-require_once __DIR__ . '/../../src/Processor.php';
+$basePath = dirname(dirname(__DIR__));
+$config = require $basePath . '/config/config.php';
+require_once $basePath . '/src/Database.php';
 
 header('Content-Type: application/json');
 
@@ -18,8 +19,7 @@ if ($token !== 'ads-intelligent-2024') {
 $limit = min((int)($_GET['limit'] ?? 3), 10);
 
 try {
-    $db = new Database();
-    $processor = new Processor($db);
+    $db = Database::getInstance($config['db']);
 
     // Override: just do a small batch
     $ads = $db->fetchAll(
