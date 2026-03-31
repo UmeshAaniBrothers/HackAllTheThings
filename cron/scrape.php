@@ -109,11 +109,8 @@ output("");
 output("Initializing Google session...");
 $sessionOk = initGoogleSession($GOOGLE_BASE, $COOKIE_FILE);
 if (!$sessionOk) {
-    output("ERROR: Cannot reach Google Ads Transparency Center");
-    $results['success'] = false;
-    $results['errors'][] = 'Session init failed';
-    finish($results, $startTime, $COOKIE_FILE, $isCli);
-    exit(1);
+    output("WARNING: Session init failed, trying API directly anyway...");
+    // Don't exit — the API might still work without session cookies
 }
 output("Session ready.\n");
 
