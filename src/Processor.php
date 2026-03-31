@@ -987,7 +987,7 @@ class Processor
                     || stripos($existing['headline'], 'global object') !== false;
                 if (!empty($detailData['headline']) && $existingHeadlineBad) {
                     $updateFields['headline'] = $detailData['headline'];
-                    $updateFields['headline_source'] = 'ad';
+                    $updateFields['headline_source'] = 'preview';
                 }
                 // Always update these if we have new data
                 foreach (['description', 'cta', 'landing_url', 'display_url', 'ad_width', 'ad_height', 'headlines_json', 'descriptions_json', 'tracking_ids_json'] as $field) {
@@ -1001,7 +1001,7 @@ class Processor
                 }
             } else {
                 $detailData['creative_id'] = $ad['creative_id'];
-                $detailData['headline_source'] = !empty($detailData['headline']) ? 'ad' : null;
+                $detailData['headline_source'] = !empty($detailData['headline']) ? 'preview' : null;
                 $this->db->insert('ad_details', $detailData);
                 $enriched++;
             }
@@ -1105,6 +1105,11 @@ class Processor
 
             if ($httpCode === 429) {
                 $this->log("Rate limited at ad #{$i}, stopping");
+                break;
+            }
+
+            if ($httpCode === 401 || $httpCode === 403) {
+                $this->log("Session expired (HTTP {$httpCode}) at ad #{$i}, stopping");
                 break;
             }
 
@@ -1407,8 +1412,8 @@ class Processor
         curl_setopt_array($ch, [
             CURLOPT_URL            => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 10,
-            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_FOLLOWLOCATION => true,
         ]);
         $resp = curl_exec($ch);
@@ -1434,8 +1439,8 @@ class Processor
         curl_setopt_array($ch, [
             CURLOPT_URL            => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 10,
-            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_USERAGENT      => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
         ]);
@@ -2369,9 +2374,9 @@ class Processor
         $data = [
             'video_id'      => $videoId,
             'title'         => $meta['title'] ?? null,
-            'channel_name'  => $meta['author'] ?? null,
+            'channel_name'  => $meta['channel_name'] ?? $meta['author'] ?? null,
             'view_count'    => $meta['view_count'] ?? 0,
-            'thumbnail_url' => $meta['thumbnail'] ?? ('https://i.ytimg.com/vi/' . $videoId . '/hqdefault.jpg'),
+            'thumbnail_url' => $meta['thumbnail_url'] ?? $meta['thumbnail'] ?? ('https://i.ytimg.com/vi/' . $videoId . '/hqdefault.jpg'),
             'fetched_at'    => date('Y-m-d H:i:s'),
         ];
 
@@ -2460,8 +2465,8 @@ class Processor
         curl_setopt_array($ch, [
             CURLOPT_URL            => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 10,
-            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_FOLLOWLOCATION => true,
         ]);
         $resp = curl_exec($ch);
