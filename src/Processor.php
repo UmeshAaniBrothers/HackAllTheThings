@@ -1485,14 +1485,21 @@ class Processor
             'image_urls' => [],
         ];
 
-        // Prepare decoded content (original + URL-decoded version)
+        // Prepare decoded content (original + URL-decoded + hex-decoded)
         $decoded = $response;
         if (strpos($response, '%20') !== false || strpos($response, '%3A') !== false) {
             $decoded .= "\n" . urldecode($response);
         }
-        // Also try unicode-unescaping
+        // Unicode-unescaping
         if (strpos($response, '\\u') !== false) {
-            $decoded .= "\n" . json_decode('"' . str_replace('"', '\\"', $response) . '"') ?: '';
+            $decoded .= "\n" . (json_decode('"' . str_replace('"', '\\"', $response) . '"') ?: '');
+        }
+        // Hex escape decoding (\x3e = >, \x3c = <, \x22 = ")
+        if (strpos($response, '\\x') !== false) {
+            $hexDecoded = preg_replace_callback('/\\\\x([0-9a-fA-F]{2})/', function($m) {
+                return chr(hexdec($m[1]));
+            }, $response);
+            $decoded .= "\n" . $hexDecoded;
         }
 
         // ── YouTube ID ──
@@ -1581,6 +1588,11 @@ class Processor
         // ══════════════════════════════════════════════════
         $headlines = [];
 
+        // H0: Google Ads preview HTML targets: ochAppName, ochEndCardAppName
+        if (preg_match_all('/och(?:EndCard)?AppName[^>]*>([^<]{2,200})</', $decoded, $ochH)) {
+            $headlines = array_merge($headlines, $ochH[1]);
+        }
+
         // H1: Google UAC preview format: 'appName': 'App Name Here'
         if (preg_match('/[\'"]appName[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $an)) {
             $headlines[] = $an[1];
@@ -1635,6 +1647,14 @@ class Processor
         // ══════════════════════════════════════════════════
         $descriptions = [];
 
+        // D0: Google Ads preview HTML targets: ochDescription, ochBody
+        if (preg_match_all('/ochDescription[^>]*>([^<]{5,500})</', $decoded, $ochD)) {
+            $descriptions = array_merge($descriptions, $ochD[1]);
+        }
+        if (preg_match_all('/ochBody[^>]*>([^<]{5,500})</', $decoded, $ochB)) {
+            $descriptions = array_merge($descriptions, $ochB[1]);
+        }
+
         // D1: Google UAC: 'shortDescription': 'text' or 'longDescription'
         if (preg_match('/[\'"]shortDescription[\'"]\s*:\s*[\'"]([^"\']{5,500})[\'"]/', $decoded, $sd)) {
             $descriptions[] = $sd[1];
@@ -1675,8 +1695,12 @@ class Processor
         // ══════════════════════════════════════════════════
         // ── CTA (Call to Action) — Google uses 'callToAction' / 'callToActionInstall' ──
         // ══════════════════════════════════════════════════
+        // C0: Google Ads preview HTML targets: ochButton, ochEndCardButton
+        if (preg_match('/och(?:EndCard)?Button[^>]*>([^<]{2,50})</', $decoded, $ochC)) {
+            $result['cta'] = trim($ochC[1]);
+        }
         // C1: Google UAC format: 'callToAction': 'INSTALL' or 'callToActionInstall'
-        if (preg_match('/[\'"](?:callToAction|callToActionInstall)[\'"]\s*:\s*[\'"]([^"\']{2,50})[\'"]/', $decoded, $cm)) {
+        if (!$result['cta'] && preg_match('/[\'"](?:callToAction|callToActionInstall)[\'"]\s*:\s*[\'"]([^"\']{2,50})[\'"]/', $decoded, $cm)) {
             $result['cta'] = $cm[1];
         }
         // C2: JSON CTA fields (double quotes)
