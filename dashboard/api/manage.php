@@ -330,46 +330,35 @@ function fetchAllAdvertisers(Database $db, array $config): void
 
     ob_start();
 
-    // Step 1: Process any pending raw payloads
-    $processed = $processor->processAll();
+    $results = [];
 
-    // Step 2: Enrich YouTube metadata
-    $ytEnriched = $processor->enrichYouTubeMetadata();
+    // Same pipeline as cron/process.php
+    try { $results['ads_processed'] = $processor->processAll(); } catch (Exception $e) { $results['ads_processed'] = 'error: ' . $e->getMessage(); }
+    try { $results['text_enriched'] = $processor->enrichAdText(); } catch (Exception $e) { $results['text_enriched'] = 0; }
+    try { $results['youtube_extracted'] = $processor->extractYouTubeUrls(); } catch (Exception $e) { $results['youtube_extracted'] = 0; }
+    try { $results['youtube_enriched'] = $processor->enrichYouTubeMetadata(); } catch (Exception $e) { $results['youtube_enriched'] = 0; }
+    try { $results['store_urls'] = $processor->enrichStoreUrlsFromPreview(); } catch (Exception $e) { $results['store_urls'] = 0; }
+    try { $results['countries_enriched'] = $processor->enrichCountriesFromGoogle(); } catch (Exception $e) { $results['countries_enriched'] = 0; }
+    try { $results['products_detected'] = $processor->detectProducts(); } catch (Exception $e) { $results['products_detected'] = 0; }
+    try { $results['products_redetected'] = $processor->redetectWebProducts(); } catch (Exception $e) { $results['products_redetected'] = 0; }
+    try { $results['app_metadata'] = $processor->enrichAppMetadata(); } catch (Exception $e) { $results['app_metadata'] = 0; }
 
-    // Step 3: Enrich ad text from previews
-    $textEnriched = $processor->enrichAdText();
-
-    // Step 4: Enrich countries from Google Lookup API
-    $countriesEnriched = 0;
-    if (method_exists($processor, 'enrichCountriesFromGoogle')) {
-        $countriesEnriched = $processor->enrichCountriesFromGoogle();
-    }
-
-    // Step 5: Detect products/apps
-    $productsDetected = $processor->detectProducts();
-
-    // Step 6: Enrich store URLs from preview
-    $storeEnriched = $processor->enrichStoreUrlsFromPreview();
-
-    // Step 7: Enrich app metadata
-    $appMeta = 0;
-    if (method_exists($processor, 'enrichAppMetadata')) {
-        $appMeta = $processor->enrichAppMetadata();
-    }
+    // Update advertiser stats
+    try {
+        $db->query(
+            "UPDATE managed_advertisers ma SET
+                ma.active_ads = (SELECT COUNT(*) FROM ads a WHERE a.advertiser_id = ma.advertiser_id AND a.status = 'active'),
+                ma.total_ads = (SELECT COUNT(*) FROM ads a WHERE a.advertiser_id = ma.advertiser_id)
+             WHERE ma.status IN ('active', 'new')"
+        );
+    } catch (Exception $e) {}
 
     ob_get_clean();
 
     echo json_encode([
         'success' => true,
         'message' => 'Full pipeline complete!',
-        'results' => [
-            'ads_processed'      => $processed,
-            'youtube_enriched'   => $ytEnriched,
-            'text_enriched'      => $textEnriched,
-            'countries_enriched' => $countriesEnriched,
-            'products_detected'  => $productsDetected + $storeEnriched,
-            'app_metadata'       => $appMeta,
-        ],
+        'results' => $results,
     ]);
 }
 
