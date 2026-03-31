@@ -532,6 +532,26 @@
     }
 
     // ── Grid Render ────────────────────────────────────────
+    // Copy text to clipboard with button feedback
+    window.copyAdText = function(btn, text) {
+        var t = text.replace(/\\n/g, '\n');
+        navigator.clipboard.writeText(t).then(function() {
+            var orig = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-check me-1"></i>Copied!';
+            btn.classList.remove('btn-outline-secondary', 'btn-outline-danger');
+            btn.classList.add('btn-success');
+            setTimeout(function() {
+                btn.innerHTML = orig;
+                btn.classList.remove('btn-success');
+                if (orig.indexOf('youtube') >= 0 || orig.indexOf('YouTube') >= 0) {
+                    btn.classList.add('btn-outline-danger');
+                } else {
+                    btn.classList.add('btn-outline-secondary');
+                }
+            }, 1500);
+        });
+    };
+
     function renderGrid(ads) {
         const container = document.getElementById('vResults');
         if (ads.length === 0) {
@@ -618,7 +638,10 @@
                     (ad.cta ? '<div class="mt-1"><span class="badge bg-primary">' + escapeHtml(ad.cta) + '</span></div>' : '') +
                     productHtml +
                     landingHtml +
-                    '<div class="mt-2">' + ytLink +
+                    '<div class="mt-2 d-flex flex-wrap gap-1">' +
+                    (ad.headline || ad.description ? '<button class="btn btn-outline-secondary btn-sm viewer-ext-link" onclick="event.stopPropagation();copyAdText(this,' + "'" + escapeHtml((ad.headline || '') + (ad.description ? '\\n' + ad.description : '')) + "'" + ')" title="Copy ad text"><i class="bi bi-clipboard me-1"></i>Copy Text</button> ' : '') +
+                    (ad.youtube_url ? '<button class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation();copyAdText(this,' + "'" + escapeHtml(ad.youtube_url) + "'" + ')" title="Copy YouTube URL"><i class="bi bi-youtube me-1"></i>Copy URL</button> ' : '') +
+                    ytLink +
                     '<a href="' + escapeHtml(transparencyUrl) + '" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right me-1"></i>Google</a>' +
                     '</div></div>' +
                     '<div class="ad-meta"><div class="d-flex flex-wrap gap-1 mb-1">' + countryHtml + '</div>' +
