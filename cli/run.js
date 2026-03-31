@@ -78,7 +78,18 @@ const adsOnly = args.includes('--ads-only');
 
 function runScript(scriptPath) {
     return new Promise((resolve) => {
-        const child = spawn(NODE, scriptPath.split(' '), {
+        // Split args carefully — first part is the script, rest are flags
+        const parts = scriptPath.split(' ');
+        const script = [];
+        const args = [];
+        for (const p of parts) {
+            if (p.startsWith('-')) {
+                args.push(p);
+            } else {
+                script.push(p);
+            }
+        }
+        const child = spawn(NODE, [script.join(' '), ...args], {
             stdio: 'inherit',
             cwd: PROJECT_DIR,
         });
