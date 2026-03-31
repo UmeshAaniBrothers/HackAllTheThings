@@ -61,6 +61,9 @@
 <div class="filter-bar mb-4">
     <h6 class="mb-3"><i class="bi bi-tools me-1"></i>Server-side Tools</h6>
     <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-success btn-sm" onclick="fetchAll()" id="btnFetchAll">
+            <i class="bi bi-cloud-download me-1"></i>Fetch All Advertisers
+        </button>
         <button class="btn btn-outline-danger btn-sm" onclick="extractYouTube()" id="btnExtractYt">
             <i class="bi bi-youtube me-1"></i>Extract YouTube URLs
         </button>
@@ -398,6 +401,40 @@
         btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Process Raw Payloads';
     }
     window.processPayloads = processPayloads;
+
+    // ── Fetch All Advertisers (one click) ──────────────────
+    async function fetchAll() {
+        const btn = document.getElementById('btnFetchAll');
+        const resultDiv = document.getElementById('toolResult');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Fetching all...';
+        resultDiv.style.display = 'block';
+        resultDiv.innerHTML = '<div class="alert alert-info mb-0"><i class="bi bi-hourglass-split me-1"></i>Running full pipeline for all advertisers... This may take a few minutes.</div>';
+
+        try {
+            const data = await fetchAPI('manage.php', { action: 'fetch_all' });
+            if (data.success) {
+                const r = data.results || {};
+                let msg = '<strong>Pipeline complete!</strong><br>';
+                msg += 'Ads processed: ' + (r.ads_processed || 0) + '<br>';
+                msg += 'YouTube enriched: ' + (r.youtube_enriched || 0) + '<br>';
+                msg += 'Text enriched: ' + (r.text_enriched || 0) + '<br>';
+                msg += 'Countries enriched: ' + (r.countries_enriched || 0) + '<br>';
+                msg += 'Products detected: ' + (r.products_detected || 0) + '<br>';
+                msg += 'App metadata: ' + (r.app_metadata || 0);
+                resultDiv.innerHTML = '<div class="alert alert-success mb-0"><i class="bi bi-check-circle me-1"></i>' + msg + '</div>';
+                loadStatus();
+            } else {
+                resultDiv.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-x-circle me-1"></i>' + (data.error || 'Failed') + '</div>';
+            }
+        } catch (err) {
+            resultDiv.innerHTML = '<div class="alert alert-danger mb-0"><i class="bi bi-x-circle me-1"></i>Error: ' + err.message + '</div>';
+        }
+
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>Fetch All Advertisers';
+    }
+    window.fetchAll = fetchAll;
 
     // ── Re-scrape single advertiser ───────────────────────
     async function reScrape(advId) {

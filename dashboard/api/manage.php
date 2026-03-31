@@ -38,6 +38,7 @@ try {
         case 'analyze':            runAnalysis($db, $config); break;
         case 'search_advertisers': searchAdvertisers($db); break;
         case 'test_connection':    testConnection($db); break;
+        case 'fetch_all':          fetchAllAdvertisers($db, $config); break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -318,6 +319,57 @@ function searchAdvertisers(Database $db): void
     echo json_encode([
         'success' => true,
         'results' => array_merge($results, $untracked),
+    ]);
+}
+
+function fetchAllAdvertisers(Database $db, array $config): void
+{
+    set_time_limit(300);
+    $assetManager = new AssetManager($config['storage'] ?? []);
+    $processor = new Processor($db, $assetManager);
+
+    ob_start();
+
+    // Step 1: Process any pending raw payloads
+    $processed = $processor->processAll();
+
+    // Step 2: Enrich YouTube metadata
+    $ytEnriched = $processor->enrichYouTubeMetadata();
+
+    // Step 3: Enrich ad text from previews
+    $textEnriched = $processor->enrichAdText();
+
+    // Step 4: Enrich countries from Google Lookup API
+    $countriesEnriched = 0;
+    if (method_exists($processor, 'enrichCountriesFromGoogle')) {
+        $countriesEnriched = $processor->enrichCountriesFromGoogle();
+    }
+
+    // Step 5: Detect products/apps
+    $productsDetected = $processor->detectProducts();
+
+    // Step 6: Enrich store URLs from preview
+    $storeEnriched = $processor->enrichStoreUrlsFromPreview();
+
+    // Step 7: Enrich app metadata
+    $appMeta = 0;
+    if (method_exists($processor, 'enrichAppMetadata')) {
+        $appMeta = $processor->enrichAppMetadata();
+    }
+
+    ob_get_clean();
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Full pipeline complete!',
+        'results' => [
+            'ads_processed'      => $processed,
+            'youtube_enriched'   => $ytEnriched,
+            'text_enriched'      => $textEnriched,
+            'countries_enriched' => $countriesEnriched,
+            'products_detected'  => $productsDetected + $storeEnriched,
+            'app_metadata'       => $appMeta,
+        ],
     ]);
 }
 
