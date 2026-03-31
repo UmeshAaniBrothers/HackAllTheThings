@@ -4,7 +4,7 @@
 # Schedule: Twice daily (8 AM and 8 PM)
 
 PROJECT_DIR="/Users/aanibrothers/Workspace/Ads Intelligent"
-PHP="/opt/homebrew/bin/php"
+PHP="/opt/homebrew/Cellar/php/8.5.4/bin/php"
 LOG_FILE="$PROJECT_DIR/cron/scrape.log"
 
 echo "" >> "$LOG_FILE"
