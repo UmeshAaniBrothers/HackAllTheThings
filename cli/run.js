@@ -75,6 +75,16 @@ const ADS_ONLY = args.includes('--ads-only');
         log('━━━ Step 1: Syncing advertisers to server ━━━\n');
         await syncAdvertisers(advertisers);
 
+        // ── STEP 1.5: Auto-deploy latest code ──────────
+        log('\n━━━ Deploying latest code to server ━━━\n');
+        try {
+            const deployUrl = `${SERVER_URL}/dashboard/api/deploy.php?token=${AUTH_TOKEN}`;
+            const result = JSON.parse(await httpGet(deployUrl, 15000));
+            log(result.success ? '  ✅ Server updated' : `  ⚠️ Deploy: ${result.output}`);
+        } catch (e) {
+            log(`  ⚠️ Deploy skipped: ${e.message}`);
+        }
+
         if (!YOUTUBE_ONLY) {
             // ── STEP 2: Scrape Ads ──────────────────────
             log('\n━━━ Step 2: Scraping ads from Google ━━━\n');
@@ -92,24 +102,42 @@ const ADS_ONLY = args.includes('--ads-only');
 
             let adsSuccess = 0;
             let adsFailed = 0;
+            let totalAdsScraped = 0;
+            const scrapeStartTime = Date.now();
+            const advTimings = []; // track time per advertiser for ETA
 
             for (let i = 0; i < advertisers.length; i++) {
                 const adv = advertisers[i];
-                log(`--- [${i + 1}/${advertisers.length}] ${adv.name} (${adv.id}) ---`);
+                const advStartTime = Date.now();
+                const elapsed = formatElapsed(Date.now() - scrapeStartTime);
+                const etaStr = advTimings.length > 0
+                    ? `, ETA: ${formatElapsed((advTimings.reduce((a, b) => a + b, 0) / advTimings.length) * (advertisers.length - i))}`
+                    : '';
+                log(`--- [${i + 1}/${advertisers.length}] ${adv.name} (${adv.id}) [${elapsed} elapsed${etaStr}] ---`);
 
                 try {
                     const payloads = await scrapeAdvertiser(page, adv.id);
                     if (payloads.length === 0) {
-                        log('  No ads found.\n');
+                        log('  No new ads to send.\n');
                         adsFailed++;
+                        advTimings.push(Date.now() - advStartTime);
                         continue;
                     }
                     await sendPayloadsToServer(adv.id, adv.name, adv.region, payloads);
+                    // Count ads in sent payloads
+                    for (const raw of payloads) {
+                        try {
+                            const d = JSON.parse(raw);
+                            totalAdsScraped += Array.isArray(d['1']) ? d['1'].length : 0;
+                        } catch {}
+                    }
                     adsSuccess++;
                 } catch (err) {
                     log(`  ERROR: ${err.message}`);
                     adsFailed++;
                 }
+
+                advTimings.push(Date.now() - advStartTime);
 
                 if (i < advertisers.length - 1) {
                     const delay = 5000 + Math.random() * 3000;
@@ -119,7 +147,8 @@ const ADS_ONLY = args.includes('--ads-only');
             }
 
             await page.close();
-            log(`\n✅ Ads scraped: ${adsSuccess} success, ${adsFailed} failed\n`);
+            const scrapeElapsed = formatElapsed(Date.now() - scrapeStartTime);
+            log(`\n✅ Ads scraped: ${adsSuccess} success, ${adsFailed} failed, ${totalAdsScraped} total ads sent (${scrapeElapsed})\n`);
 
             // ── STEP 3: Process on Server ───────────────
             log('━━━ Step 3: Processing ads on server ━━━\n');
@@ -135,16 +164,40 @@ const ADS_ONLY = args.includes('--ads-only');
 
             const allVideoAds = await getVideoAdsFromServer();
             const needExtraction = allVideoAds.filter(a => a.ad_type === 'video' && !a.youtube_url && a.preview_url);
-            log(`Found ${allVideoAds.length} video ads, ${needExtraction.length} need YouTube URL extraction\n`);
+            log(`Found ${allVideoAds.length} video ads, ${needExtraction.length} need YouTube URL extraction`);
+
+            // Limit extraction batch — each takes ~2s, so cap at 500 per run
+            const MAX_EXTRACT = 500;
+            if (needExtraction.length > MAX_EXTRACT) {
+                log(`  (Processing first ${MAX_EXTRACT} — run again for more)\n`);
+                needExtraction.length = MAX_EXTRACT;
+            } else {
+                log('');
+            }
 
             if (needExtraction.length > 0) {
                 const extractPage = await browser.newPage();
 
-                // Block heavy resources
+                // Track YouTube URLs from network requests (most reliable method)
+                let capturedYtId = null;
                 await extractPage.setRequestInterception(true);
                 extractPage.on('request', (req) => {
+                    const url = req.url();
                     const type = req.resourceType();
-                    if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
+
+                    // Capture YouTube IDs from any network request
+                    if (!capturedYtId) {
+                        let m;
+                        m = url.match(/youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/);
+                        if (m) capturedYtId = m[1];
+                        m = url.match(/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//);
+                        if (m) capturedYtId = m[1];
+                        m = url.match(/youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/);
+                        if (m) capturedYtId = m[1];
+                    }
+
+                    // Block heavy resources but keep scripts (needed for ad rendering)
+                    if (['stylesheet', 'font', 'media'].includes(type)) {
                         req.abort();
                     } else {
                         req.continue();
@@ -165,12 +218,15 @@ const ADS_ONLY = args.includes('--ads-only');
                     }
 
                     try {
+                        capturedYtId = null; // Reset for each ad
                         const ytId = await extractYouTubeIdFromPreview(extractPage, ad.preview_url);
-                        if (ytId) {
+                        // Use network-captured ID as primary (most reliable), fall back to DOM extraction
+                        const finalId = capturedYtId || ytId;
+                        if (finalId) {
                             enrichBatch.push({
                                 creative_id: ad.creative_id,
-                                youtube_url: `https://www.youtube.com/watch?v=${ytId}`,
-                                thumbnail: `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
+                                youtube_url: `https://www.youtube.com/watch?v=${finalId}`,
+                                thumbnail: `https://i.ytimg.com/vi/${finalId}/hqdefault.jpg`,
                             });
                             extracted++;
                         }
@@ -360,11 +416,59 @@ async function syncAdvertisers(advertisers) {
     }
 }
 
+// ── Fetch existing creative_ids for an advertiser from server ─
+async function getExistingCreativeIds(advertiserId) {
+    const ids = new Set();
+    let pg = 1;
+    const perPage = 100;
+
+    while (true) {
+        try {
+            const url = `${SERVER_URL}/dashboard/api/ads.php?token=${AUTH_TOKEN}&advertiser_id=${advertiserId}&per_page=${perPage}&page=${pg}`;
+            const data = JSON.parse(await httpGet(url));
+            const ads = data.ads || [];
+            for (const ad of ads) {
+                if (ad.creative_id) ids.add(ad.creative_id);
+            }
+            if (ads.length < perPage) break;
+            pg++;
+            if (pg > 500) break;
+        } catch {
+            break;
+        }
+    }
+    return ids;
+}
+
+// ── Extract creative_ids from raw scraped payload JSON ───────
+function extractCreativeIdsFromPayload(rawJson) {
+    const ids = new Set();
+    try {
+        const data = JSON.parse(rawJson);
+        const ads = data['1'] || [];
+        if (Array.isArray(ads)) {
+            for (const ad of ads) {
+                const creativeId = ad['1'];
+                if (creativeId) ids.add(creativeId);
+            }
+        }
+    } catch {}
+    return ids;
+}
+
 // ── Scrape ads for one advertiser ───────────────────────
 async function scrapeAdvertiser(page, advertiserId) {
+    // Fetch existing creative_ids to enable incremental scraping
+    process.stdout.write('  Checking existing ads... ');
+    const existingIds = await getExistingCreativeIds(advertiserId);
+    console.log(`${existingIds.size} already in DB`);
+
     const allPayloads = [];
     let pageToken = null;
     let pageNum = 0;
+    let totalNewAds = 0;
+    let totalExistingAds = 0;
+    let skippedPages = 0;
 
     do {
         pageNum++;
@@ -403,16 +507,36 @@ async function scrapeAdvertiser(page, advertiserId) {
 
         const ads = data['1'] || [];
         const count = Array.isArray(ads) ? ads.length : 0;
-        console.log(` ${count} ads`);
 
-        if (count > 0) allPayloads.push(result.data);
+        // Check how many are new vs existing
+        if (count > 0) {
+            const pageIds = extractCreativeIdsFromPayload(result.data);
+            let newOnPage = 0;
+            let existingOnPage = 0;
+            for (const id of pageIds) {
+                if (existingIds.has(id)) existingOnPage++;
+                else newOnPage++;
+            }
+            totalNewAds += newOnPage;
+            totalExistingAds += existingOnPage;
+
+            if (newOnPage > 0) {
+                allPayloads.push(result.data);
+                console.log(` ${count} ads (${newOnPage} new, ${existingOnPage} existing)`);
+            } else {
+                skippedPages++;
+                console.log(` ${count} ads (all existing, skipped)`);
+            }
+        } else {
+            console.log(` ${count} ads`);
+        }
+
         pageToken = (data['2'] && typeof data['2'] === 'string' && data['2'] !== '') ? data['2'] : null;
     } while (pageToken !== null);
 
-    const total = allPayloads.reduce((sum, raw) => {
-        try { const d = JSON.parse(raw); return sum + (Array.isArray(d['1']) ? d['1'].length : 0); } catch { return sum; }
-    }, 0);
-    log(`  Total: ${total} ads`);
+    const total = totalNewAds + totalExistingAds;
+    log(`  Total: ${total} ads (${totalNewAds} new, ${totalExistingAds} existing)`);
+    if (skippedPages > 0) log(`  Skipped ${skippedPages} pages (all ads already in DB)`);
     return allPayloads;
 }
 
@@ -460,19 +584,23 @@ async function getVideoAdsFromServer() {
     return allAds;
 }
 
-// ── Send YouTube data to server (using existing set_ad_text) ─
+// ── Send YouTube data to server (using youtube_update.php) ──
 async function sendYouTubeToServer(batch) {
     process.stdout.write(`  → Sending ${batch.length} YouTube results... `);
     try {
-        // Update headlines and descriptions via existing endpoint
-        const texts = batch.map(v => ({
+        // Use ingest.php update_youtube action which properly updates ads.view_count,
+        // ad_details (headline/description), and youtube_metadata
+        const videos = batch.map(v => ({
             creative_id: v.creative_id,
-            headline: v.title,
-            description: v.description,
+            video_id: v.video_id,
+            title: v.title,
+            author: v.author,
+            view_count: v.view_count,
+            thumbnail: v.video_id ? `https://i.ytimg.com/vi/${v.video_id}/hqdefault.jpg` : null,
         }));
-        const url = `${SERVER_URL}/dashboard/api/ingest.php?action=set_ad_text&token=${AUTH_TOKEN}`;
-        await httpPost(url, { texts });
-        console.log('OK');
+        const url = `${SERVER_URL}/dashboard/api/ingest.php?action=update_youtube&token=${AUTH_TOKEN}`;
+        const resp = JSON.parse(await httpPost(url, { videos }));
+        console.log(`OK (${resp.updated || 0} updated)`);
     } catch (err) {
         console.log(`FAILED: ${err.message}`);
     }
@@ -481,36 +609,60 @@ async function sendYouTubeToServer(batch) {
 // ── Extract YouTube ID from Google preview URL ──────────
 async function extractYouTubeIdFromPreview(page, previewUrl) {
     try {
-        const result = await page.evaluate(async (url) => {
+        // Navigate to the preview URL — it's JavaScript that renders an ad
+        await page.goto(previewUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: 8000,
+        });
+        await sleep(2000); // Wait for JS to render + safeframe to load
+
+        // Strategy 1: Check ALL frames (including cross-origin safeframes)
+        // Puppeteer can access cross-origin iframe content via page.frames()
+        const frames = page.frames();
+        for (const frame of frames) {
             try {
-                const resp = await fetch(url, {
-                    headers: { 'Referer': 'https://adstransparency.google.com/' },
-                    credentials: 'omit',
-                });
-                if (!resp.ok) return null;
-                const text = await resp.text();
-
-                // Decode hex escapes
-                let decoded = text;
-                decoded = decoded.replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-                decoded = decoded.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-
-                // Try multiple patterns
-                let m;
-                m = decoded.match(/['"]video_videoId['"]\s*:\s*['"]([a-zA-Z0-9_-]{11})['"]/);
-                if (m) return m[1];
-                m = decoded.match(/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//);
-                if (m) return m[1];
-                m = decoded.match(/youtube\.com\/(?:embed\/|watch\?v=|v\/)([a-zA-Z0-9_-]{11})/);
-                if (m) return m[1];
-                m = decoded.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+                const url = frame.url() || '';
+                // Check frame URL itself for YouTube embed
+                let m = url.match(/youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/);
                 if (m) return m[1];
 
-                return null;
-            } catch { return null; }
-        }, previewUrl);
+                // Check frame content for YouTube references
+                const ytId = await frame.evaluate(() => {
+                    const html = document.documentElement?.innerHTML || '';
+                    let m;
+                    // YouTube embed iframes
+                    m = html.match(/youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/);
+                    if (m) return m[1];
+                    // YouTube thumbnail images
+                    m = html.match(/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//);
+                    if (m) return m[1];
+                    // YouTube watch URL
+                    m = html.match(/youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/);
+                    if (m) return m[1];
+                    // Video ID in data attributes or JS variables
+                    m = html.match(/video[_-]?[Ii]d['":\s]+['"]([a-zA-Z0-9_-]{11})['"]/);
+                    if (m) return m[1];
+                    return null;
+                }).catch(() => null);
+                if (ytId) return ytId;
+            } catch {}
+        }
 
-        return result;
+        // Strategy 2: Intercept network requests — YouTube embeds trigger requests
+        // Check main page content as fallback
+        const videoId = await page.evaluate(() => {
+            const html = document.documentElement.innerHTML;
+            let m;
+            m = html.match(/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//);
+            if (m) return m[1];
+            m = html.match(/youtube\.com\/(?:embed\/|watch\?v=|v\/)([a-zA-Z0-9_-]{11})/);
+            if (m) return m[1];
+            m = html.match(/video[_-]?[Ii]d['":\s]+['"]([a-zA-Z0-9_-]{11})['"]/);
+            if (m) return m[1];
+            return null;
+        });
+
+        return videoId;
     } catch { return null; }
 }
 
@@ -607,6 +759,17 @@ function formatViews(count) {
     if (count >= 100000) return (count / 100000).toFixed(1) + ' L';
     if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
     return count.toString();
+}
+
+function formatElapsed(ms) {
+    const totalSec = Math.round(ms / 1000);
+    if (totalSec < 60) return `${totalSec}s`;
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    if (min < 60) return `${min}m ${sec}s`;
+    const hr = Math.floor(min / 60);
+    const remMin = min % 60;
+    return `${hr}h ${remMin}m`;
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }

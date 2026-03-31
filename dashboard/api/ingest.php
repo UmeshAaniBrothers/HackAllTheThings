@@ -68,6 +68,9 @@ try {
         case 'set_ad_text':
             setAdText($db);
             break;
+        case 'update_youtube':
+            updateYouTube($db);
+            break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -550,5 +553,102 @@ function setAdText($db)
         'updated' => $updated,
         'inserted' => $inserted,
         'message' => "Updated {$updated}, inserted {$inserted} ad text entries",
+    ]);
+}
+
+/**
+ * Update YouTube view counts and metadata from CLI YouTube data fetcher.
+ * Receives: { videos: [ { creative_id, video_id, view_count, title, author }, ... ] }
+ */
+function updateYouTube($db)
+{
+    $input = file_get_contents('php://input');
+    $data = json_decode($input, true);
+
+    if (!$data || empty($data['videos'])) {
+        echo json_encode(['success' => false, 'error' => 'videos array required']);
+        return;
+    }
+
+    $updated = 0;
+
+    foreach ($data['videos'] as $item) {
+        $creativeId = $item['creative_id'] ?? null;
+        $videoId = $item['video_id'] ?? null;
+        $viewCount = isset($item['view_count']) ? (int) $item['view_count'] : null;
+        $title = $item['title'] ?? null;
+        $author = $item['author'] ?? null;
+
+        if (!$creativeId) continue;
+
+        // Update ads.view_count for this creative_id
+        if ($viewCount !== null) {
+            $db->query(
+                "UPDATE ads SET view_count = ? WHERE creative_id = ?",
+                [$viewCount, $creativeId]
+            );
+        }
+
+        // Update/insert ad_details headline (only if headline_source != 'ad') and description
+        if (!empty($title) || !empty($author)) {
+            $existing = $db->fetchOne(
+                "SELECT id, headline, headline_source FROM ad_details WHERE creative_id = ? ORDER BY id DESC LIMIT 1",
+                [$creativeId]
+            );
+
+            if ($existing) {
+                $detailUpdates = [];
+                // Only update headline if source is not 'ad' (preserve ad-extracted headlines)
+                if (!empty($title) && ($existing['headline_source'] ?? '') !== 'ad') {
+                    $detailUpdates['headline'] = $title;
+                    $detailUpdates['headline_source'] = 'youtube';
+                }
+                if (!empty($author)) {
+                    $detailUpdates['description'] = $author;
+                }
+                if (!empty($detailUpdates)) {
+                    $db->update('ad_details', $detailUpdates, 'id = ?', [$existing['id']]);
+                }
+            } else {
+                // Insert new ad_details row
+                $insertData = ['creative_id' => $creativeId];
+                if (!empty($title)) {
+                    $insertData['headline'] = $title;
+                    $insertData['headline_source'] = 'youtube';
+                }
+                if (!empty($author)) {
+                    $insertData['description'] = $author;
+                }
+                $db->insert('ad_details', $insertData);
+            }
+        }
+
+        // Update/insert youtube_metadata table
+        if (!empty($videoId)) {
+            $existingYt = $db->fetchOne(
+                "SELECT id FROM youtube_metadata WHERE video_id = ?",
+                [$videoId]
+            );
+
+            $ytData = ['fetched_at' => date('Y-m-d H:i:s')];
+            if ($viewCount !== null) $ytData['view_count'] = $viewCount;
+            if (!empty($title)) $ytData['title'] = $title;
+            if (!empty($author)) $ytData['channel_name'] = $author;
+
+            if ($existingYt) {
+                $db->update('youtube_metadata', $ytData, 'video_id = ?', [$videoId]);
+            } else {
+                $ytData['video_id'] = $videoId;
+                $db->insert('youtube_metadata', $ytData);
+            }
+        }
+
+        $updated++;
+    }
+
+    echo json_encode([
+        'success' => true,
+        'updated' => $updated,
+        'message' => "Updated YouTube data for {$updated} videos",
     ]);
 }

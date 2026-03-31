@@ -156,6 +156,9 @@
             <button class="btn btn-outline-secondary btn-sm" onclick="viewerClearFilters()" title="Clear all filters">
                 <i class="bi bi-x-lg"></i>
             </button>
+            <button class="btn btn-outline-success btn-sm" onclick="exportCSV()" title="Export CSV" id="btnExportCsv">
+                <i class="bi bi-download"></i>
+            </button>
         </div>
     </div>
     <!-- Active filter pills + view toggle -->
@@ -600,6 +603,11 @@
                     thumbHtml = '<div class="ad-thumb d-flex align-items-center justify-content-center" style="background:#1a1a2e"><i class="bi bi-play-circle" style="font-size:3rem;color:rgba(255,255,255,.5)"></i></div>';
                 } else if (ad.preview_url) {
                     thumbHtml = '<div class="ad-thumb ad-thumb-preview"><iframe src="' + escapeHtml(ad.preview_url) + '" sandbox="allow-scripts allow-same-origin" loading="lazy" scrolling="no" style="width:100%;height:100%;border:none;pointer-events:none"></iframe></div>';
+                } else {
+                    // Placeholder with ad type icon for cards with no thumbnail
+                    var typeIcons = { text: 'bi-file-text', image: 'bi-image', video: 'bi-play-circle' };
+                    var typeIcon = typeIcons[ad.ad_type] || 'bi-file-earmark';
+                    thumbHtml = '<div class="ad-thumb d-flex align-items-center justify-content-center" style="background:#f0f0f5"><i class="bi ' + typeIcon + '" style="font-size:3rem;color:rgba(0,0,0,.15)"></i></div>';
                 }
 
                 // Landing URL domain
@@ -802,7 +810,10 @@
                     </div>
                     <div class="d-flex flex-wrap gap-1">
                         <a href="advertiser_profile.php?id=${encodeURIComponent(ad.advertiser_id)}" class="btn btn-outline-info btn-sm">
-                            <i class="bi bi-building me-1"></i>${escapeHtml(advName)}
+                            <i class="bi bi-building me-1"></i>${escapeHtml(advName)} <span class="badge bg-info text-dark ms-1">Profile</span>
+                        </a>
+                        <a href="ads_viewer.php#advertiser_id=${encodeURIComponent(ad.advertiser_id)}" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-collection me-1"></i>All Ads
                         </a>
                         <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">
                             <i class="bi bi-box-arrow-up-right me-1"></i>Google Ads Transparency
@@ -852,10 +863,10 @@
                 products.forEach(p => {
                     const icon = p.icon_url ? `<img src="${escapeHtml(p.icon_url)}" style="width:32px;height:32px;border-radius:8px;" class="me-2" onerror="this.style.display='none'">` : '';
                     const platform = p.store_platform === 'ios' ? '<i class="bi bi-apple"></i>' : '<i class="bi bi-google-play"></i>';
-                    html += `<a href="app_profile.php?id=${p.product_id}" class="d-flex align-items-center text-decoration-none card p-2" style="min-width:200px;">
+                    html += `<a href="app_profile.php?id=${encodeURIComponent(p.product_id)}" class="d-flex align-items-center text-decoration-none card p-2" style="min-width:200px;">
                         ${icon}
                         <div>
-                            <div class="fw-bold small text-dark">${escapeHtml(p.app_name || p.product_name)}</div>
+                            <div class="fw-bold small text-dark">${escapeHtml(p.app_name || p.product_name)} <i class="bi bi-box-arrow-up-right" style="font-size:.65rem"></i></div>
                             <div class="text-muted" style="font-size:0.75rem;">${platform} ${p.category ? escapeHtml(p.category) : ''} ${p.rating ? '&middot; ' + parseFloat(p.rating).toFixed(1) + '<i class="bi bi-star-fill text-warning ms-1" style="font-size:0.65rem;"></i>' : ''}</div>
                         </div>
                     </a>`;
@@ -872,7 +883,7 @@
                             <div class="fw-bold small">${escapeHtml(youtube.title || '')}</div>
                             <div class="text-muted" style="font-size:0.75rem;">${escapeHtml(youtube.channel_name || '')} &middot; ${formatNumber(youtube.view_count)} views ${youtube.duration ? '&middot; ' + escapeHtml(youtube.duration) : ''}</div>
                         </div>
-                        <a href="youtube_profile.php?id=${encodeURIComponent(youtube.video_id)}" class="btn btn-outline-danger btn-sm ms-auto"><i class="bi bi-box-arrow-up-right"></i></a>
+                        <a href="youtube_profile.php?id=${encodeURIComponent(youtube.video_id)}" class="btn btn-outline-danger btn-sm ms-auto"><i class="bi bi-play-circle me-1"></i>View Profile</a>
                     </div>
                 </div>`;
             }
@@ -1145,6 +1156,93 @@
                 if (e.key === 'Enter') { clearTimeout(S.debounceTimer); onChange(); }
             });
         });
+    }
+
+    // ── CSV Export ─────────────────────────────────────────
+    async function exportCSV() {
+        var btn = document.getElementById('btnExportCsv');
+        var origHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+        try {
+            var allAds = [];
+            var page = 1;
+            var totalPages = 1;
+
+            // Fetch all pages with current filters
+            while (page <= totalPages) {
+                var params = { page: page, per_page: 100, sort: S.sort };
+                FILTER_KEYS.forEach(function(k) {
+                    if (S.filters[k]) params[k] = S.filters[k];
+                });
+
+                var data = await fetchAPI('ads.php', params);
+                if (!data.success) break;
+
+                var ads = data.ads || data.results || [];
+                allAds = allAds.concat(ads);
+                totalPages = data.total_pages || 1;
+                page++;
+
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + allAds.length;
+            }
+
+            if (allAds.length === 0) {
+                alert('No ads to export');
+                return;
+            }
+
+            // Build CSV
+            var csvColumns = ['creative_id', 'advertiser', 'type', 'status', 'headline', 'description', 'view_count', 'countries', 'first_seen', 'last_seen', 'youtube_url', 'landing_url'];
+            var csvRows = [csvColumns.join(',')];
+
+            allAds.forEach(function(ad) {
+                var row = [
+                    csvEscape(ad.creative_id || ''),
+                    csvEscape(ad.advertiser_name || ad.advertiser_id || ''),
+                    csvEscape(ad.ad_type || ''),
+                    csvEscape(ad.status || ''),
+                    csvEscape(ad.headline || ''),
+                    csvEscape(ad.description || ''),
+                    ad.view_count || '0',
+                    csvEscape(ad.countries || ''),
+                    csvEscape(ad.first_seen || ''),
+                    csvEscape(ad.last_seen || ''),
+                    csvEscape(ad.youtube_url || ''),
+                    csvEscape(ad.landing_url || '')
+                ];
+                csvRows.push(row.join(','));
+            });
+
+            var csvString = csvRows.join('\n');
+            var blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            var today = new Date().toISOString().split('T')[0];
+            a.href = url;
+            a.download = 'ads_export_' + today + '.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            console.error('CSV export error:', err);
+            alert('Export failed: ' + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
+    }
+    window.exportCSV = exportCSV;
+
+    function csvEscape(val) {
+        if (val === null || val === undefined) return '';
+        var str = String(val);
+        if (str.indexOf(',') !== -1 || str.indexOf('"') !== -1 || str.indexOf('\n') !== -1) {
+            return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
     }
 
     // ── Hash change listener (back/forward) ───────────────

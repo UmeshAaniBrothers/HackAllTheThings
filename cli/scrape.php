@@ -29,7 +29,7 @@ $command = $argv[1] ?? 'help';
 $arg = $argv[2] ?? '';
 $arg2 = $argv[3] ?? '';
 
-$ADVERTISERS_FILE = __DIR__ . '/advertisers.txt';
+$ADVERTISERS_FILE = dirname(__DIR__) . '/advertisers.txt';
 
 define('SCAN_REGIONS', [
     'IN','US','GB','CA','AU','DE','FR','JP','BR','MX',

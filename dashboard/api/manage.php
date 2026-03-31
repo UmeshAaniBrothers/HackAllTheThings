@@ -145,11 +145,29 @@ function getStatus(Database $db): void
         "SELECT * FROM scrape_logs ORDER BY created_at DESC LIMIT 10"
     );
 
+    // Pipeline status data
+    $lastScrape = $db->fetchOne(
+        "SELECT created_at FROM scrape_logs ORDER BY created_at DESC LIMIT 1"
+    );
+    $rawPending = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM raw_payloads WHERE processed_flag = 0"
+    );
+    $ytPending = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ads WHERE ad_type = 'video' AND (view_count IS NULL OR view_count = 0)"
+    );
+    $ytTotal = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ads WHERE ad_type = 'video'"
+    );
+
     echo json_encode([
-        'success'      => true,
-        'advertisers'  => $advertisers,
-        'global_stats' => $globalStats,
-        'recent_logs'  => $recentLogs,
+        'success'           => true,
+        'advertisers'       => $advertisers,
+        'global_stats'      => $globalStats,
+        'recent_logs'       => $recentLogs,
+        'last_scrape_time'  => $lastScrape ? $lastScrape['created_at'] : null,
+        'total_raw_pending' => $rawPending,
+        'youtube_pending'   => $ytPending,
+        'youtube_total'     => $ytTotal,
     ]);
 }
 

@@ -295,9 +295,14 @@
                             : `<span class="yt-channel-link"><i class="bi bi-person-circle" style="font-size:1.2rem"></i>${escapeHtml(v.channel_name)}</span>`
                         }
                     </div>` : ''}
-                    <a href="https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}" target="_blank" rel="noopener" class="btn btn-danger btn-sm">
-                        <i class="bi bi-youtube me-1"></i>Watch on YouTube
-                    </a>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <a href="https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}" target="_blank" rel="noopener" class="btn btn-danger btn-sm">
+                            <i class="bi bi-youtube me-1"></i>Watch on YouTube
+                        </a>
+                        <a href="ads_viewer.php#ad_type=video&search=${encodeURIComponent(videoId)}" class="btn btn-primary btn-sm">
+                            <i class="bi bi-eye me-1"></i>View in Ads Viewer
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>`;

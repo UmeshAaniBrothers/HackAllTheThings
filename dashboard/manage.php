@@ -57,6 +57,52 @@
     </div>
 </div>
 
+<!-- Pipeline Status -->
+<div class="filter-bar mb-4" id="pipelineStatusCard" style="display:none">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="mb-0"><i class="bi bi-activity me-1"></i>Pipeline Status</h6>
+        <span id="pipelineStatusDot" style="width:12px;height:12px;border-radius:50%;display:inline-block;background:#6c757d"></span>
+    </div>
+    <div class="row g-3">
+        <div class="col-6 col-md-3">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-clock-history text-info" style="font-size:1.2rem"></i>
+                <div>
+                    <div class="small text-muted">Last Scrape</div>
+                    <strong id="pipelineLastScrape">-</strong>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-inbox text-warning" style="font-size:1.2rem"></i>
+                <div>
+                    <div class="small text-muted">Pending Processing</div>
+                    <strong id="pipelinePendingRaw">-</strong> <span class="small text-muted">payloads</span>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-youtube text-danger" style="font-size:1.2rem"></i>
+                <div>
+                    <div class="small text-muted">YouTube Pending</div>
+                    <strong id="pipelineYtPending">-</strong>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-check-circle text-success" style="font-size:1.2rem"></i>
+                <div>
+                    <div class="small text-muted">Overall</div>
+                    <strong id="pipelineOverall">-</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Server-side Tools -->
 <div class="filter-bar mb-4">
     <h6 class="mb-3"><i class="bi bi-tools me-1"></i>Server-side Tools</h6>
@@ -186,6 +232,9 @@
             document.getElementById('gStatAdvertisers').textContent = formatNumber(g.total_advertisers || 0);
             document.getElementById('gStatPending').textContent = formatNumber(g.pending_payloads || 0);
 
+            // Pipeline status
+            renderPipelineStatus(data);
+
             // Advertisers table
             renderAdvertisers(data.advertisers || []);
 
@@ -249,6 +298,54 @@
                 <td class="text-truncate" style="max-width:200px"><small class="text-muted">${escapeHtml(l.error_message || '-')}</small></td>
             </tr>
         `).join('');
+    }
+
+    // ── Pipeline Status Card ──────────────────────────────
+    function renderPipelineStatus(data) {
+        var card = document.getElementById('pipelineStatusCard');
+        card.style.display = '';
+
+        // Last scrape time
+        var lastScrapeEl = document.getElementById('pipelineLastScrape');
+        if (data.last_scrape_time) {
+            var scrapeDate = new Date(data.last_scrape_time);
+            var diffMs = Date.now() - scrapeDate.getTime();
+            var diffMins = Math.floor(diffMs / 60000);
+            var diffHours = Math.floor(diffMins / 60);
+            var diffDays = Math.floor(diffHours / 24);
+            if (diffMins < 1) lastScrapeEl.textContent = 'Just now';
+            else if (diffMins < 60) lastScrapeEl.textContent = diffMins + ' min ago';
+            else if (diffHours < 24) lastScrapeEl.textContent = diffHours + ' hour' + (diffHours > 1 ? 's' : '') + ' ago';
+            else lastScrapeEl.textContent = diffDays + ' day' + (diffDays > 1 ? 's' : '') + ' ago';
+        } else {
+            lastScrapeEl.textContent = 'Never';
+        }
+
+        // Pending raw payloads
+        var rawPending = data.total_raw_pending || 0;
+        document.getElementById('pipelinePendingRaw').textContent = formatNumber(rawPending);
+
+        // YouTube pending
+        var ytPending = data.youtube_pending || 0;
+        var ytTotal = data.youtube_total || 0;
+        document.getElementById('pipelineYtPending').textContent = formatNumber(ytPending) + '/' + formatNumber(ytTotal) + ' videos';
+
+        // Status dot color: green=all good, yellow=pending work, red=nothing scraped
+        var dot = document.getElementById('pipelineStatusDot');
+        var overallEl = document.getElementById('pipelineOverall');
+        if (!data.last_scrape_time) {
+            dot.style.background = '#dc3545'; // red
+            overallEl.textContent = 'No data yet';
+            overallEl.style.color = '#dc3545';
+        } else if (rawPending > 0 || ytPending > 0) {
+            dot.style.background = '#ffc107'; // yellow
+            overallEl.textContent = 'Pending work';
+            overallEl.style.color = '#856404';
+        } else {
+            dot.style.background = '#198754'; // green
+            overallEl.textContent = 'All caught up';
+            overallEl.style.color = '#198754';
+        }
     }
 
     // ── Pipeline progress helpers ──────────────────────────

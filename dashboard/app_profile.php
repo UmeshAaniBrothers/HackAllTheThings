@@ -382,7 +382,12 @@
         const ads = data.ads || [];
         if (ads.length > 0) {
             html += `<div class="card mb-4"><div class="card-body">
-                <h5 class="mb-3"><i class="bi bi-collection me-2"></i>Ads <span class="badge bg-secondary">${formatNumber(data.total_ads)}</span></h5>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0"><i class="bi bi-collection me-2"></i>Ads <span class="badge bg-secondary">${formatNumber(data.total_ads)}</span></h5>
+                    <a href="ads_viewer.php#product_id=${encodeURIComponent(productId)}" class="btn btn-primary btn-sm">
+                        <i class="bi bi-eye me-1"></i>View All Ads
+                    </a>
+                </div>
                 <div class="row g-3">
                     ${ads.map(ad => renderAdCard(ad)).join('')}
                 </div>
@@ -449,7 +454,7 @@
                     <img src="${escapeHtml(thumbSrc)}" class="w-100 h-100" style="object-fit:cover" loading="lazy" alt="">
                     ${isVideo ? '<span class="app-video-play-overlay"><i class="bi bi-play-circle-fill"></i></span>' : ''}
                     ${viewCount > 0 ? `<span style="position:absolute;bottom:6px;right:6px" class="badge bg-dark"><i class="bi bi-eye me-1"></i>${formatNumber(viewCount)}</span>` : ''}
-                </div>` : (!isVideo && ad.preview_url ? `<div style="aspect-ratio:16/9;overflow:hidden;background:#f8f9fa"><iframe src="${escapeHtml(ad.preview_url)}" sandbox="allow-scripts allow-same-origin" style="width:100%;height:100%;border:none;pointer-events:none" loading="lazy"></iframe></div>` : (isVideo ? `<div style="aspect-ratio:16/9;background:#1a1a2e" class="d-flex align-items-center justify-content-center"><i class="bi bi-play-circle" style="font-size:2rem;color:rgba(255,255,255,.5)"></i></div>` : `<div style="aspect-ratio:16/9;background:#f0f0f5" class="d-flex align-items-center justify-content-center"><i class="bi bi-file-text" style="font-size:2rem;color:rgba(0,0,0,.2)"></i></div>`))}
+                </div>` : (!isVideo && ad.preview_url ? `<div style="aspect-ratio:16/9;overflow:hidden;background:#f8f9fa"><iframe src="${escapeHtml(ad.preview_url)}" sandbox="allow-scripts allow-same-origin" style="width:100%;height:100%;border:none;pointer-events:none" loading="lazy"></iframe></div>` : (isVideo ? `<div style="aspect-ratio:16/9;background:#1a1a2e" class="d-flex align-items-center justify-content-center"><i class="bi bi-play-circle" style="font-size:2rem;color:rgba(255,255,255,.5)"></i></div>` : `<div style="aspect-ratio:16/9;background:#f0f0f5" class="d-flex align-items-center justify-content-center"><i class="bi ${ad.ad_type === 'image' ? 'bi-image' : 'bi-file-text'}" style="font-size:2rem;color:rgba(0,0,0,.15)"></i></div>`))}
                 <div class="card-body p-2">
                     <div class="d-flex gap-1 mb-1 flex-wrap">
                         <span class="badge badge-${ad.ad_type || 'text'}">${escapeHtml(ad.ad_type || 'text')}</span>
@@ -460,7 +465,7 @@
                     ${countriesHtml}
                     <div class="text-muted small" style="font-size:.7rem"><i class="bi bi-calendar-range me-1"></i>${formatDate(ad.first_seen)} - ${formatDate(ad.last_seen)}</div>
                     <div class="d-flex gap-2 mt-2">
-                        ${ytId ? `<a href="https://www.youtube.com/watch?v=${encodeURIComponent(ytId)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm py-0 px-1" title="Watch on YouTube"><i class="bi bi-youtube"></i></a>` : ''}
+                        ${ytId ? `<a href="youtube_profile.php?id=${encodeURIComponent(ytId)}" class="btn btn-outline-danger btn-sm py-0 px-1" title="YouTube Profile"><i class="bi bi-youtube"></i></a>` : ''}
                         <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm py-0 px-1" title="Google Ads Transparency"><i class="bi bi-shield-check"></i></a>
                     </div>
                 </div>

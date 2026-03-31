@@ -390,7 +390,12 @@
         // ── Ads Grid with Pagination ──
         if (data.ads && data.ads.length > 0) {
             html += `<div class="card mb-4"><div class="card-body">
-                <h5 class="section-title"><i class="bi bi-collection me-2"></i>Ads (${formatNumber(data.total_ads)})</h5>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="section-title mb-0"><i class="bi bi-collection me-2"></i>Ads (${formatNumber(data.total_ads)})</h5>
+                    <a href="ads_viewer.php#advertiser_id=${encodeURIComponent(adv.advertiser_id)}" class="btn btn-primary btn-sm">
+                        <i class="bi bi-eye me-1"></i>View All Ads
+                    </a>
+                </div>
                 <div class="row">`;
             data.ads.forEach(function(ad) {
                 html += renderAdCard(ad);
@@ -431,6 +436,10 @@
             thumbHtml = `<div class="ad-thumb" style="background:#f8f9fa"><iframe src="${escapeHtml(ad.preview_url)}" sandbox="allow-scripts allow-same-origin" style="width:100%;height:100%;border:none;pointer-events:none"></iframe></div>`;
         } else if (isVideo) {
             thumbHtml = `<div class="ad-thumb d-flex align-items-center justify-content-center"><i class="bi bi-play-circle" style="font-size:2rem;color:rgba(255,255,255,.5)"></i></div>`;
+        } else {
+            const typeIcons = { text: 'bi-file-text', image: 'bi-image', video: 'bi-play-circle' };
+            const typeIcon = typeIcons[ad.ad_type] || 'bi-file-earmark';
+            thumbHtml = `<div class="ad-thumb d-flex align-items-center justify-content-center" style="background:#f0f0f5"><i class="bi ${typeIcon}" style="font-size:2rem;color:rgba(0,0,0,.15)"></i></div>`;
         }
 
         let linksHtml = '';
