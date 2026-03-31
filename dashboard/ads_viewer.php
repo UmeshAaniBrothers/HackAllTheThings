@@ -529,136 +529,147 @@
             return;
         }
 
-        container.innerHTML = '<div class="row">' + ads.map(ad => {
-            const countries = (ad.countries || '').split(',').map(c => c.trim()).filter(Boolean);
-            const platforms = (ad.platforms || '').split(',').map(p => p.trim()).filter(Boolean);
-            const isVideo = ad.ad_type === 'video';
-            const advName = ad.advertiser_name || ad.advertiser_id || '';
-            const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
-            const headline = ad.headline || advName;
-            const productName = ad.product_names ? ad.product_names.split('||')[0] : '';
-            const productIdVal = ad.product_id || '';
-            const storeUrl = ad.store_url || '';
-            const storePlatform = ad.store_platform || 'web';
-            const platformLabels = { ios: 'iOS', playstore: 'Play Store', web: 'Web' };
-            const platformIcons = { ios: 'bi-apple', playstore: 'bi-google-play', web: 'bi-globe' };
-            const platformColors = { ios: 'bg-dark', playstore: 'bg-success', web: 'bg-info' };
-            const viewCount = parseInt(ad.view_count) || 0;
-            const viewCountStr = viewCount > 0 ? formatNumber(viewCount) : '';
+        var cards = [];
+        ads.forEach(function(ad) {
+            try {
+                var countries = (ad.countries || '').split(',').map(function(c) { return c.trim(); }).filter(Boolean);
+                var isVideo = ad.ad_type === 'video';
+                var advName = ad.advertiser_name || ad.advertiser_id || '';
+                var transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
+                var headline = ad.headline || advName;
+                var productName = ad.product_names ? ad.product_names.split('||')[0] : '';
+                var productIdVal = ad.product_id || '';
+                var storePlatform = ad.store_platform || 'web';
+                var platformLabels = { ios: 'iOS', playstore: 'Play Store', web: 'Web' };
+                var platformIcons = { ios: 'bi-apple', playstore: 'bi-google-play', web: 'bi-globe' };
+                var platformColors = { ios: 'bg-dark', playstore: 'bg-success', web: 'bg-info' };
+                var viewCount = parseInt(ad.view_count) || 0;
+                var viewCountStr = viewCount > 0 ? formatNumber(viewCount) : '';
 
-            return `<div class="col-md-6 col-lg-4 col-xl-3 mb-4">
-                <div class="ad-card viewer-card" role="button" data-id="${escapeHtml(ad.creative_id)}">
-                    ${(() => {
-                        const ytId = ad.youtube_url ? extractYouTubeId(ad.youtube_url) : null;
-                        const thumbSrc = ad.preview_image || (ytId ? 'https://i.ytimg.com/vi/' + ytId + '/hqdefault.jpg' : null);
-                        if (thumbSrc) {
-                            return `<div class="ad-thumb">
-                                <img src="${escapeHtml(thumbSrc)}" alt="" loading="lazy">
-                                ${isVideo ? '<span class="ad-play-icon"><i class="bi bi-play-fill"></i></span>' : ''}
-                                ${viewCount > 0 ? `<span class="ad-view-count"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</span>` : ''}
-                            </div>`;
-                        }
-                        if (isVideo) {
-                            return `<div class="ad-thumb d-flex align-items-center justify-content-center" style="background:#1a1a2e">
-                                <i class="bi bi-play-circle" style="font-size:3rem;color:rgba(255,255,255,.5)"></i>
-                            </div>`;
-                        }
-                        if (ad.preview_url) {
-                            return `<div class="ad-thumb ad-thumb-preview">
-                                <iframe src="${escapeHtml(ad.preview_url)}" sandbox="allow-scripts allow-same-origin" loading="lazy" scrolling="no" style="width:100%;height:100%;border:none;pointer-events:none"></iframe>
-                            </div>`;
-                        }
-                        return '';
-                    })()}
-                    <div class="ad-card-header">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type || 'text'}</span>
-                                <span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span>
-                            </div>
-                            ${viewCount > 0 && !ad.preview_image && !ad.youtube_url ? `<small class="text-muted"><i class="bi bi-eye-fill me-1"></i>${viewCountStr} views</small>` : `<small class="text-muted">${formatDate(ad.last_seen)}</small>`}
-                        </div>
-                    </div>
-                    <div class="ad-body">
-                        <div class="ad-headline">${escapeHtml(headline)}</div>
-                        ${ad.description ? `<div class="ad-description">${escapeHtml(ad.description.substring(0, 150))}</div>` : ''}
-                        ${ad.cta ? `<div class="mt-1"><span class="badge bg-primary">${escapeHtml(ad.cta)}</span></div>` : ''}
-                        ${productName && productName !== 'Unknown' ? `<div class="mt-1">
-                            <a href="app_profile.php?id=${encodeURIComponent(productIdVal)}" class="badge bg-warning text-dark me-1 text-decoration-none" onclick="event.stopPropagation()" title="View App Profile"><i class="bi bi-app-indicator me-1"></i>${escapeHtml(productName)}</a>
-                            <span class="badge ${platformColors[storePlatform] || 'bg-info'} viewer-clickable" data-filter="platform" data-value="${escapeHtml(storePlatform)}" title="Platform"><i class="bi ${platformIcons[storePlatform] || 'bi-globe'} me-1"></i>${platformLabels[storePlatform] || 'Web'}</span>
-                        </div>` : ''}
-                        ${ad.landing_url && !ad.landing_url.includes('displayads-formats') ? (() => { try { const h = new URL(ad.landing_url).hostname.replace('www.',''); return `<div class="mt-1"><a href="${escapeHtml(ad.landing_url)}" target="_blank" rel="noopener" class="badge bg-light text-dark text-decoration-none" onclick="event.stopPropagation()" title="${escapeHtml(ad.landing_url)}"><i class="bi bi-link-45deg"></i> ${escapeHtml(h.substring(0,30))}</a></div>`; } catch(e) { return ''; } })() : ''}
-                        <div class="mt-2">
-                            ${isVideo && ad.youtube_url ? `<a href="youtube_profile.php?id=${encodeURIComponent(extractYouTubeId(ad.youtube_url))}" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()">
-                                <i class="bi bi-youtube me-1"></i>YouTube
-                            </a>` : ''}
-                            <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()">
-                                <i class="bi bi-box-arrow-up-right me-1"></i>Google
-                            </a>
-                        </div>
-                    </div>
-                    <div class="ad-meta">
-                        <div class="d-flex flex-wrap gap-1 mb-1">
-                            ${countries.length > 0 ? countries.map(c => {
-                                const flag = countryFlag(c);
-                                const name = countryName(c);
-                                return `<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="cursor:pointer" title="${escapeHtml(name)}">${flag} ${escapeHtml(name)} (${escapeHtml(c)})</span>`;
-                            }).join('') : '<span class="badge bg-light text-muted" style="font-size:.65rem"><i class="bi bi-geo-alt"></i> No country data</span>'}
-                        </div>
-                        <div class="d-flex justify-content-between align-items-center">
-                            <a href="advertiser_profile.php?id=${encodeURIComponent(ad.advertiser_id)}" class="small text-muted text-decoration-none" onclick="event.stopPropagation()" title="View Advertiser Profile"><i class="bi bi-person-fill me-1"></i>${escapeHtml(advName)}</a>
-                            <small class="text-muted">${formatDate(ad.first_seen)} - ${formatDate(ad.last_seen)}</small>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-        }).join('') + '</div>';
+                // Thumbnail
+                var thumbHtml = '';
+                var ytId = ad.youtube_url ? extractYouTubeId(ad.youtube_url) : null;
+                var thumbSrc = ad.preview_image || (ytId ? 'https://i.ytimg.com/vi/' + ytId + '/hqdefault.jpg' : null);
+                if (thumbSrc) {
+                    thumbHtml = '<div class="ad-thumb"><img src="' + escapeHtml(thumbSrc) + '" alt="" loading="lazy">' +
+                        (isVideo ? '<span class="ad-play-icon"><i class="bi bi-play-fill"></i></span>' : '') +
+                        (viewCount > 0 ? '<span class="ad-view-count"><i class="bi bi-eye-fill me-1"></i>' + viewCountStr + ' views</span>' : '') +
+                        '</div>';
+                } else if (isVideo) {
+                    thumbHtml = '<div class="ad-thumb d-flex align-items-center justify-content-center" style="background:#1a1a2e"><i class="bi bi-play-circle" style="font-size:3rem;color:rgba(255,255,255,.5)"></i></div>';
+                } else if (ad.preview_url) {
+                    thumbHtml = '<div class="ad-thumb ad-thumb-preview"><iframe src="' + escapeHtml(ad.preview_url) + '" sandbox="allow-scripts allow-same-origin" loading="lazy" scrolling="no" style="width:100%;height:100%;border:none;pointer-events:none"></iframe></div>';
+                }
 
+                // Landing URL domain
+                var landingHtml = '';
+                if (ad.landing_url && ad.landing_url.indexOf('displayads-formats') === -1) {
+                    try {
+                        var h = new URL(ad.landing_url).hostname.replace('www.', '');
+                        landingHtml = '<div class="mt-1"><a href="' + escapeHtml(ad.landing_url) + '" target="_blank" rel="noopener" class="badge bg-light text-dark text-decoration-none" onclick="event.stopPropagation()" title="' + escapeHtml(ad.landing_url) + '"><i class="bi bi-link-45deg"></i> ' + escapeHtml(h.substring(0,30)) + '</a></div>';
+                    } catch(e) {}
+                }
+
+                // Country badges with flags + full names
+                var countryHtml = '';
+                if (countries.length > 0) {
+                    countryHtml = countries.map(function(c) {
+                        var flag = countryFlag(c);
+                        var name = countryName(c);
+                        return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="' + escapeHtml(c) + '" style="cursor:pointer" title="' + escapeHtml(name) + '">' + flag + ' ' + escapeHtml(name) + ' (' + escapeHtml(c) + ')</span>';
+                    }).join(' ');
+                } else {
+                    countryHtml = '<span class="badge bg-light text-muted" style="font-size:.65rem"><i class="bi bi-geo-alt"></i> No country data</span>';
+                }
+
+                // YouTube link
+                var ytLink = '';
+                if (isVideo && ad.youtube_url && ytId) {
+                    ytLink = '<a href="youtube_profile.php?id=' + encodeURIComponent(ytId) + '" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()"><i class="bi bi-youtube me-1"></i>YouTube</a> ';
+                }
+
+                // Product badge
+                var productHtml = '';
+                if (productName && productName !== 'Unknown') {
+                    productHtml = '<div class="mt-1"><a href="app_profile.php?id=' + encodeURIComponent(productIdVal) + '" class="badge bg-warning text-dark me-1 text-decoration-none" onclick="event.stopPropagation()" title="View App Profile"><i class="bi bi-app-indicator me-1"></i>' + escapeHtml(productName) + '</a>' +
+                        '<span class="badge ' + (platformColors[storePlatform] || 'bg-info') + ' viewer-clickable" data-filter="platform" data-value="' + escapeHtml(storePlatform) + '" title="Platform"><i class="bi ' + (platformIcons[storePlatform] || 'bi-globe') + ' me-1"></i>' + (platformLabels[storePlatform] || 'Web') + '</span></div>';
+                }
+
+                cards.push('<div class="col-md-6 col-lg-4 col-xl-3 mb-4">' +
+                    '<div class="ad-card viewer-card" role="button" data-id="' + escapeHtml(ad.creative_id) + '">' +
+                    thumbHtml +
+                    '<div class="ad-card-header"><div class="d-flex justify-content-between align-items-center"><div>' +
+                    '<span class="badge badge-' + (ad.ad_type || 'text') + ' viewer-clickable" data-filter="ad_type" data-value="' + escapeHtml(ad.ad_type) + '">' + (ad.ad_type || 'text') + '</span> ' +
+                    '<span class="badge ' + (ad.status === 'active' ? 'badge-active' : 'badge-inactive') + ' viewer-clickable" data-filter="status" data-value="' + escapeHtml(ad.status) + '">' + ad.status + '</span>' +
+                    '</div><small class="text-muted">' + formatDate(ad.last_seen) + '</small></div></div>' +
+                    '<div class="ad-body">' +
+                    '<div class="ad-headline">' + escapeHtml(headline) + '</div>' +
+                    (ad.description ? '<div class="ad-description">' + escapeHtml(ad.description.substring(0, 150)) + '</div>' : '') +
+                    (ad.cta ? '<div class="mt-1"><span class="badge bg-primary">' + escapeHtml(ad.cta) + '</span></div>' : '') +
+                    productHtml +
+                    landingHtml +
+                    '<div class="mt-2">' + ytLink +
+                    '<a href="' + escapeHtml(transparencyUrl) + '" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right me-1"></i>Google</a>' +
+                    '</div></div>' +
+                    '<div class="ad-meta"><div class="d-flex flex-wrap gap-1 mb-1">' + countryHtml + '</div>' +
+                    '<div class="d-flex justify-content-between align-items-center">' +
+                    '<a href="advertiser_profile.php?id=' + encodeURIComponent(ad.advertiser_id) + '" class="small text-muted text-decoration-none" onclick="event.stopPropagation()" title="View Advertiser Profile"><i class="bi bi-person-fill me-1"></i>' + escapeHtml(advName) + '</a>' +
+                    '<small class="text-muted">' + formatDate(ad.first_seen) + ' - ' + formatDate(ad.last_seen) + '</small>' +
+                    '</div></div>' +
+                    '</div></div>');
+            } catch(cardErr) {
+                console.error('Card render error for', ad.creative_id, cardErr);
+                cards.push('<div class="col-md-6 col-lg-4 col-xl-3 mb-4"><div class="card p-3 text-danger">Error rendering ad ' + (ad.creative_id || '') + '</div></div>');
+            }
+        });
+        container.innerHTML = '<div class="row">' + cards.join('') + '</div>';
         bindCardEvents(container);
     }
 
     // ── Table Render ───────────────────────────────────────
     function renderTable(ads) {
-        const container = document.getElementById('vResults');
+        var container = document.getElementById('vResults');
         if (ads.length === 0) {
             container.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-inbox" style="font-size:3rem"></i><h5 class="mt-2">No ads found</h5></div>';
             return;
         }
 
-        let html = `<div class="table-container"><div class="table-responsive"><table class="table table-hover mb-0">
-            <thead><tr>
-                <th>Advertiser</th><th>Headline</th><th>App</th><th>Platform</th><th>Views</th><th>Type</th>
-                <th>Status</th><th>Countries</th>
-                <th>First Seen</th><th>Last Seen</th><th>Links</th>
-            </tr></thead><tbody>`;
+        var html = '<div class="table-container"><div class="table-responsive"><table class="table table-hover mb-0">' +
+            '<thead><tr><th>Advertiser</th><th>Headline</th><th>App</th><th>Platform</th><th>Views</th><th>Type</th>' +
+            '<th>Status</th><th>Countries</th><th>First Seen</th><th>Last Seen</th><th>Links</th></tr></thead><tbody>';
 
-        const tblPlatformLabels = { ios: 'iOS', playstore: 'Play Store', web: 'Web' };
-        const tblPlatformIcons = { ios: 'bi-apple', playstore: 'bi-google-play', web: 'bi-globe' };
-        const tblPlatformColors = { ios: 'bg-dark', playstore: 'bg-success', web: 'bg-info' };
+        var tblPlatformLabels = { ios: 'iOS', playstore: 'Play Store', web: 'Web' };
 
-        ads.forEach(ad => {
-            const countries = (ad.countries || '').split(',').map(c => c.trim()).filter(Boolean);
-            const advName = ad.advertiser_name || ad.advertiser_id || '-';
-            const tblProductName = ad.product_names ? ad.product_names.split('||')[0] : '';
-            const tblProductId = ad.product_id || '';
-            const tblStoreUrl = ad.store_url || '';
-            const tblStorePlatform = ad.store_platform || 'web';
-            const tblViewCount = parseInt(ad.view_count) || 0;
-            const transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
-            const tblHeadline = ad.headline || '';
-            html += `<tr class="viewer-row" role="button" data-id="${escapeHtml(ad.creative_id)}">
-                <td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="${escapeHtml(ad.advertiser_id)}" style="cursor:pointer">${escapeHtml(advName)}</span></td>
-                <td style="max-width:200px"><div class="text-truncate fw-bold" title="${escapeHtml(tblHeadline)}">${escapeHtml(tblHeadline || '-')}</div>${ad.description ? `<div class="text-truncate text-muted small" style="max-width:200px" title="${escapeHtml(ad.description)}">${escapeHtml(ad.description.substring(0,60))}</div>` : ''}</td>
-                <td>${tblProductName && tblProductName !== 'Unknown' ? `<span class="badge bg-warning text-dark viewer-clickable" data-filter="product_id" data-value="${escapeHtml(tblProductId)}" style="cursor:pointer;font-size:.75rem">${escapeHtml(tblProductName)}</span>${tblStoreUrl ? ` <a href="${escapeHtml(tblStoreUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${tblStorePlatform === 'ios' ? 'App Store' : 'Play Store'}" class="badge ${tblStorePlatform === 'ios' ? 'bg-dark' : 'bg-success'} text-decoration-none" style="font-size:.65rem"><i class="bi ${tblStorePlatform === 'ios' ? 'bi-apple' : 'bi-google-play'}"></i></a>` : ''}` : '<small class="text-muted">-</small>'}</td>
-                <td><span class="badge ${tblPlatformColors[tblStorePlatform] || 'bg-info'} viewer-clickable" data-filter="platform" data-value="${escapeHtml(tblStorePlatform)}" style="font-size:.75rem"><i class="bi ${tblPlatformIcons[tblStorePlatform] || 'bi-globe'} me-1"></i>${tblPlatformLabels[tblStorePlatform] || 'Web'}</span></td>
-                <td>${tblViewCount > 0 ? `<strong>${formatNumber(tblViewCount)}</strong>` : '<small class="text-muted">-</small>'}</td>
-                <td><span class="badge badge-${ad.ad_type || 'text'} viewer-clickable" data-filter="ad_type" data-value="${escapeHtml(ad.ad_type)}">${ad.ad_type}</span></td>
-                <td><span class="badge ${ad.status === 'active' ? 'badge-active' : 'badge-inactive'} viewer-clickable" data-filter="status" data-value="${escapeHtml(ad.status)}">${ad.status}</span></td>
-                <td>${countries.length > 0 ? countries.map(c => { const f = countryFlag(c); return `<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="${escapeHtml(c)}" style="cursor:pointer" title="${escapeHtml(countryName(c))}">${f} ${escapeHtml(c)}</span>`; }).join(' ') : '<small class="text-muted">-</small>'}</td>
-                <td><small>${formatDate(ad.first_seen)}</small></td>
-                <td><small>${formatDate(ad.last_seen)}</small></td>
-                <td><a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right"></i></a>${ad.youtube_url ? ` <a href="${escapeHtml(ad.youtube_url)}" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-youtube"></i></a>` : ''}</td>
-            </tr>`;
+        ads.forEach(function(ad) {
+            try {
+                var countries = (ad.countries || '').split(',').map(function(c) { return c.trim(); }).filter(Boolean);
+                var advName = ad.advertiser_name || ad.advertiser_id || '-';
+                var pName = ad.product_names ? ad.product_names.split('||')[0] : '';
+                var sPlatform = ad.store_platform || 'web';
+                var vCount = parseInt(ad.view_count) || 0;
+                var tUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
+                var hl = ad.headline || '';
+
+                var countryTd = countries.length > 0 ? countries.map(function(c) {
+                    return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="' + escapeHtml(c) + '" style="cursor:pointer" title="' + escapeHtml(countryName(c)) + '">' + countryFlag(c) + ' ' + escapeHtml(c) + '</span>';
+                }).join(' ') : '<small class="text-muted">-</small>';
+
+                html += '<tr class="viewer-row" role="button" data-id="' + escapeHtml(ad.creative_id) + '">' +
+                    '<td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="' + escapeHtml(ad.advertiser_id) + '" style="cursor:pointer">' + escapeHtml(advName) + '</span></td>' +
+                    '<td style="max-width:200px"><div class="text-truncate fw-bold">' + escapeHtml(hl || '-') + '</div>' + (ad.description ? '<div class="text-truncate text-muted small">' + escapeHtml(ad.description.substring(0,60)) + '</div>' : '') + '</td>' +
+                    '<td>' + (pName && pName !== 'Unknown' ? '<span class="badge bg-warning text-dark" style="font-size:.75rem">' + escapeHtml(pName) + '</span>' : '<small class="text-muted">-</small>') + '</td>' +
+                    '<td><span class="badge bg-info" style="font-size:.75rem">' + (tblPlatformLabels[sPlatform] || 'Web') + '</span></td>' +
+                    '<td>' + (vCount > 0 ? '<strong>' + formatNumber(vCount) + '</strong>' : '<small class="text-muted">-</small>') + '</td>' +
+                    '<td><span class="badge badge-' + (ad.ad_type || 'text') + '">' + (ad.ad_type || 'text') + '</span></td>' +
+                    '<td><span class="badge ' + (ad.status === 'active' ? 'badge-active' : 'badge-inactive') + '">' + ad.status + '</span></td>' +
+                    '<td>' + countryTd + '</td>' +
+                    '<td><small>' + formatDate(ad.first_seen) + '</small></td>' +
+                    '<td><small>' + formatDate(ad.last_seen) + '</small></td>' +
+                    '<td><a href="' + escapeHtml(tUrl) + '" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right"></i></a>' +
+                    (ad.youtube_url ? ' <a href="' + escapeHtml(ad.youtube_url) + '" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-youtube"></i></a>' : '') + '</td></tr>';
+            } catch(e) {
+                console.error('Table row error:', ad.creative_id, e);
+            }
         });
 
         html += '</tbody></table></div></div>';
