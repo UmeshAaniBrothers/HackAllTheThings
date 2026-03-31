@@ -38,6 +38,19 @@ if (!$isCli) {
 }
 
 set_time_limit(600); // 10 minutes max
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+
+// Catch fatal errors and return JSON
+register_shutdown_function(function() {
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+        global $isCli;
+        if (!$isCli) {
+            echo json_encode(['error' => $error['message'], 'file' => $error['file'], 'line' => $error['line']]);
+        }
+    }
+});
 
 // ── Load config ─────────────────────────────────────────
 $baseDir = dirname(__DIR__);
@@ -56,7 +69,7 @@ $processor = new Processor($db);
 
 // ── Constants ───────────────────────────────────────────
 $GOOGLE_BASE = 'https://adstransparency.google.com';
-$COOKIE_FILE = sys_get_temp_dir() . '/gads_scrape_' . posix_getpid() . '.txt';
+$COOKIE_FILE = sys_get_temp_dir() . '/gads_scrape_' . getmypid() . '.txt';
 
 // Rate limiting: be gentle to avoid server IP getting flagged
 $DELAY_BETWEEN_PAGES       = 2;    // seconds between pagination requests
@@ -461,13 +474,15 @@ function chromeUA()
 // Utilities
 // ═══════════════════════════════════════════════════════
 
+$_logBuffer = [];
+
 function output($msg, $isError = false)
 {
-    global $isCli;
+    global $isCli, $_logBuffer;
+    $_logBuffer[] = $msg;
     if ($isCli) {
         echo $msg . "\n";
     }
-    // For HTTP mode, we buffer and return as JSON at the end
 }
 
 function formatElapsed($seconds)
@@ -493,6 +508,8 @@ function finish($results, $startTime, $cookieFile, $isCli)
     output("Done.\n");
 
     if (!$isCli) {
+        global $_logBuffer;
+        $results['log'] = $_logBuffer;
         echo json_encode($results, JSON_PRETTY_PRINT);
     }
 }
