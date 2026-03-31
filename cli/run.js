@@ -91,52 +91,111 @@ const ADS_ONLY = args.includes('--ads-only');
             const page = await browser.newPage();
             await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
 
-            // Init session — must fully load and handle any consent screens
-            log('Opening Google Ads Transparency Center...');
-            await page.goto(`${GOOGLE_BASE}/?region=anywhere`, {
-                waitUntil: 'networkidle2',
-                timeout: 45000,
-            });
-            await sleep(3000);
+            // Init session — navigate to an advertiser page directly
+            // Going to the homepage can trigger Google's bot detection more easily
+            const firstAdv = advertisers[0];
+            const initUrl = `${GOOGLE_BASE}/advertiser/${firstAdv.id}?region=anywhere`;
+            log(`Opening Google Ads Transparency Center...`);
 
-            // Handle Google consent screen if present
-            try {
-                const consentBtn = await page.$('button[aria-label="Accept all"], form[action*="consent"] button, button[jsname="higCR"]');
-                if (consentBtn) {
-                    log('  Accepting Google consent...');
-                    await consentBtn.click();
-                    await sleep(2000);
-                }
-            } catch {}
-
-            // Wait for the page app to be ready (search input appears when Angular/JS is loaded)
-            try {
-                await page.waitForSelector('input[type="text"], creative-preview, .search-bar', { timeout: 10000 });
-            } catch {}
-            await sleep(1000);
-
-            // Warm up the session by doing a small test fetch
-            log('  Warming up session...');
-            const warmup = await page.evaluate(async (base) => {
-                try {
-                    const body = 'f.req=' + encodeURIComponent(JSON.stringify({ '2': 1, '3': { '12': { '1': 'test', '2': true } }, '7': { '1': 1 } }));
-                    const resp = await fetch(base + '/anji/_/rpc/SearchService/SearchCreatives?authuser=0', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body, credentials: 'include',
-                    });
-                    return { status: resp.status, ok: resp.ok };
-                } catch (e) { return { error: e.message }; }
-            }, GOOGLE_BASE);
-
-            if (warmup.error || !warmup.ok) {
-                log(`  ⚠ Warmup failed (${warmup.error || 'HTTP ' + warmup.status}), reloading...`);
-                await page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
+            let sessionReady = false;
+            for (let initAttempt = 1; initAttempt <= 3; initAttempt++) {
+                await page.goto(initUrl, {
+                    waitUntil: 'networkidle2',
+                    timeout: 45000,
+                });
                 await sleep(3000);
+
+                // Check if we got blocked by Google's "unusual traffic" page
+                const currentUrl = page.url();
+                if (currentUrl.includes('google.com/sorry') || currentUrl.includes('consent.google')) {
+                    log(`  ⚠ Google detected automation (attempt ${initAttempt}/3)`);
+
+                    if (VISIBLE) {
+                        // In visible mode, wait for user to solve CAPTCHA
+                        log('  👉 Please solve the CAPTCHA in the browser window...');
+                        log('  Waiting up to 120s for you to complete it...');
+                        try {
+                            await page.waitForFunction(
+                                () => !window.location.href.includes('google.com/sorry'),
+                                { timeout: 120000 }
+                            );
+                            log('  ✅ CAPTCHA solved! Continuing...');
+                            await sleep(2000);
+                            // Re-navigate to the advertiser page
+                            await page.goto(initUrl, { waitUntil: 'networkidle2', timeout: 45000 });
+                            await sleep(3000);
+                        } catch {
+                            log('  ❌ CAPTCHA timeout. Skipping ads scraping.');
+                            break;
+                        }
+                    } else {
+                        if (initAttempt < 3) {
+                            log(`  Waiting ${30 * initAttempt}s before retry...`);
+                            await sleep(30000 * initAttempt);
+                            // Clear cookies and try fresh
+                            const client = await page.target().createCDPSession();
+                            await client.send('Network.clearBrowserCookies');
+                            await client.detach();
+                            continue;
+                        }
+                        log('\n  ❌ Google is blocking this IP. Try again later or use --visible mode.');
+                        log('  Tip: Run with --visible, solve CAPTCHA manually, then let it continue.\n');
+                        break;
+                    }
+                }
+
+                // Handle Google consent screen if present
+                try {
+                    const consentBtn = await page.$('button[aria-label="Accept all"], form[action*="consent"] button, button[jsname="higCR"]');
+                    if (consentBtn) {
+                        log('  Accepting Google consent...');
+                        await consentBtn.click();
+                        await sleep(2000);
+                    }
+                } catch {}
+
+                // Wait for page app to be ready
+                try {
+                    await page.waitForSelector('creative-preview, .ad-row, [data-creative-id]', { timeout: 10000 });
+                } catch {}
+                await sleep(1000);
+
+                // Verify session with a test API call
+                log('  Verifying session...');
+                const warmup = await page.evaluate(async (base) => {
+                    try {
+                        const body = 'f.req=' + encodeURIComponent(JSON.stringify({ '2': 1, '3': { '12': { '1': 'test', '2': true } }, '7': { '1': 1 } }));
+                        const resp = await fetch(base + '/anji/_/rpc/SearchService/SearchCreatives?authuser=0', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body, credentials: 'include',
+                        });
+                        return { status: resp.status, ok: resp.ok };
+                    } catch (e) { return { error: e.message }; }
+                }, GOOGLE_BASE);
+
+                if (warmup.ok) {
+                    sessionReady = true;
+                    break;
+                }
+
+                log(`  ⚠ Session check failed (${warmup.error || 'HTTP ' + warmup.status})`);
+                if (initAttempt < 3) {
+                    log(`  Waiting ${15 * initAttempt}s before retry...`);
+                    await sleep(15000 * initAttempt);
+                }
             }
 
-            log('Session ready.\n');
+            if (!sessionReady) {
+                log('❌ Could not establish session with Google. Skipping ads scraping.');
+                log('  Run with: node cli/run.js --visible');
+                log('  Then solve the CAPTCHA in the browser window.\n');
+                // Skip to YouTube step
+            } else {
+                log('Session ready.\n');
+            }
 
+          if (sessionReady) {
             let adsSuccess = 0;
             let adsFailed = 0;
             let totalAdsScraped = 0;
@@ -193,6 +252,7 @@ const ADS_ONLY = args.includes('--ads-only');
                 await triggerProcessing(`  Batch ${i + 1}...`);
                 await sleep(2000);
             }
+          } // end if (sessionReady)
         }
 
         if (!ADS_ONLY) {
