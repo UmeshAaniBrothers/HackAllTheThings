@@ -12,10 +12,13 @@
  *   5. Sends YouTube data to server
  *
  * Usage:
- *   node cli/run.js                # Full pipeline
- *   node cli/run.js --visible      # Show browser (debug)
- *   node cli/run.js --youtube-only # Only YouTube
+ *   node cli/run.js                # Full pipeline (headless, reuses saved session)
+ *   node cli/run.js --visible      # Show browser (for first-time CAPTCHA solving)
+ *   node cli/run.js --youtube-only # Only YouTube metadata
  *   node cli/run.js --ads-only     # Only ads scraping
+ *
+ * First run: Use --visible, solve CAPTCHA once. Cookies are saved.
+ * After that: Run without --visible. No CAPTCHA needed ever again.
  */
 
 const puppeteer = require('puppeteer-extra');
@@ -33,6 +36,7 @@ const AUTH_TOKEN = 'ads-intelligent-2024';
 const GOOGLE_BASE = 'https://adstransparency.google.com';
 const PROJECT_DIR = path.join(__dirname, '..');
 const ADVERTISERS_FILE = path.join(PROJECT_DIR, 'advertisers.txt');
+const CHROME_PROFILE_DIR = path.join(PROJECT_DIR, '.chrome-profile'); // Persistent cookies
 
 // ── Parse Args ──────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -57,10 +61,12 @@ const ADS_ONLY = args.includes('--ads-only');
 
     let browser;
     try {
-        // Launch ONE browser for everything
+        // Launch ONE browser for everything — uses persistent profile for cookies
+        // After solving CAPTCHA once, cookies are saved and reused forever
         log('🚀 Launching Chrome...');
         browser = await puppeteer.launch({
             headless: VISIBLE ? false : 'new',
+            userDataDir: CHROME_PROFILE_DIR,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -69,7 +75,7 @@ const ADS_ONLY = args.includes('--ads-only');
             ],
             defaultViewport: { width: 1440, height: 900 },
         });
-        log('Chrome ready.\n');
+        log('Chrome ready (persistent session).\n');
 
         // ── STEP 1: Sync Advertisers ────────────────────
         log('━━━ Step 1: Syncing advertisers to server ━━━\n');

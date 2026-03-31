@@ -9,3 +9,4 @@ cli/cookies.txt
 cli/cookies_raw.txt
 cron/*.log
 node_modules/
+.chrome-profile/
