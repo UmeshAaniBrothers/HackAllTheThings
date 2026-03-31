@@ -606,7 +606,7 @@
                     countryHtml = countries.map(function(c) {
                         var flag = countryFlag(c);
                         var name = countryName(c);
-                        return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="' + escapeHtml(c) + '" style="cursor:pointer" title="' + escapeHtml(name) + '">' + flag + ' ' + escapeHtml(c) + '</span>';
+                        return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="' + escapeHtml(c) + '" style="cursor:pointer" title="' + escapeHtml(name) + ' (' + escapeHtml(c) + ')">' + flag + '</span>';
                     }).join(' ');
                 } else {
                     countryHtml = '<span class="badge bg-light text-muted" style="font-size:.65rem"><i class="bi bi-geo-alt"></i> No country data</span>';
