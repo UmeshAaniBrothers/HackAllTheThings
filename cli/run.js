@@ -154,32 +154,14 @@ const ADS_ONLY = args.includes('--ads-only');
                     }
                 } catch {}
 
-                // Wait for page app to be ready
-                try {
-                    await page.waitForSelector('creative-preview, .ad-row, [data-creative-id]', { timeout: 10000 });
-                } catch {}
-                await sleep(1000);
-
-                // Verify session with a test API call
-                log('  Verifying session...');
-                const warmup = await page.evaluate(async (base) => {
-                    try {
-                        const body = 'f.req=' + encodeURIComponent(JSON.stringify({ '2': 1, '3': { '12': { '1': 'test', '2': true } }, '7': { '1': 1 } }));
-                        const resp = await fetch(base + '/anji/_/rpc/SearchService/SearchCreatives?authuser=0', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body, credentials: 'include',
-                        });
-                        return { status: resp.status, ok: resp.ok };
-                    } catch (e) { return { error: e.message }; }
-                }, GOOGLE_BASE);
-
-                if (warmup.ok) {
+                // Verify we're on the right domain
+                const verifyUrl = page.url();
+                if (verifyUrl.includes('adstransparency.google.com')) {
                     sessionReady = true;
                     break;
                 }
 
-                log(`  ⚠ Session check failed (${warmup.error || 'HTTP ' + warmup.status})`);
+                log(`  ⚠ Not on correct page (${verifyUrl.substring(0, 60)}...)`);
                 if (initAttempt < 3) {
                     log(`  Waiting ${15 * initAttempt}s before retry...`);
                     await sleep(15000 * initAttempt);
@@ -554,103 +536,94 @@ function extractCreativeIdsFromPayload(rawJson) {
 }
 
 // ── Scrape ads for one advertiser ───────────────────────
+// Uses NETWORK INTERCEPTION — navigates to advertiser page and captures
+// the API responses as the page naturally loads them. This is exactly how
+// the Chrome extension works and is undetectable by Google.
 async function scrapeAdvertiser(page, advertiserId) {
-    // Fetch existing creative_ids to enable incremental scraping
-    process.stdout.write('  Checking existing ads... ');
-    const existingIds = await getExistingCreativeIds(advertiserId);
-    console.log(`${existingIds.size} already in DB`);
-
     const allPayloads = [];
-    let pageToken = null;
-    let pageNum = 0;
-    let totalNewAds = 0;
-    let totalExistingAds = 0;
-    let skippedPages = 0;
+    let totalAds = 0;
 
-    do {
-        pageNum++;
-        process.stdout.write(`  Page ${pageNum}...`);
-
-        const reqData = {
-            '2': 100,
-            '3': {
-                '12': { '1': '', '2': true },
-                '13': { '1': [advertiserId] },
-            },
-            '7': { '1': 1 },
-        };
-        if (pageToken) reqData['4'] = pageToken;
-
-        if (pageNum > 1) await sleep(1500);
-        else await sleep(500);
-
-        let result;
-        for (let attempt = 1; attempt <= 3; attempt++) {
-            result = await page.evaluate(async (reqData, base) => {
-                try {
-                    const body = 'f.req=' + encodeURIComponent(JSON.stringify(reqData));
-                    const resp = await fetch(base + '/anji/_/rpc/SearchService/SearchCreatives?authuser=0', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body, credentials: 'include',
-                    });
-                    if (!resp.ok) return { error: `HTTP ${resp.status}` };
-                    return { data: await resp.text() };
-                } catch (e) { return { error: e.message }; }
-            }, reqData, GOOGLE_BASE);
-
-            if (!result.error) break;
-
-            if (attempt < 3) {
-                process.stdout.write(` retry ${attempt}...`);
-                // On first failure, try reloading the page to refresh the session
-                if (attempt === 1) {
-                    try {
-                        await page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
-                        await sleep(3000);
-                    } catch {}
+    // Set up response interception to capture SearchCreatives API responses
+    const capturedResponses = [];
+    const responseHandler = async (response) => {
+        const url = response.url();
+        if (url.includes('SearchService/SearchCreatives') || url.includes('SearchService/ListCreatives')) {
+            try {
+                const text = await response.text();
+                if (text && text.startsWith('{')) {
+                    capturedResponses.push(text);
                 }
-                await sleep(2000 * attempt);
-            }
+            } catch {}
+        }
+    };
+    page.on('response', responseHandler);
+
+    try {
+        // Navigate to the advertiser's page — this triggers the natural API calls
+        const advUrl = `${GOOGLE_BASE}/advertiser/${advertiserId}?region=anywhere`;
+        await page.goto(advUrl, { waitUntil: 'networkidle2', timeout: 45000 });
+        await sleep(3000);
+
+        // Check if page loaded properly
+        const currentUrl = page.url();
+        if (currentUrl.includes('google.com/sorry')) {
+            log(' BLOCKED by Google. Try solving CAPTCHA.');
+            return [];
         }
 
-        if (result.error) { console.log(` FAILED (${result.error})`); break; }
+        // Capture the initial page load response
+        log(`  Initial load: ${capturedResponses.length} responses captured`);
 
-        let data;
-        try { data = JSON.parse(result.data); } catch { console.log(' invalid response'); break; }
+        // Scroll down repeatedly to trigger "load more" / pagination
+        let lastCount = capturedResponses.length;
+        let noNewDataRetries = 0;
+        const MAX_SCROLLS = 200; // Safety limit
 
-        const ads = data['1'] || [];
-        const count = Array.isArray(ads) ? ads.length : 0;
+        for (let scroll = 0; scroll < MAX_SCROLLS; scroll++) {
+            // Scroll to bottom
+            await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+            await sleep(1500);
 
-        // Check how many are new vs existing
-        if (count > 0) {
-            const pageIds = extractCreativeIdsFromPayload(result.data);
-            let newOnPage = 0;
-            let existingOnPage = 0;
-            for (const id of pageIds) {
-                if (existingIds.has(id)) existingOnPage++;
-                else newOnPage++;
-            }
-            totalNewAds += newOnPage;
-            totalExistingAds += existingOnPage;
+            // Also click "Show more" / "Load more" button if present
+            try {
+                const moreBtn = await page.$('button[aria-label*="more"], .load-more-button, [data-load-more], button.mat-mdc-paginator-navigation-next');
+                if (moreBtn) {
+                    await moreBtn.click();
+                    await sleep(2000);
+                }
+            } catch {}
 
-            if (newOnPage > 0) {
-                allPayloads.push(result.data);
-                console.log(` ${count} ads (${newOnPage} new, ${existingOnPage} existing)`);
+            // Check if we got new responses
+            if (capturedResponses.length > lastCount) {
+                const newResponses = capturedResponses.length - lastCount;
+                process.stdout.write(`  Scroll ${scroll + 1}: +${newResponses} responses (total: ${capturedResponses.length})\n`);
+                lastCount = capturedResponses.length;
+                noNewDataRetries = 0;
             } else {
-                skippedPages++;
-                console.log(` ${count} ads (all existing, skipped)`);
+                noNewDataRetries++;
+                if (noNewDataRetries >= 3) {
+                    // No new data after 3 scrolls — we've reached the end
+                    break;
+                }
             }
-        } else {
-            console.log(` ${count} ads`);
         }
 
-        pageToken = (data['2'] && typeof data['2'] === 'string' && data['2'] !== '') ? data['2'] : null;
-    } while (pageToken !== null);
+        // Count total ads in captured responses
+        for (const raw of capturedResponses) {
+            try {
+                const data = JSON.parse(raw);
+                const ads = data['1'] || [];
+                totalAds += Array.isArray(ads) ? ads.length : 0;
+                allPayloads.push(raw);
+            } catch {}
+        }
 
-    const total = totalNewAds + totalExistingAds;
-    log(`  Total: ${total} ads (${totalNewAds} new, ${totalExistingAds} existing)`);
-    if (skippedPages > 0) log(`  Skipped ${skippedPages} pages (all ads already in DB)`);
+        log(`  Captured ${allPayloads.length} pages, ${totalAds} total ads`);
+
+    } finally {
+        page.off('response', responseHandler);
+    }
+
     return allPayloads;
 }
 
