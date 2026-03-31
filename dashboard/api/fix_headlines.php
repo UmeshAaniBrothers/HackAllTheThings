@@ -37,6 +37,33 @@ try {
     }
     $results['bad_headlines_cleared'] = $badHeadlines;
 
+    // 1b. Clear headlines that are URLs (googlesyndication, googleusercontent, etc.)
+    $urlHeadlines = (int) $db->fetchColumn(
+        "SELECT COUNT(*) FROM ad_details
+         WHERE headline LIKE 'http%'
+            OR headline LIKE '%googlesyndication%'
+            OR headline LIKE '%googleusercontent%'
+            OR headline LIKE '%doubleclick%'
+            OR headline LIKE '%tpc.google%'
+            OR headline LIKE '%.jpg%'
+            OR headline LIKE '%.png%'
+            OR headline LIKE '%.mp4%'"
+    );
+    if ($urlHeadlines > 0) {
+        $db->query(
+            "UPDATE ad_details SET headline = NULL, headline_source = NULL
+             WHERE headline LIKE 'http%'
+                OR headline LIKE '%googlesyndication%'
+                OR headline LIKE '%googleusercontent%'
+                OR headline LIKE '%doubleclick%'
+                OR headline LIKE '%tpc.google%'
+                OR headline LIKE '%.jpg%'
+                OR headline LIKE '%.png%'
+                OR headline LIKE '%.mp4%'"
+        );
+    }
+    $results['url_headlines_cleared'] = $urlHeadlines;
+
     // 2. Clear landing_urls that are actually preview URLs
     $badUrls = (int) $db->fetchColumn(
         "SELECT COUNT(*) FROM ad_details WHERE landing_url LIKE '%displayads-formats%'"

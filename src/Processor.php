@@ -211,10 +211,14 @@ class Processor
             $t = trim($t);
             if (strlen($t) < 3) continue;
             if (preg_match('/^https?:\/\//', $t)) continue;
+            if (preg_match('/https?:\/\//', $t)) continue; // any URL anywhere in string
+            if (preg_match('/googlesyndication|googleusercontent|doubleclick|googleapis|gstatic|tpc\.google/i', $t)) continue; // Google ad infra URLs
+            if (preg_match('/\.(jpg|jpeg|png|gif|webp|svg|mp4|mp3|css|js|woff|ttf)(\?|$)/i', $t)) continue; // file extensions
             if (preg_match('/^[A-Z]{2}$/', $t)) continue; // country codes
             if (preg_match('/^(AR|CR)\d/', $t)) continue; // advertiser/creative IDs
             if (preg_match('/^\d+$/', $t)) continue; // pure numbers
             if (preg_match('/^[a-f0-9]{32,}$/i', $t)) continue; // hashes
+            if (preg_match('/^[\d\/]+$/', $t)) continue; // date-like or path-like numbers
             if (preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(|var |const |let |return |throw /i', $t)) continue; // JS code/errors
             $cleanTexts[] = $t;
         }
@@ -937,8 +941,11 @@ class Processor
             $description = $data['description'] ?? null;
             $cta         = $data['cta'] ?? null;
 
-            // Hard guard: NEVER save JS error text as headline/description
+            // Hard guard: NEVER save JS error text or URLs as headline/description
             if ($headline && preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(/i', $headline)) {
+                $headline = null;
+            }
+            if ($headline && preg_match('/^https?:\/\/|googlesyndication|googleusercontent|doubleclick|tpc\.google|\.(jpg|png|gif|mp4)(\?|$)/i', $headline)) {
                 $headline = null;
             }
             if ($description && preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(/i', $description)) {
