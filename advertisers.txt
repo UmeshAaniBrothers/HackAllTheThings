@@ -1,12 +1,21 @@
-# ╔══════════════════════════════════════════╗
-# ║   Add advertisers here — one per line    ║
-# ║   Then run: node cli/run.js              ║
-# ╚══════════════════════════════════════════╝
+# Add advertisers here - one per line
+# Format: ADVERTISER_ID | Display Name
+# Example: AR12345678901234567890 | Nike Inc
 #
-# Format: ADVERTISER_ID | Name
-# Get IDs from: https://adstransparency.google.com
+# Just the ID also works (name will be auto-fetched):
+# AR12345678901234567890
+#
+# Lines starting with # are ignored
+# After editing, run: php cli/add_advertisers.php
 
-AR00744063166606950977 | NIRAJKUMAR KANUBHAI MANGUKIYA
+AR00744063166605950977 | NIRAJKUMAR KANUBHAI MANGUKIYA
 AR02377450198621224961 | JKSOL INFOTECH LLP
 AR04832397876598407169 | Hevin Technoweb LLP
 AR12556312597520973825 | KALPESH SOJITRA
+AR18389049193906831361 | ABEEHA IT SERVICES
+AR12593885950678925313 | AD Secure LLC
+AR16845994025730179073 | Amobear PTE.LTD
+AR07563738743161487361 | Apero Technologies Group Corp
+AR16753298873316802561 | Appwin Solution
+AR03809048422846038017 | AVERROES STUDIOS (PRIVATE) LIMITED
+AR03342428968056782849 | Barly Joint Stock Company Limited
