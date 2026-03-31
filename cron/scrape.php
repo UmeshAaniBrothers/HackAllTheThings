@@ -125,16 +125,16 @@ if ($testOnly) {
 
 // Step 2: Get advertisers from database
 if ($specificId) {
-    $advertisers = [['advertiser_id' => $specificId, 'advertiser_name' => $specificId]];
+    $advertisers = [['advertiser_id' => $specificId, 'name' => $specificId]];
     // Try to get name from DB
     $row = $db->getPdo()->query(
-        "SELECT advertiser_name FROM managed_advertisers WHERE advertiser_id = " .
+        "SELECT name FROM managed_advertisers WHERE advertiser_id = " .
         $db->getPdo()->quote($specificId)
     )->fetch(PDO::FETCH_ASSOC);
-    if ($row) $advertisers[0]['advertiser_name'] = $row['advertiser_name'];
+    if ($row) $advertisers[0]['name'] = $row['name'];
 } else {
     $stmt = $db->getPdo()->query(
-        "SELECT advertiser_id, advertiser_name FROM managed_advertisers WHERE status = 'active' ORDER BY last_scraped_at ASC"
+        "SELECT advertiser_id, name FROM managed_advertisers WHERE status = 'active' ORDER BY last_fetched_at ASC"
     );
     $advertisers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
@@ -159,7 +159,7 @@ $totalAds = 0;
 foreach ($advertisers as $idx => $adv) {
     $num = $idx + 1;
     $id = $adv['advertiser_id'];
-    $name = $adv['advertiser_name'];
+    $name = $adv['name'];
     $elapsed = formatElapsed(microtime(true) - $startTime);
 
     output("--- [{$num}/" . count($advertisers) . "] {$name} ({$id}) [{$elapsed}] ---");
@@ -316,21 +316,21 @@ function storePayloads($db, $advertiserId, $advertiserName, $payloads)
 
     // Ensure advertiser exists
     $stmt = $pdo->prepare(
-        "INSERT INTO managed_advertisers (advertiser_id, advertiser_name, status, created_at)
+        "INSERT INTO managed_advertisers (advertiser_id, name, status, created_at)
          VALUES (:id, :name, 'active', NOW())
-         ON DUPLICATE KEY UPDATE advertiser_name = :name2"
+         ON DUPLICATE KEY UPDATE name = :name2"
     );
     $stmt->execute(['id' => $advertiserId, 'name' => $advertiserName, 'name2' => $advertiserName]);
 
     // Store each payload page
     $stmt = $pdo->prepare(
-        "INSERT INTO raw_payloads (advertiser_id, payload, region, processed_flag, created_at)
-         VALUES (:id, :payload, 'ANYWHERE', 0, NOW())"
+        "INSERT INTO raw_payloads (advertiser_id, raw_json, region, processed_flag, created_at)
+         VALUES (:id, :raw_json, 'ANYWHERE', 0, NOW())"
     );
 
     foreach ($payloads as $payload) {
         try {
-            $stmt->execute(['id' => $advertiserId, 'payload' => $payload]);
+            $stmt->execute(['id' => $advertiserId, 'raw_json' => $payload]);
             $stored++;
         } catch (Exception $e) {
             // Skip duplicates or errors
@@ -346,7 +346,7 @@ function updateAdvertiserStats($db, $advertiserId, $newAdsCount)
     try {
         $pdo->prepare(
             "UPDATE managed_advertisers
-             SET last_scraped_at = NOW(),
+             SET last_fetched_at = NOW(),
                  total_ads = COALESCE(total_ads, 0) + :count
              WHERE advertiser_id = :id"
         )->execute(['count' => $newAdsCount, 'id' => $advertiserId]);
