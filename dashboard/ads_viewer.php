@@ -644,7 +644,7 @@
                     ytLink +
                     '<a href="' + escapeHtml(transparencyUrl) + '" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right me-1"></i>Google</a>' +
                     '</div></div>' +
-                    '<div class="ad-meta"><div class="d-flex flex-wrap gap-1 mb-1">' + countryHtml + '</div>' +
+                    '<div class="ad-meta">' +
                     '<div class="d-flex justify-content-between align-items-center">' +
                     '<a href="advertiser_profile.php?id=' + encodeURIComponent(ad.advertiser_id) + '" class="small text-muted text-decoration-none" onclick="event.stopPropagation()" title="View Advertiser Profile"><i class="bi bi-person-fill me-1"></i>' + escapeHtml(advName) + '</a>' +
                     '<small class="text-muted">' + formatDate(ad.first_seen) + ' - ' + formatDate(ad.last_seen) + '</small>' +
