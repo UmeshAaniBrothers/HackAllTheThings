@@ -39,7 +39,7 @@ if (!$isCli) {
 
 set_time_limit(600); // 10 minutes max
 error_reporting(E_ALL);
-ini_set('display_errors', 0);
+ini_set('display_errors', 1);
 
 // Catch fatal errors and return JSON
 register_shutdown_function(function() {
@@ -54,18 +54,20 @@ register_shutdown_function(function() {
 
 // ── Load config ─────────────────────────────────────────
 $baseDir = dirname(__DIR__);
-$configFile = $baseDir . '/config.php';
+$configFile = $baseDir . '/config/config.php';
 if (!file_exists($configFile)) {
-    output("ERROR: config.php not found at {$configFile}", true);
+    echo json_encode(['error' => "config.php not found at {$configFile}"]);
     exit(1);
 }
 
-require_once $configFile;
+$config = require $configFile;
 require_once $baseDir . '/src/Database.php';
+require_once $baseDir . '/src/AssetManager.php';
 require_once $baseDir . '/src/Processor.php';
 
-$db = new Database();
-$processor = new Processor($db);
+$db = Database::getInstance($config['db']);
+$assetManager = new AssetManager($config['storage'] ?? []);
+$processor = new Processor($db, $assetManager);
 
 // ── Constants ───────────────────────────────────────────
 $GOOGLE_BASE = 'https://adstransparency.google.com';
@@ -128,13 +130,13 @@ if ($testOnly) {
 if ($specificId) {
     $advertisers = [['advertiser_id' => $specificId, 'advertiser_name' => $specificId]];
     // Try to get name from DB
-    $row = $db->getConnection()->query(
+    $row = $db->getPdo()->query(
         "SELECT advertiser_name FROM managed_advertisers WHERE advertiser_id = " .
-        $db->getConnection()->quote($specificId)
+        $db->getPdo()->quote($specificId)
     )->fetch(PDO::FETCH_ASSOC);
     if ($row) $advertisers[0]['advertiser_name'] = $row['advertiser_name'];
 } else {
-    $stmt = $db->getConnection()->query(
+    $stmt = $db->getPdo()->query(
         "SELECT advertiser_id, advertiser_name FROM managed_advertisers WHERE status = 'active' ORDER BY last_scraped_at ASC"
     );
     $advertisers = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -208,44 +210,33 @@ output("\n✅ Done: {$totalSuccess} success, {$totalFailed} failed, {$totalAds} 
 
 // Step 4: Trigger processing
 output("━━━ Processing scraped data ━━━\n");
-$steps = ['process', 'text', 'youtube', 'apps', 'countries', 'products'];
-foreach ($steps as $step) {
-    $batch = 0;
-    $didWork = true;
-    while ($didWork && $batch < 30) {
-        $batch++;
-        try {
-            if ($step === 'process') {
-                $processed = $processor->processAll(10);
-                $didWork = $processed > 0;
-                if ($didWork) output("  process #{$batch}: {$processed} ads");
-            } elseif ($step === 'text') {
-                $enriched = $processor->enrichTextAll(10);
-                $didWork = $enriched > 0;
-                if ($didWork) output("  text #{$batch}: {$enriched} enriched");
-            } elseif ($step === 'youtube') {
-                $enriched = $processor->enrichYouTubeAll(10);
-                $didWork = $enriched > 0;
-                if ($didWork) output("  youtube #{$batch}: {$enriched} enriched");
-            } elseif ($step === 'apps') {
-                $enriched = $processor->enrichAppsAll(10);
-                $didWork = $enriched > 0;
-                if ($didWork) output("  apps #{$batch}: {$enriched} enriched");
-            } elseif ($step === 'countries') {
-                $enriched = $processor->enrichCountriesAll(10);
-                $didWork = $enriched > 0;
-                if ($didWork) output("  countries #{$batch}: {$enriched} enriched");
-            } elseif ($step === 'products') {
-                $mapped = $processor->mapProductsAll(10);
-                $didWork = $mapped > 0;
-                if ($didWork) output("  products #{$batch}: {$mapped} mapped");
-            } else {
-                $didWork = false;
-            }
-        } catch (Exception $e) {
-            output("  {$step} error: " . $e->getMessage());
-            $didWork = false;
+
+$processingSteps = [
+    'process'   => 'processAll',
+    'text'      => 'enrichAdText',
+    'youtube'   => 'extractYouTubeUrls',
+    'ytmeta'    => 'enrichYouTubeMetadata',
+    'countries' => 'enrichCountriesFromGoogle',
+    'stores'    => 'enrichStoreUrlsFromPreview',
+    'apps'      => 'enrichAppMetadata',
+    'products'  => 'detectProducts',
+];
+
+foreach ($processingSteps as $label => $method) {
+    if (!method_exists($processor, $method)) {
+        output("  {$label}: skipped (method not found)");
+        continue;
+    }
+    try {
+        $result = $processor->$method();
+        $count = is_int($result) ? $result : 0;
+        if ($count > 0) {
+            output("  {$label}: {$count} processed");
+        } else {
+            output("  {$label}: up to date");
         }
+    } catch (Exception $e) {
+        output("  {$label} error: " . $e->getMessage());
     }
 }
 
@@ -323,7 +314,7 @@ function scrapeAdvertiser($advertiserId, $googleBase, $cookieFile, $perPage, $ma
 
 function storePayloads($db, $advertiserId, $advertiserName, $payloads)
 {
-    $pdo = $db->getConnection();
+    $pdo = $db->getPdo();
     $stored = 0;
 
     // Ensure advertiser exists
@@ -354,7 +345,7 @@ function storePayloads($db, $advertiserId, $advertiserName, $payloads)
 
 function updateAdvertiserStats($db, $advertiserId, $newAdsCount)
 {
-    $pdo = $db->getConnection();
+    $pdo = $db->getPdo();
     try {
         $pdo->prepare(
             "UPDATE managed_advertisers
