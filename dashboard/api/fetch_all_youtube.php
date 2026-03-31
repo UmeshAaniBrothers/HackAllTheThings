@@ -36,16 +36,37 @@ try {
     $remaining = (int) $db->fetchColumn(
         "SELECT COUNT(DISTINCT a.creative_id) FROM ads a
          INNER JOIN ad_assets ass ON ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%'
-         WHERE a.ad_type = 'video' AND (a.view_count = 0 OR a.view_count IS NULL)"
+         WHERE a.ad_type = 'video' AND (a.view_count IS NULL OR a.view_count = 0)"
     );
 
     if ($remaining === 0) {
-        echo json_encode([
+        // Also count failed ones
+        $failedCount = (int) $db->fetchColumn(
+            "SELECT COUNT(DISTINCT a.creative_id) FROM ads a
+             INNER JOIN ad_assets ass ON ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%'
+             WHERE a.ad_type = 'video' AND a.view_count = -1"
+        );
+        $resp = [
             'success' => true,
-            'message' => 'All done! Every video already has view count.',
+            'message' => 'All done! Every video has been checked.',
             'total_videos' => $totalVideos,
             'remaining' => 0,
-        ], JSON_PRETTY_PRINT);
+            'failed_videos' => $failedCount,
+        ];
+        if ($autoMode) {
+            echo '<!DOCTYPE html><html><head><title>YouTube Fetch Done</title><meta charset="utf-8">
+            <style>body{font-family:system-ui,sans-serif;max-width:500px;margin:80px auto;text-align:center;background:#f8f9fa}
+            .done{color:#198754;font-size:1.3rem;font-weight:700}.stat{color:#6c757d;font-size:.9rem;margin:8px 0}
+            .bar{background:#e9ecef;border-radius:8px;height:32px;overflow:hidden;margin:20px 0}
+            .fill{background:#198754;height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600}
+            </style></head><body><h2>📺 YouTube View Counts</h2>
+            <div class="bar"><div class="fill" style="width:100%">100%</div></div>
+            <div class="done">✅ All done! ' . $totalVideos . ' videos checked.</div>
+            ' . ($failedCount > 0 ? '<div class="stat">' . $failedCount . ' videos could not be fetched (private/deleted)</div>' : '') . '
+            <p class="stat">Regular 15-day refresh handles updates from now on.</p></body></html>';
+        } else {
+            echo json_encode($resp, JSON_PRETTY_PRINT);
+        }
         exit;
     }
 
@@ -54,7 +75,7 @@ try {
         "SELECT a.creative_id, ass.original_url as youtube_url
          FROM ads a
          INNER JOIN ad_assets ass ON ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%'
-         WHERE a.ad_type = 'video' AND (a.view_count = 0 OR a.view_count IS NULL)
+         WHERE a.ad_type = 'video' AND (a.view_count IS NULL OR a.view_count = 0)
          GROUP BY a.creative_id
          ORDER BY a.last_seen DESC
          LIMIT 100"
@@ -113,6 +134,8 @@ try {
         }
 
         if ($viewCount === null && $oembedCode !== 200) {
+            // Both failed — mark as checked with -1 so we don't retry endlessly
+            $db->update('ads', ['view_count' => -1], 'creative_id = ?', [$ad['creative_id']]);
             $failed++;
             if ($failed >= 5) {
                 $errors[] = "Stopped early: {$failed} consecutive failures (rate limited?)";
@@ -122,10 +145,8 @@ try {
         }
         $failed = 0;
 
-        // Update ads.view_count
-        if ($viewCount !== null) {
-            $db->update('ads', ['view_count' => $viewCount], 'creative_id = ?', [$ad['creative_id']]);
-        }
+        // Update ads.view_count — use 0 if we got title but no view count
+        $db->update('ads', ['view_count' => $viewCount ?? 0], 'creative_id = ?', [$ad['creative_id']]);
 
         // Update ad_details
         $description = '';
