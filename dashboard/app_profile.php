@@ -50,10 +50,10 @@
             ? `<img src="${escapeHtml(m.icon_url)}" class="app-profile-icon rounded" alt="">`
             : '<div class="app-profile-icon bg-light rounded d-flex align-items-center justify-content-center"><i class="bi bi-app" style="font-size:2rem"></i></div>';
 
-        const ratingVal = m.rating ? parseFloat(m.rating) : 0;
+        const ratingVal = m.rating ? Math.min(Math.max(parseFloat(m.rating) || 0, 0), 5) : 0;
         const fullStars = Math.floor(ratingVal);
         const halfStar = (ratingVal - fullStars) >= 0.3;
-        const emptyStars = 5 - fullStars - (halfStar ? 1 : 0);
+        const emptyStars = Math.max(0, 5 - fullStars - (halfStar ? 1 : 0));
         const ratingStars = ratingVal > 0
             ? `<div class="text-warning">${'<i class="bi bi-star-fill"></i>'.repeat(fullStars)}${halfStar ? '<i class="bi bi-star-half"></i>' : ''}${'<i class="bi bi-star"></i>'.repeat(emptyStars)} <strong>${ratingVal.toFixed(1)}</strong>${m.rating_count ? ` <span class="text-muted fw-normal">(${formatNumber(m.rating_count)})</span>` : ''}</div>`
             : '';
