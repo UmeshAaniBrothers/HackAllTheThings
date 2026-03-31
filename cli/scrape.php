@@ -33,10 +33,8 @@ $ADVERTISERS_FILE = __DIR__ . '/advertisers.txt';
 
 define('SCAN_REGIONS', [
     'IN','US','GB','CA','AU','DE','FR','JP','BR','MX',
-    'IT','ES','NL','SE','NO','DK','FI','PL','CZ','AT',
-    'CH','BE','PT','IE','NZ','SG','HK','TW','KR','TH',
-    'MY','PH','ID','VN','ZA','NG','KE','EG','SA','AE',
-    'IL','TR','RU','UA','AR','CL','CO','PE','RO','GR',
+    'IT','ES','NL','SE','PL','AT','CH','BE','NZ','SG',
+    'HK','KR','TH','MY','PH','ID','ZA','SA','AE','TR',
 ]);
 
 switch ($command) {
@@ -455,8 +453,8 @@ define('SCAN_REGIONS', [
  */
 function scanCountries($advertiserId, $googleBase, $serverUrl, $token)
 {
-    echo "=== Deep Country Scan for {$advertiserId} ===\n";
-    echo "Scanning " . count(SCAN_REGIONS) . " regions...\n\n";
+    echo "=== Country Scan for {$advertiserId} ===\n";
+    echo "Scanning " . count(SCAN_REGIONS) . " regions (3s delay each)...\n\n";
 
     // Map: creative_id => [region1, region2, ...]
     $adCountries = [];
@@ -467,9 +465,13 @@ function scanCountries($advertiserId, $googleBase, $serverUrl, $token)
         $scanned++;
         echo "  [{$scanned}/" . count(SCAN_REGIONS) . "] Region {$region}...";
 
+        // Fresh session per region (Google uses session cookie for region)
         $cookieFile = initGoogleSession($googleBase, $region);
 
-        // Fetch first page only (up to 100 ads) - fast scan
+        if ($scanned > 1) {
+            sleep(3); // 3 seconds between regions to avoid 429
+        }
+
         $freqData = [
             '2' => 100,
             '3' => [
@@ -481,8 +483,6 @@ function scanCountries($advertiserId, $googleBase, $serverUrl, $token)
 
         $url = $googleBase . '/anji/_/rpc/SearchService/SearchCreatives?authuser=0';
         $body = 'f.req=' . urlencode(json_encode($freqData));
-
-        usleep(800000); // 800ms between regions
 
         $resp = googleRequest($url, $body, $cookieFile);
         cleanupCookies($cookieFile);
