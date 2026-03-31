@@ -561,29 +561,31 @@ async function scrapeAdvertiser(page, advertiserId) {
 
     // Set up response interception to capture SearchCreatives API responses
     const capturedResponses = [];
+    let listening = true;
     const responseHandler = async (response) => {
-        const url = response.url();
-        if (url.includes('SearchService/SearchCreatives') || url.includes('SearchService/ListCreatives')) {
-            try {
-                const text = await response.text();
+        if (!listening) return;
+        try {
+            const url = response.url();
+            if (url.includes('SearchService/SearchCreatives') || url.includes('SearchService/ListCreatives')) {
+                const text = await response.text().catch(() => null);
                 if (text && text.startsWith('{')) {
                     capturedResponses.push(text);
                 }
-            } catch {}
-        }
+            }
+        } catch {} // Silently ignore detached frame errors
     };
     page.on('response', responseHandler);
 
     try {
         // Navigate to the advertiser's page — this triggers the natural API calls
         const advUrl = `${GOOGLE_BASE}/advertiser/${advertiserId}?region=anywhere`;
-        await page.goto(advUrl, { waitUntil: 'networkidle2', timeout: 45000 });
+        await page.goto(advUrl, { waitUntil: 'networkidle2', timeout: 45000 }).catch(() => {});
         await sleep(3000);
 
         // Check if page loaded properly
         const currentUrl = page.url();
         if (currentUrl.includes('google.com/sorry')) {
-            log(' BLOCKED by Google. Try solving CAPTCHA.');
+            log('  BLOCKED by Google. Try solving CAPTCHA.');
             return [];
         }
 
@@ -597,7 +599,9 @@ async function scrapeAdvertiser(page, advertiserId) {
 
         for (let scroll = 0; scroll < MAX_SCROLLS; scroll++) {
             // Scroll to bottom
-            await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+            try {
+                await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+            } catch { break; } // Page navigated away
             await sleep(1500);
 
             // Also click "Show more" / "Load more" button if present
@@ -637,6 +641,7 @@ async function scrapeAdvertiser(page, advertiserId) {
         log(`  Captured ${allPayloads.length} pages, ${totalAds} total ads`);
 
     } finally {
+        listening = false;
         page.off('response', responseHandler);
     }
 
