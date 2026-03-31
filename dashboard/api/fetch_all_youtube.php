@@ -36,7 +36,7 @@ try {
     $remaining = (int) $db->fetchColumn(
         "SELECT COUNT(DISTINCT a.creative_id) FROM ads a
          INNER JOIN ad_assets ass ON ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%'
-         WHERE a.ad_type = 'video' AND (a.view_count IS NULL OR a.view_count = 0)"
+         WHERE a.ad_type = 'video' AND (a.view_count IS NULL)"
     );
 
     if ($remaining === 0) {
@@ -75,7 +75,7 @@ try {
         "SELECT a.creative_id, ass.original_url as youtube_url
          FROM ads a
          INNER JOIN ad_assets ass ON ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%'
-         WHERE a.ad_type = 'video' AND (a.view_count IS NULL OR a.view_count = 0)
+         WHERE a.ad_type = 'video' AND (a.view_count IS NULL)
          GROUP BY a.creative_id
          ORDER BY a.last_seen DESC
          LIMIT 100"
