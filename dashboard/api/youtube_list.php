@@ -58,7 +58,7 @@ try {
              INNER JOIN youtube_metadata ym ON ym.video_id = SUBSTRING_INDEX(SUBSTRING_INDEX(ass.original_url, 'v=', -1), '&', 1)
              WHERE a.ad_type = 'video'
                 AND a.view_count > 0
-                AND ym.fetched_at < DATE_SUB(NOW(), INTERVAL 15 DAY)
+                AND ym.fetched_at < DATE_SUB(NOW(), INTERVAL 1 DAY)
              GROUP BY a.creative_id
              ORDER BY ym.fetched_at ASC
              LIMIT 200"

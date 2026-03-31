@@ -1814,7 +1814,7 @@ class Processor
              INNER JOIN youtube_metadata ym ON CONCAT('https://www.youtube.com/watch?v=', ym.video_id) COLLATE utf8mb4_unicode_ci = ass.original_url COLLATE utf8mb4_unicode_ci
              WHERE a.ad_type = 'video'
                AND a.view_count > 0
-               AND ym.fetched_at < DATE_SUB(NOW(), INTERVAL 15 DAY)
+               AND ym.fetched_at < DATE_SUB(NOW(), INTERVAL 1 DAY)
              ORDER BY ym.fetched_at ASC
              LIMIT 30"
         );
