@@ -1,12 +1,10 @@
-# Add advertisers here - one per line
-# Format: ADVERTISER_ID | Display Name
-# Example: AR12345678901234567890 | Nike Inc
+# ╔══════════════════════════════════════════╗
+# ║   Add advertisers here — one per line    ║
+# ║   Then run: node cli/run.js              ║
+# ╚══════════════════════════════════════════╝
 #
-# Just the ID also works (name will be auto-fetched):
-# AR12345678901234567890
-#
-# Lines starting with # are ignored
-# After editing, run: php cli/add_advertisers.php
+# Format: ADVERTISER_ID | Name
+# Get IDs from: https://adstransparency.google.com
 
 AR00744063166606950977 | NIRAJKUMAR KANUBHAI MANGUKIYA
 AR02377450198621224961 | JKSOL INFOTECH LLP
