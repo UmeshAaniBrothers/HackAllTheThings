@@ -17,21 +17,27 @@ if ($token !== 'ads-intelligent-2024') {
 }
 
 $limit = min((int)($_GET['limit'] ?? 3), 10);
+$testCreative = $_GET['creative'] ?? '';
+$testAdvertiser = $_GET['advertiser'] ?? '';
 
 try {
     $db = Database::getInstance($config['db']);
 
-    // Override: just do a small batch
-    $ads = $db->fetchAll(
-        "SELECT a.creative_id, a.advertiser_id,
-                (SELECT COUNT(DISTINCT t.country) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as country_count
-         FROM ads a
-         WHERE a.status = 'active'
-         HAVING country_count <= 1
-         ORDER BY a.last_seen DESC
-         LIMIT ?",
-        [$limit]
-    );
+    // If specific creative provided, test that one
+    if ($testCreative && $testAdvertiser) {
+        $ads = [['creative_id' => $testCreative, 'advertiser_id' => $testAdvertiser, 'country_count' => 0]];
+    } else {
+        $ads = $db->fetchAll(
+            "SELECT a.creative_id, a.advertiser_id,
+                    (SELECT COUNT(DISTINCT t.country) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as country_count
+             FROM ads a
+             WHERE a.status = 'active'
+             HAVING country_count <= 1
+             ORDER BY a.last_seen DESC
+             LIMIT ?",
+            [$limit]
+        );
+    }
 
     if (empty($ads)) {
         echo json_encode(['success' => true, 'message' => 'No ads need country enrichment']);
