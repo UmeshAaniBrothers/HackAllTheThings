@@ -87,6 +87,14 @@ try {
         logMsg("Store URL enrichment error: " . $e->getMessage());
     }
 
+    // Step 4b: Enrich per-ad countries from Google Lookup API
+    $countriesEnriched = 0;
+    try {
+        $countriesEnriched = $processor->enrichCountriesFromGoogle();
+    } catch (Exception $e) {
+        logMsg("Country enrichment error: " . $e->getMessage());
+    }
+
     // Step 5: Detect products from headlines/URLs for unmapped ads
     $productsMapped = 0;
     try {
@@ -195,6 +203,7 @@ try {
         'success'   => true,
         'processed' => $processed,
         'text_enriched' => $textEnriched,
+        'countries_enriched' => $countriesEnriched,
         'youtube'   => $ytExtracted,
         'enriched'  => $ytEnriched,
         'store_urls_detected' => $storeEnriched,
