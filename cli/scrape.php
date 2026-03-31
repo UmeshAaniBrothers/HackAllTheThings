@@ -52,7 +52,7 @@ switch ($command) {
         break;
     case 'add':
         if (empty($arg)) die("Usage: php cli/scrape.php add AR1234... \"Company Name\" [region]\n");
-        $region = $argv[4] ?? 'IN';
+        $region = $argv[4] ?? 'anywhere';
         addAdvertiser($arg, $arg2 ?: $arg, $region, $ADVERTISERS_FILE);
         break;
     case 'list':
@@ -81,8 +81,8 @@ switch ($command) {
         echo "Usage:\n";
         echo "  php cli/scrape.php test                              Test connections\n";
         echo "  php cli/scrape.php search \"Nike\"                     Search advertisers\n";
-        echo "  php cli/scrape.php fetch AR1234... \"Name\" [region]   Fetch ads (region: IN,US,GB...)\n";
-        echo "  php cli/scrape.php add AR1234... \"Name\" [region]     Add to list (default: IN)\n";
+        echo "  php cli/scrape.php fetch AR1234... \"Name\" [region]   Fetch ads (region: IN,US,GB,anywhere)\n";
+        echo "  php cli/scrape.php add AR1234... \"Name\" [region]     Add to list (default: anywhere = all regions)\n";
         echo "  php cli/scrape.php list                              Show saved advertisers\n";
         echo "  php cli/scrape.php fetchall                          Fetch ALL saved advertisers\n";
         echo "  php cli/scrape.php enrich                            Extract YouTube URLs locally\n";
@@ -367,7 +367,7 @@ function listAdvertisers($filePath)
         $parts = explode('|', $line, 3);
         $id = trim($parts[0]);
         $name = isset($parts[1]) ? trim($parts[1]) : $id;
-        $region = isset($parts[2]) ? trim($parts[2]) : 'IN';
+        $region = isset($parts[2]) ? trim($parts[2]) : 'anywhere';
         echo str_pad($id, 28) . str_pad($region, 10) . $name . "\n";
         $count++;
     }
@@ -391,7 +391,7 @@ function fetchAllAdvertisers($filePath, $googleBase, $serverUrl, $token)
         $parts = explode('|', $line, 3);
         $id = trim($parts[0]);
         $name = isset($parts[1]) ? trim($parts[1]) : $id;
-        $region = isset($parts[2]) ? trim($parts[2]) : 'IN';
+        $region = isset($parts[2]) ? trim($parts[2]) : 'anywhere';
         if ($id !== '') {
             $advertisers[] = ['id' => $id, 'name' => $name, 'region' => $region];
         }
