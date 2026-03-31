@@ -21,11 +21,13 @@ class Processor
      * Process all unprocessed raw payloads.
      * Returns the number of payloads processed.
      */
-    public function processAll(): int
+    public function processAll(int $limit = 0): int
     {
-        $rows = $this->db->fetchAll(
-            "SELECT id, advertiser_id, raw_json FROM raw_payloads WHERE processed_flag = 0 ORDER BY id ASC"
-        );
+        $sql = "SELECT id, advertiser_id, raw_json FROM raw_payloads WHERE processed_flag = 0 ORDER BY id ASC";
+        if ($limit > 0) {
+            $sql .= " LIMIT {$limit}";
+        }
+        $rows = $this->db->fetchAll($sql);
 
         $processed = 0;
 

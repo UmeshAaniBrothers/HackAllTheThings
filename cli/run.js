@@ -236,9 +236,13 @@ const ADS_ONLY = args.includes('--ads-only');
 
             // ── STEP 3: Process on Server ───────────────
             log('━━━ Step 3: Processing ads on server ━━━\n');
-            for (let i = 0; i < 5; i++) {
-                await triggerProcessing(`  Batch ${i + 1}...`);
-                await sleep(2000);
+            // Call with limit param to process in small chunks (avoids PHP timeout)
+            let processedAny = true;
+            let batchNum = 0;
+            while (processedAny && batchNum < 50) {
+                batchNum++;
+                processedAny = await triggerProcessing(`  Batch ${batchNum}...`);
+                if (processedAny) await sleep(1000);
             }
           } // end if (sessionReady)
         }
@@ -438,7 +442,13 @@ const ADS_ONLY = args.includes('--ads-only');
 
             /// ── STEP 6: Final Processing ────────────────
             log('\n━━━ Step 6: Final processing ━━━\n');
-            await triggerProcessing('  Processing...');
+            let finalBatch = 0;
+            let finalDidWork = true;
+            while (finalDidWork && finalBatch < 20) {
+                finalBatch++;
+                finalDidWork = await triggerProcessing(`  Batch ${finalBatch}...`);
+                if (finalDidWork) await sleep(1000);
+            }
         }
 
     } catch (err) {
@@ -818,17 +828,21 @@ async function fetchYouTubeMetadata(page, videoId) {
 async function triggerProcessing(label) {
     process.stdout.write(label + ' ');
     try {
-        const url = `${SERVER_URL}/cron/process.php?token=${AUTH_TOKEN}`;
-        const result = JSON.parse(await httpGet(url, 60000));
+        // Add limit=5 to process only 5 payloads per call (avoids PHP timeout)
+        const url = `${SERVER_URL}/cron/process.php?token=${AUTH_TOKEN}&limit=5`;
+        const result = JSON.parse(await httpGet(url, 120000)); // 2 min timeout
         const parts = [];
-        if (result.processed > 0) parts.push(`${result.processed} ads`);
-        if (result.text_enriched > 0) parts.push(`${result.text_enriched} text`);
-        if (result.youtube > 0) parts.push(`${result.youtube} YT`);
-        if (result.countries_enriched > 0) parts.push(`${result.countries_enriched} countries`);
-        if (result.products_mapped > 0) parts.push(`${result.products_mapped} products`);
+        let didWork = false;
+        if (result.processed > 0) { parts.push(`${result.processed} ads`); didWork = true; }
+        if (result.text_enriched > 0) { parts.push(`${result.text_enriched} text`); didWork = true; }
+        if (result.youtube > 0) { parts.push(`${result.youtube} YT`); didWork = true; }
+        if (result.countries_enriched > 0) { parts.push(`${result.countries_enriched} countries`); didWork = true; }
+        if (result.products_mapped > 0) { parts.push(`${result.products_mapped} products`); didWork = true; }
         console.log(parts.length > 0 ? `✅ ${parts.join(', ')}` : '✅ Up to date');
+        return didWork;
     } catch (err) {
         console.log(`⚠️ ${err.message}`);
+        return false;
     }
 }
 

@@ -47,10 +47,11 @@ try {
     $assetManager = new AssetManager($config['storage'] ?? array());
     $processor = new Processor($db, $assetManager);
 
-    // Step 1: Process raw payloads
+    // Step 1: Process raw payloads (with optional limit to avoid PHP timeout)
+    $limit = isset($_GET['limit']) ? max(1, min(50, (int)$_GET['limit'])) : 0; // 0 = no limit
     $processed = 0;
     try {
-        $processed = $processor->processAll();
+        $processed = $processor->processAll($limit);
     } catch (Exception $e) {
         logMsg("Payload processing error: " . $e->getMessage());
     }
