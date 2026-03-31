@@ -1774,12 +1774,17 @@ class Processor
      * Fetch YouTube metadata (title, view count, thumbnail) for video ads.
      * Uses YouTube oEmbed for title and page scraping for view count.
      * Updates ad_details with title and view count info.
+     *
+     * Two modes:
+     * 1. First fetch: ads with no view_count or no headline (always fetch)
+     * 2. Refresh: ads already enriched but youtube_metadata.fetched_at > 15 days ago
+     *
      * Returns number of ads enriched.
      */
     public function enrichYouTubeMetadata()
     {
-        // Get video ads that have a YouTube URL but no headline OR no view_count
-        $ads = $this->db->fetchAll(
+        // Part 1: First-time fetch — no view_count or no headline
+        $newAds = $this->db->fetchAll(
             "SELECT a.creative_id, a.view_count,
                     (SELECT original_url FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url,
                     (SELECT d2.headline FROM ad_details d2 WHERE d2.creative_id = a.creative_id ORDER BY d2.id DESC LIMIT 1) as current_headline
@@ -1789,8 +1794,33 @@ class Processor
                AND (a.view_count = 0 OR a.view_count IS NULL
                     OR NOT EXISTS (SELECT 1 FROM ad_details d WHERE d.creative_id = a.creative_id AND d.headline IS NOT NULL AND d.headline != ''))
              ORDER BY a.last_seen DESC
-             LIMIT 80"
+             LIMIT 50"
         );
+
+        // Part 2: Refresh — already have view_count, but fetched_at > 15 days ago
+        $staleAds = $this->db->fetchAll(
+            "SELECT a.creative_id, a.view_count,
+                    ass.original_url as youtube_url,
+                    (SELECT d2.headline FROM ad_details d2 WHERE d2.creative_id = a.creative_id ORDER BY d2.id DESC LIMIT 1) as current_headline
+             FROM ads a
+             INNER JOIN ad_assets ass ON ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%'
+             INNER JOIN youtube_metadata ym ON CONCAT('https://www.youtube.com/watch?v=', ym.video_id) COLLATE utf8mb4_unicode_ci = ass.original_url COLLATE utf8mb4_unicode_ci
+             WHERE a.ad_type = 'video'
+               AND a.view_count > 0
+               AND ym.fetched_at < DATE_SUB(NOW(), INTERVAL 15 DAY)
+             ORDER BY ym.fetched_at ASC
+             LIMIT 30"
+        );
+
+        $ads = array_merge($newAds, $staleAds);
+
+        // Deduplicate by creative_id
+        $seen = [];
+        $ads = array_filter($ads, function($ad) use (&$seen) {
+            if (isset($seen[$ad['creative_id']])) return false;
+            $seen[$ad['creative_id']] = true;
+            return true;
+        });
 
         if (empty($ads)) {
             return 0;
@@ -1822,7 +1852,7 @@ class Processor
             }
             $failed = 0; // Reset on success
 
-            // Update ad_details with YouTube title and view count
+            // Build description from YouTube metadata
             $headline = $meta['title'] ?: null;
             $description = '';
             if ($meta['view_count'] !== null) {
@@ -1839,18 +1869,24 @@ class Processor
                 ], 'creative_id = ?', [$ad['creative_id']]);
             }
 
+            // Check if this is a refresh (already has view_count) or first-time
+            $isRefresh = !empty($ad['view_count']) && $ad['view_count'] > 0;
+
             // Update existing detail or insert new one
             $existingDetail = $this->db->fetchOne(
-                "SELECT id FROM ad_details WHERE creative_id = ? ORDER BY id DESC LIMIT 1",
+                "SELECT id, headline, headline_source FROM ad_details WHERE creative_id = ? ORDER BY id DESC LIMIT 1",
                 [$ad['creative_id']]
             );
 
             if ($existingDetail) {
-                $this->db->update('ad_details', [
-                    'headline'        => $headline,
-                    'description'     => $description ?: null,
-                    'headline_source' => 'youtube',
-                ], 'id = ?', [$existingDetail['id']]);
+                $updateData = ['description' => $description ?: null];
+                // Only set headline from YouTube if no real ad headline exists
+                $hasRealHeadline = !empty($existingDetail['headline']) && $existingDetail['headline_source'] === 'ad';
+                if (!$hasRealHeadline && $headline) {
+                    $updateData['headline'] = $headline;
+                    $updateData['headline_source'] = 'youtube';
+                }
+                $this->db->update('ad_details', $updateData, 'id = ?', [$existingDetail['id']]);
             } else {
                 $this->db->insert('ad_details', [
                     'creative_id'     => $ad['creative_id'],
@@ -1882,7 +1918,9 @@ class Processor
             usleep(300000); // 300ms between YouTube requests
         }
 
-        $this->log("Enriched {$enriched} video ads with YouTube metadata");
+        $newCount = count($newAds);
+        $staleCount = count($staleAds);
+        $this->log("YouTube enrichment: {$enriched} updated ({$newCount} new, {$staleCount} refreshed after 15d)");
         return $enriched;
     }
 
