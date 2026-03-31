@@ -6,7 +6,10 @@
  *
  * Usage: /dashboard/api/fetch_all_youtube.php?token=ads-intelligent-2024
  */
-header('Content-Type: application/json');
+$autoMode = isset($_GET['auto']);
+if (!$autoMode) {
+    header('Content-Type: application/json');
+}
 set_time_limit(300);
 
 $basePath = dirname(dirname(__DIR__));
@@ -174,18 +177,53 @@ try {
 
     $newRemaining = $remaining - $enriched;
 
-    echo json_encode([
-        'success'       => true,
-        'total_videos'  => $totalVideos,
-        'fetched_now'   => $enriched,
-        'remaining'     => $newRemaining,
-        'errors'        => $errors,
-        'message'       => $newRemaining > 0
-            ? "Fetched {$enriched} videos. Run again for remaining {$newRemaining}."
-            : "All done! Fetched {$enriched} videos. All videos now have view counts.",
-    ], JSON_PRETTY_PRINT);
+    if ($autoMode) {
+        // Auto mode: show progress page and auto-continue
+        $done = $newRemaining <= 0;
+        $pct = $totalVideos > 0 ? round(($totalVideos - $newRemaining) / $totalVideos * 100) : 100;
+        echo '<!DOCTYPE html><html><head><title>YouTube Fetch Progress</title>
+        <meta charset="utf-8"><style>
+        body{font-family:system-ui,sans-serif;max-width:500px;margin:80px auto;text-align:center;background:#f8f9fa}
+        .bar{background:#e9ecef;border-radius:8px;height:32px;overflow:hidden;margin:20px 0}
+        .fill{background:#0d6efd;height:100%;transition:width .3s;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:.85rem}
+        .stat{color:#6c757d;font-size:.9rem;margin:8px 0}
+        .done{color:#198754;font-size:1.3rem;font-weight:700}
+        </style>';
+        if (!$done) {
+            echo '<meta http-equiv="refresh" content="2;url=?token=' . urlencode($_GET['token']) . '&auto">';
+        }
+        echo '</head><body>';
+        echo '<h2>📺 Fetching YouTube View Counts</h2>';
+        echo '<div class="bar"><div class="fill" style="width:' . $pct . '%">' . $pct . '%</div></div>';
+        echo '<div class="stat">Batch: ' . $enriched . ' fetched | Remaining: ' . $newRemaining . ' / ' . $totalVideos . '</div>';
+        if (!empty($errors)) {
+            echo '<div style="color:#dc3545;font-size:.85rem">' . implode('<br>', array_map('htmlspecialchars', $errors)) . '</div>';
+        }
+        if ($done) {
+            echo '<div class="done">✅ All done! All ' . $totalVideos . ' videos have view counts.</div>';
+            echo '<p class="stat">Regular 15-day refresh will handle updates from now on.</p>';
+        } else {
+            echo '<div class="stat">⏳ Auto-continuing in 2 seconds...</div>';
+        }
+        echo '</body></html>';
+    } else {
+        echo json_encode([
+            'success'       => true,
+            'total_videos'  => $totalVideos,
+            'fetched_now'   => $enriched,
+            'remaining'     => $newRemaining,
+            'errors'        => $errors,
+            'message'       => $newRemaining > 0
+                ? "Fetched {$enriched} videos. Run again for remaining {$newRemaining}."
+                : "All done! Fetched {$enriched} videos. All videos now have view counts.",
+        ], JSON_PRETTY_PRINT);
+    }
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    if ($autoMode) {
+        echo '<div style="color:red;text-align:center;margin:80px auto;font-family:sans-serif"><h3>Error</h3><p>' . htmlspecialchars($e->getMessage()) . '</p></div>';
+    } else {
+        http_response_code(500);
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    }
 }
