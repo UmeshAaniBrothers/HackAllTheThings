@@ -93,6 +93,7 @@ if ($isCli) {
 } else {
     $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 0;
     $specificId = $_GET['id'] ?? null;
+    if (isset($_GET['test'])) $testOnly = true;
 }
 
 // ── Main ────────────────────────────────────────────────
@@ -440,7 +441,7 @@ function googleRequest($url, $body, $cookieFile)
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => $body,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 30,
+        CURLOPT_TIMEOUT        => 15,
         CURLOPT_COOKIEFILE     => $cookieFile,
         CURLOPT_COOKIEJAR      => $cookieFile,
         CURLOPT_FOLLOWLOCATION => true,
