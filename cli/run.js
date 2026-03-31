@@ -130,10 +130,67 @@ const ADS_ONLY = args.includes('--ads-only');
         }
 
         if (!ADS_ONLY) {
-            // ── STEP 4: YouTube Metadata ────────────────
-            log('\n━━━ Step 4: Fetching YouTube view counts ━━━\n');
+            // ── STEP 4: Extract YouTube URLs from preview ─
+            log('\n━━━ Step 4: Extracting YouTube URLs from video ads ━━━\n');
 
-            // Get video ads from server (existing API)
+            const allVideoAds = await getVideoAdsFromServer();
+            const needExtraction = allVideoAds.filter(a => a.ad_type === 'video' && !a.youtube_url && a.preview_url);
+            log(`Found ${allVideoAds.length} video ads, ${needExtraction.length} need YouTube URL extraction\n`);
+
+            if (needExtraction.length > 0) {
+                const extractPage = await browser.newPage();
+
+                // Block heavy resources
+                await extractPage.setRequestInterception(true);
+                extractPage.on('request', (req) => {
+                    const type = req.resourceType();
+                    if (['image', 'stylesheet', 'font', 'media'].includes(type)) {
+                        req.abort();
+                    } else {
+                        req.continue();
+                    }
+                });
+
+                let extracted = 0;
+                const enrichBatch = [];
+
+                for (let i = 0; i < needExtraction.length; i++) {
+                    const ad = needExtraction[i];
+                    if (i % 50 === 0 && i > 0) {
+                        process.stdout.write(`  [${i}/${needExtraction.length}] Extracted ${extracted} YouTube URLs so far\n`);
+                        // Send enrichment batch
+                        if (enrichBatch.length > 0) {
+                            await sendEnrichmentsToServer(enrichBatch.splice(0));
+                        }
+                    }
+
+                    try {
+                        const ytId = await extractYouTubeIdFromPreview(extractPage, ad.preview_url);
+                        if (ytId) {
+                            enrichBatch.push({
+                                creative_id: ad.creative_id,
+                                youtube_url: `https://www.youtube.com/watch?v=${ytId}`,
+                                thumbnail: `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
+                            });
+                            extracted++;
+                        }
+                    } catch (e) {}
+
+                    await sleep(200); // Small delay
+                }
+
+                // Send remaining
+                if (enrichBatch.length > 0) {
+                    await sendEnrichmentsToServer(enrichBatch);
+                }
+
+                await extractPage.close();
+                log(`  ✅ Extracted ${extracted} YouTube URLs from ${needExtraction.length} video ads\n`);
+            }
+
+            // Refresh the list now that we have YouTube URLs
+            log('\n━━━ Step 5: Fetching YouTube view counts ━━━\n');
+
             const videoAds = await getVideoAdsFromServer();
             const pending = videoAds.filter(a => a.youtube_url && (!a.view_count || a.view_count === 0));
             log(`Found ${videoAds.length} video ads, ${pending.length} need YouTube data\n`);
@@ -238,8 +295,8 @@ const ADS_ONLY = args.includes('--ads-only');
                 log(`\n✅ YouTube: ${ytFetched} fetched, ${ytFailed} failed\n`);
             }
 
-            // ── STEP 5: Final Processing ────────────────
-            log('━━━ Step 5: Final processing ━━━\n');
+            /// ── STEP 6: Final Processing ────────────────
+            log('\n━━━ Step 6: Final processing ━━━\n');
             await triggerProcessing('  Processing...');
         }
 
@@ -418,6 +475,52 @@ async function sendYouTubeToServer(batch) {
         console.log('OK');
     } catch (err) {
         console.log(`FAILED: ${err.message}`);
+    }
+}
+
+// ── Extract YouTube ID from Google preview URL ──────────
+async function extractYouTubeIdFromPreview(page, previewUrl) {
+    try {
+        const result = await page.evaluate(async (url) => {
+            try {
+                const resp = await fetch(url, {
+                    headers: { 'Referer': 'https://adstransparency.google.com/' },
+                    credentials: 'omit',
+                });
+                if (!resp.ok) return null;
+                const text = await resp.text();
+
+                // Decode hex escapes
+                let decoded = text;
+                decoded = decoded.replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+                decoded = decoded.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+
+                // Try multiple patterns
+                let m;
+                m = decoded.match(/['"]video_videoId['"]\s*:\s*['"]([a-zA-Z0-9_-]{11})['"]/);
+                if (m) return m[1];
+                m = decoded.match(/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//);
+                if (m) return m[1];
+                m = decoded.match(/youtube\.com\/(?:embed\/|watch\?v=|v\/)([a-zA-Z0-9_-]{11})/);
+                if (m) return m[1];
+                m = decoded.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+                if (m) return m[1];
+
+                return null;
+            } catch { return null; }
+        }, previewUrl);
+
+        return result;
+    } catch { return null; }
+}
+
+// ── Send YouTube URL enrichments to server ──────────────
+async function sendEnrichmentsToServer(batch) {
+    try {
+        const url = `${SERVER_URL}/dashboard/api/ingest.php?action=enrich_ads&token=${AUTH_TOKEN}`;
+        await httpPost(url, { enrichments: batch });
+    } catch (err) {
+        log(`  ⚠ Enrichment send failed: ${err.message}`);
     }
 }
 
