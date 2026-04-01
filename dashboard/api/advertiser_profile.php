@@ -154,6 +154,22 @@ try {
         [$advertiserId, $perPage, $offset]
     );
 
+    // 8b. Developer ecosystem: group apps by developer account
+    $developers = $db->fetchAll(
+        "SELECT am.developer_name, am.developer_url,
+                COUNT(DISTINCT p.id) as app_count,
+                GROUP_CONCAT(DISTINCT p.id ORDER BY p.product_name SEPARATOR ',') as product_ids,
+                GROUP_CONCAT(DISTINCT COALESCE(NULLIF(am.app_name, ''), p.product_name) ORDER BY p.product_name SEPARATOR '||') as app_names,
+                GROUP_CONCAT(DISTINCT am.icon_url ORDER BY p.product_name SEPARATOR '||') as icon_urls
+         FROM ad_products p
+         INNER JOIN app_metadata am ON am.product_id = p.id
+         WHERE p.advertiser_id = ? AND p.store_platform IN ('ios', 'playstore')
+           AND am.developer_name IS NOT NULL AND am.developer_name != ''
+         GROUP BY am.developer_name, am.developer_url
+         ORDER BY app_count DESC",
+        [$advertiserId]
+    );
+
     // 9. Competitors: other advertisers promoting same apps
     $competitors = [];
     if (!empty($apps)) {
@@ -203,6 +219,7 @@ try {
         'stats'            => $stats,
         'ad_types'         => $adTypes,
         'apps'             => $apps,
+        'developers'       => $developers,
         'videos'           => $videos,
         'countries'        => $countries,
         'timeline'         => $timeline,

@@ -50,6 +50,10 @@
     .app-sidebar-card .app-meta .sub { font-size: .72rem; color: #999; }
     .app-sidebar-card .ad-count-badge { background: var(--ai-primary); color: #fff; border-radius: 12px; padding: 2px 8px; font-size: .7rem; font-weight: 600; flex-shrink: 0; }
 
+    .dev-ecosystem-card { background: #fafbfc; transition: box-shadow .15s; }
+    .dev-ecosystem-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    .dev-icon-circle { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, var(--ai-primary), #6366f1); color: #fff; display: flex; align-items: center; justify-content: center; font-size: .9rem; flex-shrink: 0; }
+
     .platform-bar { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
     .platform-bar .plat-label { min-width: 80px; font-size: .8rem; font-weight: 500; }
     .platform-bar .plat-fill { height: 18px; border-radius: 3px; background: var(--ai-info); transition: width .3s; }
@@ -298,6 +302,37 @@
                     </div>
                     <span class="ad-count-badge">${formatNumber(app.ad_count)} ads</span>
                 </a>`;
+            });
+            html += `</div></div>`;
+        }
+
+        // Developer Ecosystem
+        if (data.developers && data.developers.length > 0) {
+            html += `<div class="card mb-4"><div class="card-body">
+                <h5 class="section-title"><i class="bi bi-people-fill me-2"></i>Developer Accounts (${data.developers.length})</h5>
+                <p class="text-muted small mb-3">Apps are published under these developer accounts on the App Store</p>`;
+            data.developers.forEach(function(dev) {
+                var appNames = (dev.app_names || '').split('||').filter(Boolean);
+                var iconUrls = (dev.icon_urls || '').split('||').filter(Boolean);
+                var devUrl = dev.developer_url || '';
+                html += `<div class="dev-ecosystem-card mb-3 p-3 border rounded">
+                    <div class="d-flex align-items-center mb-2">
+                        <div class="dev-icon-circle me-2"><i class="bi bi-person-badge-fill"></i></div>
+                        <div class="flex-grow-1">
+                            <div class="fw-bold">${escapeHtml(dev.developer_name)}</div>
+                            <small class="text-muted">${dev.app_count} app${dev.app_count > 1 ? 's' : ''}</small>
+                        </div>
+                        ${devUrl ? '<a href="' + escapeHtml(devUrl) + '" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-2" title="View on App Store"><i class="bi bi-box-arrow-up-right"></i></a>' : ''}
+                    </div>
+                    <div class="d-flex flex-wrap gap-1">`;
+                appNames.forEach(function(name, idx) {
+                    var icon = iconUrls[idx] || '';
+                    html += `<span class="badge bg-light text-dark border d-inline-flex align-items-center gap-1" style="font-size:.75rem">
+                        ${icon ? '<img src="' + escapeHtml(icon) + '" style="width:16px;height:16px;border-radius:3px" onerror="this.style.display=\'none\'">' : '<i class="bi bi-app"></i>'}
+                        ${escapeHtml(name)}
+                    </span>`;
+                });
+                html += `</div></div>`;
             });
             html += `</div></div>`;
         }
