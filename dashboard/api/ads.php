@@ -257,34 +257,73 @@ try {
             $ad['youtube_url'] = ($a['videos'] ?? [])[0] ?? null;
             $ad['preview_url'] = ($a['previews'] ?? [])[0] ?? null;
 
-            // Products — determine if this is a website ad or app ad
+            // Products — only show app link if there's EVIDENCE this ad promotes that app
+            // Evidence: (1) landing URL points to app store, OR (2) headline/description mentions app name
             $pm = $productMap[$cid] ?? null;
             $landingUrl = $ad['landing_url'] ?? '';
-            $isAppStoreLanding = $landingUrl && (
-                strpos($landingUrl, 'play.google.com') !== false ||
-                strpos($landingUrl, 'apps.apple.com') !== false ||
-                strpos($landingUrl, 'itunes.apple.com') !== false
-            );
+            $adHeadline = strtolower($ad['headline'] ?? '');
+            $adDesc = strtolower($ad['description'] ?? '');
 
-            // If ad has a landing URL that's NOT an app store, it's a web ad
-            // Don't show app links for web ads unless the landing URL itself is an app store
-            $isWebAd = $landingUrl && !$isAppStoreLanding && strpos($landingUrl, 'displayads-formats') === false;
+            $showAppProduct = false;
+            $matchedProductNames = [];
+            $matchedProductId = null;
+            $matchedStoreUrl = null;
+            $matchedStorePlatform = null;
 
-            if ($pm && $pm['has_app'] && !$isWebAd) {
-                // App ad — show app info
-                $ad['product_names'] = implode('||', array_unique($pm['product_names']));
-                $ad['product_id'] = $pm['product_id'];
-                $ad['store_url'] = $pm['store_url'];
-                $ad['store_platform'] = $pm['store_platform'];
+            if ($pm && $pm['has_app']) {
+                // Check 1: Landing URL goes to an app store
+                $isAppStoreLanding = $landingUrl && (
+                    strpos($landingUrl, 'play.google.com') !== false ||
+                    strpos($landingUrl, 'apps.apple.com') !== false ||
+                    strpos($landingUrl, 'itunes.apple.com') !== false
+                );
+
+                if ($isAppStoreLanding) {
+                    // Landing URL is app store — check if it matches one of the mapped products
+                    foreach ($pm['product_names'] as $pName) {
+                        $matchedProductNames[] = $pName;
+                    }
+                    $showAppProduct = true;
+                } else {
+                    // Check 2: Ad headline or description mentions an app name
+                    foreach ($pm['product_names'] as $pName) {
+                        $pNameLower = strtolower($pName);
+                        // Match if headline/desc contains the app name (at least 4 chars to avoid false positives)
+                        if (strlen($pName) >= 4 && ($adHeadline && strpos($adHeadline, $pNameLower) !== false) || ($adDesc && strpos($adDesc, $pNameLower) !== false)) {
+                            $matchedProductNames[] = $pName;
+                            $showAppProduct = true;
+                        }
+                    }
+                }
+
+                if ($showAppProduct) {
+                    $matchedProductId = $pm['product_id'];
+                    $matchedStoreUrl = $pm['store_url'];
+                    $matchedStorePlatform = $pm['store_platform'];
+                }
+            }
+
+            // Determine if landing URL is a regular website
+            $isWebLanding = $landingUrl && strpos($landingUrl, 'displayads-formats') === false
+                && strpos($landingUrl, 'play.google.com') === false
+                && strpos($landingUrl, 'apps.apple.com') === false
+                && strpos($landingUrl, 'itunes.apple.com') === false;
+
+            if ($showAppProduct) {
+                $ad['product_names'] = implode('||', array_unique($matchedProductNames));
+                $ad['product_id'] = $matchedProductId;
+                $ad['store_url'] = $matchedStoreUrl;
+                $ad['store_platform'] = $matchedStorePlatform;
                 $ad['is_web_ad'] = false;
             } else {
-                // Web ad or no product — show landing URL instead
+                // No app evidence — treat as web/unknown ad
                 $ad['product_names'] = null;
                 $ad['product_id'] = null;
                 $ad['store_url'] = null;
                 $ad['store_platform'] = 'web';
                 $ad['is_web_ad'] = true;
             }
+            $ad['has_web_landing'] = $isWebLanding;
         }
         unset($ad);
     }

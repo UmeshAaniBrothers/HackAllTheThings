@@ -627,12 +627,13 @@
 
                 // Landing URL domain — show prominently for web ads
                 var isWebAd = ad.is_web_ad || false;
+                var hasWebLanding = ad.has_web_landing || false;
                 var landingHtml = '';
                 if (ad.landing_url && ad.landing_url.indexOf('displayads-formats') === -1) {
                     try {
                         var h = new URL(ad.landing_url).hostname.replace('www.', '');
-                        if (isWebAd) {
-                            // Web ad — show landing URL as the primary link (prominent)
+                        if (isWebAd || hasWebLanding) {
+                            // Web ad or has website landing — show URL prominently
                             landingHtml = '<div class="mt-1"><a href="' + escapeHtml(ad.landing_url) + '" target="_blank" rel="noopener" class="text-decoration-none d-inline-flex align-items-center" onclick="event.stopPropagation()" title="' + escapeHtml(ad.landing_url) + '" style="color:var(--ai-primary);font-weight:600;font-size:.85rem"><i class="bi bi-globe me-1"></i>' + escapeHtml(h.substring(0,35)) + ' <span class="badge bg-info ms-1" style="font-size:.65rem">Web</span></a></div>';
                         } else {
                             // App ad — show landing URL as small secondary badge
@@ -667,9 +668,9 @@
                     var storeBtnClass = storePlatform === 'ios' ? 'btn-outline-dark' : 'btn-outline-success';
                     appStoreLink = '<a href="' + escapeHtml(ad.store_url) + '" target="_blank" rel="noopener" class="btn ' + storeBtnClass + ' btn-sm viewer-ext-link" onclick="event.stopPropagation()" title="View on ' + storeLabel + '"><i class="bi ' + storeIcon + ' me-1"></i>' + storeLabel + '</a> ';
                 }
-                // Website link button for web ads
+                // Website link button for web ads or ads with website landing
                 var webLink = '';
-                if (isWebAd && ad.landing_url && ad.landing_url.indexOf('displayads-formats') === -1) {
+                if ((isWebAd || hasWebLanding) && ad.landing_url && ad.landing_url.indexOf('displayads-formats') === -1) {
                     webLink = '<a href="' + escapeHtml(ad.landing_url) + '" target="_blank" rel="noopener" class="btn btn-outline-info btn-sm viewer-ext-link" onclick="event.stopPropagation()" title="Visit Website"><i class="bi bi-globe me-1"></i>Website</a> ';
                 }
 
