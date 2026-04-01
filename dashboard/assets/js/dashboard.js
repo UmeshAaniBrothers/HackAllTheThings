@@ -97,7 +97,7 @@ const GlobalFilters = {
 
     async _loadAdvertisers() {
         try {
-            const data = await fetchAPI('overview.php', { time_period: 'all' });
+            const data = await fetchAPI('advertisers_list.php');
             if (!data.success || !data.advertisers) return;
             const sel = document.getElementById('globalAdvertiser');
             if (!sel || sel.options.length > 1) return;
@@ -128,7 +128,7 @@ async function fetchAPI(endpoint, params = {}) {
     });
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
         const response = await fetch(url, { signal: controller.signal });

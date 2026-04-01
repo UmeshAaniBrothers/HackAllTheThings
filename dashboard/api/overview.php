@@ -263,7 +263,7 @@ try {
         "SELECT p.id, p.product_name, p.store_platform, p.store_url,
                 MAX(am.icon_url) as icon_url, MAX(am.rating) as rating, MAX(am.downloads) as downloads,
                 COUNT(DISTINCT pm.creative_id) as ad_count,
-                SUM(DISTINCT a.view_count) as total_views
+                COALESCE(SUM(a.view_count), 0) as total_views
          FROM ad_products p
          INNER JOIN ad_product_map pm ON p.id = pm.product_id
          INNER JOIN ads a ON a.creative_id = pm.creative_id
@@ -305,19 +305,35 @@ try {
     $videoWhere = $wa['sql'];
     $videoParams = $wa['params'];
 
-    $topVideos = $db->fetchAll(
+    // Two-step approach: get top videos by view_count first, then count ads
+    $topVideosRaw = $db->fetchAll(
         "SELECT ym.video_id, ym.title, ym.channel_name, ym.view_count, ym.like_count, ym.comment_count,
-                ym.thumbnail_url, ym.duration, ym.publish_date,
-                COUNT(DISTINCT a.creative_id) as ad_count
+                ym.thumbnail_url, ym.duration, ym.publish_date
          FROM youtube_metadata ym
-         JOIN ad_assets aa ON aa.original_url LIKE CONCAT('%', ym.video_id, '%') AND aa.type = 'video'
-         JOIN ads a ON a.creative_id = aa.creative_id
-         WHERE {$videoWhere}
-         GROUP BY ym.video_id
+         WHERE ym.view_count > 0
          ORDER BY ym.view_count DESC
-         LIMIT 6",
-        $videoParams
+         LIMIT 30"
     );
+
+    // Filter by advertiser/time if needed, and count ads per video
+    $topVideos = [];
+    if (!empty($topVideosRaw)) {
+        foreach ($topVideosRaw as $v) {
+            // Count ads referencing this video (use indexed creative_id lookup)
+            $adCountQuery = "SELECT COUNT(DISTINCT a.creative_id)
+                FROM ad_assets aa
+                JOIN ads a ON a.creative_id = aa.creative_id
+                WHERE aa.type = 'video' AND aa.original_url LIKE ? AND {$videoWhere}";
+            $vParams = array_merge(['%' . $v['video_id'] . '%'], $videoParams);
+            $adCount = (int) $db->fetchColumn($adCountQuery, $vParams);
+
+            if ($adCount > 0 || $videoWhere === '1=1') {
+                $v['ad_count'] = $adCount;
+                $topVideos[] = $v;
+                if (count($topVideos) >= 6) break;
+            }
+        }
+    }
 
     // ---------------------------------------------------------------
     // Recent activity (last 20 ads, time-filtered)
@@ -366,9 +382,17 @@ try {
     // ---------------------------------------------------------------
     $advertisers = $db->fetchAll(
         "SELECT ma.advertiser_id, ma.name, ma.status, ma.total_ads, ma.active_ads, ma.last_fetched_at,
-                (SELECT COUNT(*) FROM ads a WHERE a.advertiser_id = ma.advertiser_id AND a.first_seen >= DATE_SUB(NOW(), INTERVAL 24 HOUR)) as new_ads_24h,
-                (SELECT COUNT(*) FROM ads a WHERE a.advertiser_id = ma.advertiser_id AND a.first_seen >= DATE_SUB(NOW(), INTERVAL 7 DAY)) as new_ads_7d
+                COALESCE(recent.new_ads_24h, 0) as new_ads_24h,
+                COALESCE(recent.new_ads_7d, 0) as new_ads_7d
          FROM managed_advertisers ma
+         LEFT JOIN (
+             SELECT advertiser_id,
+                    SUM(CASE WHEN first_seen >= DATE_SUB(NOW(), INTERVAL 24 HOUR) THEN 1 ELSE 0 END) as new_ads_24h,
+                    SUM(CASE WHEN first_seen >= DATE_SUB(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END) as new_ads_7d
+             FROM ads
+             WHERE first_seen >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+             GROUP BY advertiser_id
+         ) recent ON recent.advertiser_id = ma.advertiser_id
          WHERE ma.status NOT IN ('deleted')
          ORDER BY ma.total_ads DESC"
     );

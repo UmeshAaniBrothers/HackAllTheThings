@@ -312,7 +312,8 @@
     function renderTrendChart(timeline, granularity) {
         if (trendChartInstance) { trendChartInstance.destroy(); trendChartInstance = null; }
         const canvas = document.getElementById('trendChart');
-        if (!canvas || !timeline.length) return;
+        if (!canvas) return;
+        if (!timeline.length) { canvas.parentElement.innerHTML = '<canvas id="trendChart" height="280"></canvas><div class="text-center text-muted py-5">No trend data</div>'; return; }
 
         const labels = timeline.map(t => {
             var p = t.period || t.month;
@@ -373,7 +374,8 @@
     function renderTypeDonut(types) {
         if (typeDonutInstance) { typeDonutInstance.destroy(); typeDonutInstance = null; }
         const canvas = document.getElementById('typeDonut');
-        if (!canvas || !types.length) return;
+        if (!canvas) return;
+        if (!types.length) { document.getElementById('typeDonutLegend').innerHTML = '<small class="text-muted">No data</small>'; return; }
 
         const colorMap = { video: '#4361ee', image: '#f59e0b', text: '#10b981' };
         const labels = types.map(t => t.ad_type);
@@ -505,7 +507,8 @@
     function renderCountryChart(countries) {
         if (countryChartInstance) { countryChartInstance.destroy(); countryChartInstance = null; }
         const canvas = document.getElementById('countryChart');
-        if (!canvas || !countries.length) return;
+        if (!canvas) return;
+        if (!countries.length) { canvas.parentElement.innerHTML = '<canvas id="countryChart" height="300"></canvas><div class="text-center text-muted py-5">No country data</div>'; return; }
 
         const labels = countries.map(c => {
             var flag = countryFlag(c.country);

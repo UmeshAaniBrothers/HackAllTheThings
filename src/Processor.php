@@ -478,12 +478,28 @@ class Processor
             if ($dbType === 'preview') $dbType = 'image';
             if (!in_array($dbType, ['image', 'video', 'text'])) $dbType = 'image';
 
-            $this->db->insert('ad_assets', [
+            // Extract YouTube video_id for fast lookups
+            $videoId = null;
+            if ($dbType === 'video' && $url) {
+                if (preg_match('/[?&]v=([\w-]{11})/', $url, $m)) {
+                    $videoId = $m[1];
+                } elseif (preg_match('/youtu\.be\/([\w-]{11})/', $url, $m)) {
+                    $videoId = $m[1];
+                }
+            }
+
+            $insertData = [
                 'creative_id'  => $ad['creative_id'],
                 'type'         => $dbType,
                 'original_url' => $url,
                 'local_path'   => $localPath,
-            ]);
+            ];
+            // Only include video_id if column exists (added by migration)
+            if ($videoId !== null) {
+                $insertData['video_id'] = $videoId;
+            }
+
+            $this->db->insert('ad_assets', $insertData);
         }
     }
 
