@@ -33,7 +33,9 @@ try {
             $groups = $pdo->query("
                 SELECT g.*,
                     (SELECT COUNT(*) FROM app_group_keywords k WHERE k.group_id = g.id) AS keyword_count,
-                    (SELECT COUNT(*) FROM app_group_members m WHERE m.group_id = g.id) AS member_count
+                    (SELECT COUNT(DISTINCT LOWER(p.product_name), p.store_platform)
+                     FROM app_group_members m JOIN ad_products p ON m.product_id = p.id
+                     WHERE m.group_id = g.id) AS member_count
                 FROM app_groups g
                 ORDER BY g.name ASC
             ")->fetchAll(PDO::FETCH_ASSOC);
@@ -55,17 +57,21 @@ try {
             $kw->execute([$id]);
             $group['keywords'] = $kw->fetchAll(PDO::FETCH_COLUMN);
 
-            // Members (apps)
+            // Members (apps) — deduplicated by app name + platform
             $members = $pdo->prepare("
-                SELECT m.id AS member_id, m.matched_keyword, m.auto_assigned, m.created_at AS assigned_at,
-                       p.id AS product_id, p.product_name, p.product_type, p.store_platform, p.store_url, p.advertiser_id,
-                       a.app_name, a.icon_url, a.category, a.rating, a.downloads, a.developer_name,
-                       ma.name AS advertiser_name
+                SELECT MIN(m.id) AS member_id, m.matched_keyword, m.auto_assigned, MIN(m.created_at) AS assigned_at,
+                       MIN(p.id) AS product_id, p.product_name, p.product_type, p.store_platform,
+                       MAX(p.store_url) AS store_url,
+                       GROUP_CONCAT(DISTINCT p.advertiser_id) AS advertiser_ids,
+                       MAX(a.app_name) AS app_name, MAX(a.icon_url) AS icon_url, MAX(a.category) AS category,
+                       MAX(a.rating) AS rating, MAX(a.downloads) AS downloads, MAX(a.developer_name) AS developer_name,
+                       GROUP_CONCAT(DISTINCT ma.name SEPARATOR ', ') AS advertiser_name
                 FROM app_group_members m
                 JOIN ad_products p ON m.product_id = p.id
                 LEFT JOIN app_metadata a ON a.product_id = p.id
                 LEFT JOIN managed_advertisers ma ON ma.advertiser_id = p.advertiser_id
                 WHERE m.group_id = ?
+                GROUP BY LOWER(p.product_name), p.store_platform, m.matched_keyword, m.auto_assigned
                 ORDER BY p.product_name ASC
             ");
             $members->execute([$id]);
@@ -187,15 +193,18 @@ try {
             break;
 
         case 'unassigned':
-            // Get apps not in any group
+            // Get apps not in any group — deduplicated by name + platform
             $apps = $pdo->query("
-                SELECT p.id AS product_id, p.product_name, p.product_type, p.store_platform, p.store_url, p.advertiser_id,
-                       a.app_name, a.icon_url, a.category, a.rating, a.downloads,
-                       ma.name AS advertiser_name
+                SELECT MIN(p.id) AS product_id, p.product_name, p.product_type, p.store_platform,
+                       MAX(p.store_url) AS store_url,
+                       MAX(a.app_name) AS app_name, MAX(a.icon_url) AS icon_url, MAX(a.category) AS category,
+                       MAX(a.rating) AS rating, MAX(a.downloads) AS downloads,
+                       GROUP_CONCAT(DISTINCT ma.name SEPARATOR ', ') AS advertiser_name
                 FROM ad_products p
                 LEFT JOIN app_metadata a ON a.product_id = p.id
                 LEFT JOIN managed_advertisers ma ON ma.advertiser_id = p.advertiser_id
                 WHERE p.id NOT IN (SELECT product_id FROM app_group_members)
+                GROUP BY LOWER(p.product_name), p.store_platform
                 ORDER BY p.product_name ASC
             ")->fetchAll(PDO::FETCH_ASSOC);
             echo json_encode(['success' => true, 'apps' => $apps]);
