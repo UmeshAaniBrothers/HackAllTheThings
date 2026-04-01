@@ -178,10 +178,29 @@ if ($deepScan && $targetAdvertiser) {
         if (preg_match('/[\'"]appName[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $an)) $appName = trim($an[1]);
 
         if ($storeUrl) {
-            if (!isset($allDiscovered[$storeUrl])) $allDiscovered[$storeUrl] = array('name' => $appName ?: $appId ?: 'unknown', 'platform' => $storePlatform, 'count' => 0, 'creative_ids' => array());
+            if (!isset($allDiscovered[$storeUrl])) {
+                $allDiscovered[$storeUrl] = array('name' => $appName ?: $appId ?: 'unknown', 'platform' => $storePlatform, 'count' => 0);
+                // SAVE IMMEDIATELY: Create product if new
+                if (!isset($knownStoreUrls[$storeUrl])) {
+                    $existing = $db->fetchOne("SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?", [$storeUrl, $targetAdvertiser]);
+                    if (!$existing) {
+                        try {
+                            $pid = $db->insert('ad_products', array('advertiser_id' => $targetAdvertiser, 'product_name' => $appName ?: $appId ?: 'Unknown', 'product_type' => 'app', 'store_platform' => $storePlatform, 'store_url' => $storeUrl));
+                            $knownStoreUrls[$storeUrl] = $appName ?: $appId;
+                            progress("  >> NEW APP: {$appName} ({$storeUrl}) → product #{$pid}");
+                        } catch (Exception $e) {}
+                    }
+                }
+            }
             $allDiscovered[$storeUrl]['count']++;
-            $allDiscovered[$storeUrl]['creative_ids'][] = $ad['creative_id'];
             if ($appName && $allDiscovered[$storeUrl]['name'] === 'unknown') $allDiscovered[$storeUrl]['name'] = $appName;
+
+            // SAVE IMMEDIATELY: Map this ad to the product
+            $prodRow = $db->fetchOne("SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?", [$storeUrl, $targetAdvertiser]);
+            if ($prodRow) {
+                $mapExists = $db->fetchOne("SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?", [$ad['creative_id'], $prodRow['id']]);
+                if (!$mapExists) { try { $db->insert('ad_product_map', array('creative_id' => $ad['creative_id'], 'product_id' => $prodRow['id'])); } catch (Exception $e) {} }
+            }
         } else {
             $noData++;
         }
@@ -202,58 +221,33 @@ if ($deepScan && $targetAdvertiser) {
     progress("Scanned: " . count($allAds) . " | Unique apps: " . count($allDiscovered) . " | YouTube: {$youtubeFound} | No data: {$noData} | Errors: {$errors}");
     progress("");
 
-    // Show all discovered apps
-    progress("=== ALL APPS IN PREVIEW PAGES ===");
+    // Show all discovered apps (products already saved during scan)
+    progress("=== ALL APPS FOUND ===");
     uasort($allDiscovered, function($a, $b) { return $b['count'] - $a['count']; });
-    $newApps = array();
     foreach ($allDiscovered as $url => $info) {
-        $isNew = !isset($knownStoreUrls[$url]);
-        progress("  [" . ($isNew ? '** NEW **' : 'KNOWN') . "] [{$info['platform']}] {$info['name']} ({$info['count']} ads)");
+        progress("  [{$info['platform']}] {$info['name']} ({$info['count']} ads)");
         progress("    {$url}");
-        if ($isNew) $newApps[$url] = $info;
     }
 
-    // Add apps from landing URLs not found in preview pages
+    // Also create products from landing URLs not found in preview pages
     foreach ($landingApps as $url => $info) {
         if (!isset($knownStoreUrls[$url]) && !isset($allDiscovered[$url])) {
-            $newApps[$url] = array('name' => 'unknown', 'platform' => $info['platform'], 'count' => $info['count'], 'creative_ids' => $info['creative_ids']);
-            progress("  [** NEW from landing **] [{$info['platform']}] {$url} ({$info['count']} ads)");
-        }
-    }
-    progress("");
-
-    // Create products for new apps
-    if (!empty($newApps)) {
-        progress("=== CREATING " . count($newApps) . " NEW PRODUCTS ===");
-        $created = 0;
-        foreach ($newApps as $storeUrl => $info) {
-            $existing = $db->fetchOne("SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?", [$storeUrl, $targetAdvertiser]);
-            $productId = null;
-            if ($existing) {
-                $productId = $existing['id'];
-                progress("  Exists: {$info['name']} (#{$productId})");
-            } else {
+            $existing = $db->fetchOne("SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?", [$url, $targetAdvertiser]);
+            if (!$existing) {
                 try {
-                    $productId = $db->insert('ad_products', array('advertiser_id' => $targetAdvertiser, 'product_name' => $info['name'], 'product_type' => 'app', 'store_platform' => $info['platform'], 'store_url' => $storeUrl));
-                    $created++;
-                    progress("  Created: {$info['name']} (#{$productId})");
-                } catch (Exception $e) {
-                    $existing = $db->fetchOne("SELECT id FROM ad_products WHERE store_url = ?", [$storeUrl]);
-                    if ($existing) $productId = $existing['id'];
-                }
+                    $db->insert('ad_products', array('advertiser_id' => $targetAdvertiser, 'product_name' => 'Unknown', 'product_type' => 'app', 'store_platform' => $info['platform'], 'store_url' => $url));
+                    progress("  >> NEW from landing URL: {$url}");
+                } catch (Exception $e) {}
             }
-            if ($productId && !empty($info['creative_ids'])) {
-                $mapped = 0;
+            // Map ads
+            $prodRow = $db->fetchOne("SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?", [$url, $targetAdvertiser]);
+            if ($prodRow && !empty($info['creative_ids'])) {
                 foreach ($info['creative_ids'] as $cid) {
-                    $exists = $db->fetchOne("SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?", [$cid, $productId]);
-                    if (!$exists) { try { $db->insert('ad_product_map', array('creative_id' => $cid, 'product_id' => $productId)); $mapped++; } catch (Exception $e) {} }
+                    $exists = $db->fetchOne("SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?", [$cid, $prodRow['id']]);
+                    if (!$exists) { try { $db->insert('ad_product_map', array('creative_id' => $cid, 'product_id' => $prodRow['id'])); } catch (Exception $e) {} }
                 }
-                if ($mapped) progress("    Mapped {$mapped} ads");
             }
         }
-        progress("New products created: {$created}");
-    } else {
-        progress("No new apps discovered in preview pages or landing URLs.");
     }
 
     // Enrich metadata
