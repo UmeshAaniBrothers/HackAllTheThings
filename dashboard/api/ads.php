@@ -192,6 +192,7 @@ try {
         }
 
         // Batch fetch products (prefer app_metadata.app_name over ad_products.product_name)
+        // Include ALL platforms (ios, playstore, web) so we can show the right links
         $products = $db->fetchAll(
             "SELECT pm.creative_id, p.id as product_id,
                     COALESCE(NULLIF(am.app_name, ''), p.product_name) as product_name,
@@ -199,23 +200,41 @@ try {
              FROM ad_product_map pm
              INNER JOIN ad_products p ON pm.product_id = p.id
              LEFT JOIN app_metadata am ON am.product_id = p.id
-             WHERE pm.creative_id IN ($placeholders) AND p.store_platform IN ('ios', 'playstore')",
+             WHERE pm.creative_id IN ($placeholders)",
             $creativeIds
         );
         $productMap = [];
         foreach ($products as $p) {
             $cid = $p['creative_id'];
+            $isApp = in_array($p['store_platform'], ['ios', 'playstore']);
+
             if (!isset($productMap[$cid])) {
                 $productMap[$cid] = [
                     'product_names' => [],
-                    'product_id' => $p['product_id'],
+                    'product_id' => null,
                     'store_url' => null,
-                    'store_platform' => $p['store_platform'],
+                    'store_platform' => null,
+                    'web_product_name' => null,
+                    'has_app' => false,
+                    'has_web' => false,
                 ];
             }
-            $productMap[$cid]['product_names'][] = $p['product_name'];
-            if (!$productMap[$cid]['store_url'] && $p['store_url'] && $p['store_url'] !== '' && $p['store_url'] !== 'not_found') {
-                $productMap[$cid]['store_url'] = $p['store_url'];
+
+            if ($isApp) {
+                $productMap[$cid]['has_app'] = true;
+                $productMap[$cid]['product_names'][] = $p['product_name'];
+                if (!$productMap[$cid]['product_id']) {
+                    $productMap[$cid]['product_id'] = $p['product_id'];
+                    $productMap[$cid]['store_platform'] = $p['store_platform'];
+                }
+                if (!$productMap[$cid]['store_url'] && $p['store_url'] && $p['store_url'] !== '' && $p['store_url'] !== 'not_found') {
+                    $productMap[$cid]['store_url'] = $p['store_url'];
+                }
+            } else {
+                $productMap[$cid]['has_web'] = true;
+                if (!$productMap[$cid]['web_product_name']) {
+                    $productMap[$cid]['web_product_name'] = $p['product_name'];
+                }
             }
         }
 
@@ -238,12 +257,34 @@ try {
             $ad['youtube_url'] = ($a['videos'] ?? [])[0] ?? null;
             $ad['preview_url'] = ($a['previews'] ?? [])[0] ?? null;
 
-            // Products
+            // Products — determine if this is a website ad or app ad
             $pm = $productMap[$cid] ?? null;
-            $ad['product_names'] = $pm ? implode('||', array_unique($pm['product_names'])) : null;
-            $ad['product_id'] = $pm['product_id'] ?? null;
-            $ad['store_url'] = $pm['store_url'] ?? null;
-            $ad['store_platform'] = $pm['store_platform'] ?? null;
+            $landingUrl = $ad['landing_url'] ?? '';
+            $isAppStoreLanding = $landingUrl && (
+                strpos($landingUrl, 'play.google.com') !== false ||
+                strpos($landingUrl, 'apps.apple.com') !== false ||
+                strpos($landingUrl, 'itunes.apple.com') !== false
+            );
+
+            // If ad has a landing URL that's NOT an app store, it's a web ad
+            // Don't show app links for web ads unless the landing URL itself is an app store
+            $isWebAd = $landingUrl && !$isAppStoreLanding && strpos($landingUrl, 'displayads-formats') === false;
+
+            if ($pm && $pm['has_app'] && !$isWebAd) {
+                // App ad — show app info
+                $ad['product_names'] = implode('||', array_unique($pm['product_names']));
+                $ad['product_id'] = $pm['product_id'];
+                $ad['store_url'] = $pm['store_url'];
+                $ad['store_platform'] = $pm['store_platform'];
+                $ad['is_web_ad'] = false;
+            } else {
+                // Web ad or no product — show landing URL instead
+                $ad['product_names'] = null;
+                $ad['product_id'] = null;
+                $ad['store_url'] = null;
+                $ad['store_platform'] = 'web';
+                $ad['is_web_ad'] = true;
+            }
         }
         unset($ad);
     }

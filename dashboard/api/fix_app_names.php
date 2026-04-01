@@ -20,7 +20,19 @@ if ($token !== $authToken) {
 require_once $basePath . '/src/Database.php';
 $db = Database::getInstance($config['db']);
 $results = array();
-$C = 'utf8mb4_general_ci'; // force all comparisons to this collation
+
+// Step 0: Clean store suffixes from existing app_metadata.app_name
+$stmt = $db->query(
+    "UPDATE app_metadata SET app_name = TRIM(
+        REGEXP_REPLACE(
+            REGEXP_REPLACE(
+                REGEXP_REPLACE(app_name, '\\\\s*-\\\\s*Apps on Google Play$', ''),
+                '\\\\s*on the App Store$', ''),
+            '\\\\s*\\\\| Google Play$', '')
+    )
+    WHERE app_name REGEXP '(- Apps on Google Play|on the App Store|\\\\| Google Play)$'"
+);
+$results['suffixes_cleaned'] = $stmt->rowCount();
 
 // Step 1: Show bad names
 $badNames = $db->fetchAll(
@@ -34,9 +46,9 @@ $badNames = $db->fetchAll(
 $results['bad_names_found'] = count($badNames);
 $results['bad_names_sample'] = array_slice($badNames, 0, 20);
 
-// Step 2: Update product_name from app_metadata
+// Step 2: Update product_name from app_metadata (use IGNORE to skip duplicates)
 $stmt = $db->query(
-    "UPDATE ad_products p
+    "UPDATE IGNORE ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
      SET p.product_name = am.app_name
      WHERE am.app_name IS NOT NULL
@@ -87,9 +99,9 @@ $processor = new Processor($db, $assetManager);
 $enriched = $processor->enrichAppMetadata();
 $results['apps_enriched_now'] = $enriched;
 
-// Step 7: Update names again after enrichment
+// Step 7: Update names again after enrichment (use IGNORE)
 $stmt = $db->query(
-    "UPDATE ad_products p
+    "UPDATE IGNORE ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
      SET p.product_name = am.app_name
      WHERE am.app_name IS NOT NULL
@@ -99,9 +111,9 @@ $stmt = $db->query(
 );
 $results['names_updated_after_enrichment'] = $stmt->rowCount();
 
-// Step 8: Normalize duplicate store_urls
+// Step 8: Normalize duplicate store_urls (use IGNORE)
 $stmt = $db->query(
-    "UPDATE ad_products p1
+    "UPDATE IGNORE ad_products p1
      INNER JOIN ad_products p2 ON BINARY p1.store_url = BINARY p2.store_url
        AND p1.id != p2.id
        AND p1.store_url IS NOT NULL AND p1.store_url != '' AND p1.store_url != 'not_found'
@@ -145,5 +157,18 @@ $stmt = $db->query(
      WHERE description REGEXP 'function\\\\(|var [a-z]|Object\\\\.create|typeof |prototype|globalThis|querySelector|document\\\\.|window\\\\.|createElement|appendChild|innerHTML'"
 );
 $results['js_descriptions_cleaned'] = $stmt->rowCount();
+
+// Step 12: Also strip store suffixes from ad_products.product_name directly
+$stmt = $db->query(
+    "UPDATE IGNORE ad_products SET product_name = TRIM(
+        REGEXP_REPLACE(
+            REGEXP_REPLACE(
+                REGEXP_REPLACE(product_name, '\\\\s*-\\\\s*Apps on Google Play$', ''),
+                '\\\\s*on the App Store$', ''),
+            '\\\\s*\\\\| Google Play$', '')
+    )
+    WHERE product_name REGEXP '(- Apps on Google Play|on the App Store|\\\\| Google Play)$'"
+);
+$results['product_suffixes_cleaned'] = $stmt->rowCount();
 
 echo json_encode(array('success' => true, 'results' => $results), JSON_PRETTY_PRINT);

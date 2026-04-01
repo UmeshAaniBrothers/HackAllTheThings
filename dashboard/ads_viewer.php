@@ -625,12 +625,19 @@
                     thumbHtml = '<div class="ad-thumb d-flex flex-column align-items-center justify-content-center" style="background:' + gradBg + '"><i class="bi ' + typeIcon + '" style="font-size:2.5rem;color:rgba(0,0,0,.12)"></i>' + previewText + '</div>';
                 }
 
-                // Landing URL domain
+                // Landing URL domain — show prominently for web ads
+                var isWebAd = ad.is_web_ad || false;
                 var landingHtml = '';
                 if (ad.landing_url && ad.landing_url.indexOf('displayads-formats') === -1) {
                     try {
                         var h = new URL(ad.landing_url).hostname.replace('www.', '');
-                        landingHtml = '<div class="mt-1"><a href="' + escapeHtml(ad.landing_url) + '" target="_blank" rel="noopener" class="badge bg-light text-dark text-decoration-none" onclick="event.stopPropagation()" title="' + escapeHtml(ad.landing_url) + '"><i class="bi bi-link-45deg"></i> ' + escapeHtml(h.substring(0,30)) + '</a></div>';
+                        if (isWebAd) {
+                            // Web ad — show landing URL as the primary link (prominent)
+                            landingHtml = '<div class="mt-1"><a href="' + escapeHtml(ad.landing_url) + '" target="_blank" rel="noopener" class="text-decoration-none d-inline-flex align-items-center" onclick="event.stopPropagation()" title="' + escapeHtml(ad.landing_url) + '" style="color:var(--ai-primary);font-weight:600;font-size:.85rem"><i class="bi bi-globe me-1"></i>' + escapeHtml(h.substring(0,35)) + ' <span class="badge bg-info ms-1" style="font-size:.65rem">Web</span></a></div>';
+                        } else {
+                            // App ad — show landing URL as small secondary badge
+                            landingHtml = '<div class="mt-1"><a href="' + escapeHtml(ad.landing_url) + '" target="_blank" rel="noopener" class="badge bg-light text-dark text-decoration-none" onclick="event.stopPropagation()" title="' + escapeHtml(ad.landing_url) + '"><i class="bi bi-link-45deg"></i> ' + escapeHtml(h.substring(0,30)) + '</a></div>';
+                        }
                     } catch(e) {}
                 }
 
@@ -652,18 +659,23 @@
                     ytLink = '<a href="youtube_profile.php?id=' + encodeURIComponent(ytId) + '" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()"><i class="bi bi-youtube me-1"></i>YouTube</a> ';
                 }
 
-                // App Store / Play Store direct link
+                // App Store / Play Store direct link (only for app ads, not web ads)
                 var appStoreLink = '';
-                if (ad.store_url && ad.store_url !== 'not_found') {
+                if (!isWebAd && ad.store_url && ad.store_url !== 'not_found') {
                     var storeIcon = storePlatform === 'ios' ? 'bi-apple' : 'bi-google-play';
                     var storeLabel = storePlatform === 'ios' ? 'App Store' : 'Play Store';
                     var storeBtnClass = storePlatform === 'ios' ? 'btn-outline-dark' : 'btn-outline-success';
                     appStoreLink = '<a href="' + escapeHtml(ad.store_url) + '" target="_blank" rel="noopener" class="btn ' + storeBtnClass + ' btn-sm viewer-ext-link" onclick="event.stopPropagation()" title="View on ' + storeLabel + '"><i class="bi ' + storeIcon + ' me-1"></i>' + storeLabel + '</a> ';
                 }
+                // Website link button for web ads
+                var webLink = '';
+                if (isWebAd && ad.landing_url && ad.landing_url.indexOf('displayads-formats') === -1) {
+                    webLink = '<a href="' + escapeHtml(ad.landing_url) + '" target="_blank" rel="noopener" class="btn btn-outline-info btn-sm viewer-ext-link" onclick="event.stopPropagation()" title="Visit Website"><i class="bi bi-globe me-1"></i>Website</a> ';
+                }
 
-                // Product link
+                // Product link (only for app ads, not web ads)
                 var productHtml = '';
-                if (productName && productName !== 'Unknown') {
+                if (!isWebAd && productName && productName !== 'Unknown') {
                     var pIcon = storePlatform === 'ios' ? 'bi-apple' : (storePlatform === 'playstore' ? 'bi-google-play' : 'bi-globe');
                     var pLabel = storePlatform === 'ios' ? 'iOS' : (storePlatform === 'playstore' ? 'Play' : 'Web');
                     productHtml = '<div class="mt-1"><a href="app_profile.php?id=' + encodeURIComponent(productIdVal) + '" class="text-decoration-none d-inline-flex align-items-center" onclick="event.stopPropagation()" title="View App Profile" style="color:var(--ai-primary);font-weight:600;font-size:.85rem"><i class="bi ' + pIcon + ' me-1"></i>' + escapeHtml(productName) + ' <span class="badge bg-secondary ms-1" style="font-size:.65rem">' + pLabel + '</span></a></div>';
@@ -687,6 +699,7 @@
                     (ad.headline || ad.description ? '<button class="btn btn-outline-secondary btn-sm viewer-ext-link" onclick="event.stopPropagation();copyAdText(this,' + "'" + escapeHtml((ad.headline || '') + (ad.description ? '\\n' + ad.description : '')) + "'" + ')" title="Copy ad text"><i class="bi bi-clipboard me-1"></i>Copy Text</button> ' : '') +
                     (ad.youtube_url ? '<button class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation();copyAdText(this,' + "'" + escapeHtml(ad.youtube_url) + "'" + ')" title="Copy YouTube URL"><i class="bi bi-youtube me-1"></i>Copy URL</button> ' : '') +
                     appStoreLink +
+                    webLink +
                     ytLink +
                     '<a href="' + escapeHtml(transparencyUrl) + '" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right me-1"></i>Google</a>' +
                     '</div></div>' +
