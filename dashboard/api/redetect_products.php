@@ -1,7 +1,6 @@
 <?php
 /**
- * Re-detect products for all ads by scanning ALL raw payloads.
- * Finds store URLs that were missed due to previous LIMIT 5 constraint.
+ * Re-detect products: scan ad_assets + ad_details for store URLs, find ALL apps per advertiser.
  * Run via: /dashboard/api/redetect_products.php?token=ads-intelligent-2024
  *
  * Optional: ?advertiser_id=XXXXX to re-detect for a specific advertiser
@@ -26,103 +25,136 @@ $results = array();
 
 $specificAdvertiser = isset($_GET['advertiser_id']) ? trim($_GET['advertiser_id']) : null;
 
-// Step 1: Scan ALL raw payloads for store URLs per advertiser
-$advWhere = '';
-$advParams = [];
-if ($specificAdvertiser) {
-    $advWhere = ' WHERE advertiser_id = ?';
-    $advParams = [$specificAdvertiser];
-}
+// ── Step 1: Find ALL store URLs from ad_assets (Play Store & App Store links in asset URLs) ──
+$advFilter = $specificAdvertiser ? ' AND a.advertiser_id = ?' : '';
+$advParams = $specificAdvertiser ? [$specificAdvertiser] : [];
 
-$payloads = $db->fetchAll(
-    "SELECT advertiser_id, raw_json FROM raw_payloads{$advWhere} ORDER BY id DESC",
+$assetStoreUrls = $db->fetchAll(
+    "SELECT DISTINCT a.advertiser_id, ass.original_url
+     FROM ad_assets ass
+     INNER JOIN ads a ON ass.creative_id = a.creative_id
+     WHERE (ass.original_url LIKE '%play.google.com/store/apps/details%'
+         OR ass.original_url LIKE '%apps.apple.com%/app/%')" . $advFilter,
     $advParams
 );
-$results['payloads_scanned'] = count($payloads);
+$results['store_urls_in_assets'] = count($assetStoreUrls);
 
-// Extract ALL store URLs per advertiser
-$advertiserStoreUrls = array();
-foreach ($payloads as $row) {
+// ── Step 2: Find ALL store URLs from ad_details landing_url ──
+$landingStoreUrls = $db->fetchAll(
+    "SELECT DISTINCT a.advertiser_id, d.landing_url
+     FROM ad_details d
+     INNER JOIN ads a ON d.creative_id = a.creative_id
+     WHERE (d.landing_url LIKE '%play.google.com/store/apps/details%'
+         OR d.landing_url LIKE '%apps.apple.com%/app/%')" . $advFilter,
+    $advParams
+);
+$results['store_urls_in_landing'] = count($landingStoreUrls);
+
+// ── Step 3: Also check existing ad_products for store URLs we already know ──
+$existingProducts = $db->fetchAll(
+    "SELECT DISTINCT advertiser_id, store_url, store_platform
+     FROM ad_products
+     WHERE store_platform IN ('ios', 'playstore')
+       AND store_url IS NOT NULL AND store_url != '' AND store_url != 'not_found'"
+       . ($specificAdvertiser ? ' AND advertiser_id = ?' : ''),
+    $specificAdvertiser ? [$specificAdvertiser] : []
+);
+$results['existing_app_products'] = count($existingProducts);
+
+// ── Step 4: Consolidate ALL store URLs per advertiser ──
+$advertiserApps = array(); // [advId => [url => [platform, package]]]
+
+// From assets
+foreach ($assetStoreUrls as $row) {
+    $url = $row['original_url'];
     $advId = $row['advertiser_id'];
-    if (!isset($advertiserStoreUrls[$advId])) {
-        $advertiserStoreUrls[$advId] = array();
-    }
-
-    $json = $row['raw_json'];
-
-    // Play Store URLs
-    if (preg_match_all('/play\.google\.com(?:\\\\\/|\/)+store(?:\\\\\/|\/)+apps(?:\\\\\/|\/)+details\?id=([^&\s"\'\\\\]+)/', $json, $matches)) {
-        foreach ($matches[1] as $packageName) {
-            $url = 'https://play.google.com/store/apps/details?id=' . $packageName;
-            $advertiserStoreUrls[$advId][$url] = array(
-                'platform' => 'playstore',
-                'package' => $packageName,
-                'url' => $url,
-            );
-        }
-    }
-
-    // App Store URLs
-    if (preg_match_all('/apps\.apple\.com(?:\\\\\/|\/)+(?:[a-z]{2}(?:\\\\\/|\/)+)?app(?:\\\\\/|\/)+(?:[^\/\s"\'\\\\]+(?:\\\\\/|\/)+)?id(\d+)/', $json, $matches)) {
-        foreach ($matches[1] as $appId) {
-            $url = 'https://apps.apple.com/app/id' . $appId;
-            $advertiserStoreUrls[$advId][$url] = array(
-                'platform' => 'ios',
-                'package' => 'id' . $appId,
-                'url' => $url,
-            );
-        }
+    $parsed = parseStoreUrl($url);
+    if ($parsed) {
+        if (!isset($advertiserApps[$advId])) $advertiserApps[$advId] = array();
+        $advertiserApps[$advId][$parsed['url']] = $parsed;
     }
 }
 
-// Step 2: Count unique store URLs found per advertiser
-$totalStoreUrls = 0;
-$advertiserStats = array();
-foreach ($advertiserStoreUrls as $advId => $urls) {
-    $count = count($urls);
-    $totalStoreUrls += $count;
-    $advertiserStats[$advId] = $count;
+// From landing URLs
+foreach ($landingStoreUrls as $row) {
+    $url = $row['landing_url'];
+    $advId = $row['advertiser_id'];
+    $parsed = parseStoreUrl($url);
+    if ($parsed) {
+        if (!isset($advertiserApps[$advId])) $advertiserApps[$advId] = array();
+        $advertiserApps[$advId][$parsed['url']] = $parsed;
+    }
 }
-arsort($advertiserStats);
-$results['advertisers_with_store_urls'] = count($advertiserStats);
-$results['total_unique_store_urls'] = $totalStoreUrls;
-$results['top_advertisers'] = array_slice($advertiserStats, 0, 10, true);
 
-// Step 3: Create missing ad_products entries for store URLs not yet in the database
+// From existing products
+foreach ($existingProducts as $row) {
+    $advId = $row['advertiser_id'];
+    if (!isset($advertiserApps[$advId])) $advertiserApps[$advId] = array();
+    $advertiserApps[$advId][$row['store_url']] = array(
+        'platform' => $row['store_platform'],
+        'url' => $row['store_url'],
+        'package' => '',
+    );
+}
+
+$totalApps = 0;
+foreach ($advertiserApps as $urls) $totalApps += count($urls);
+$results['total_unique_store_urls_found'] = $totalApps;
+$results['advertisers_with_apps'] = count($advertiserApps);
+
+// ── Step 5: Create missing ad_products entries ──
 $productsCreated = 0;
 $productsExisted = 0;
-foreach ($advertiserStoreUrls as $advId => $urls) {
+$platformFixed = 0;
+foreach ($advertiserApps as $advId => $urls) {
     foreach ($urls as $urlInfo) {
-        // Check if product already exists for this store URL
+        $storeUrl = $urlInfo['url'];
+        $platform = $urlInfo['platform'];
+
+        // Check if product already exists
         $existing = $db->fetchOne(
-            "SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?",
-            [$urlInfo['url'], $advId]
+            "SELECT id, store_platform FROM ad_products WHERE store_url = ? AND advertiser_id = ?",
+            [$storeUrl, $advId]
         );
 
         if ($existing) {
             $productsExisted++;
-            // Ensure platform is correct
-            $db->query(
-                "UPDATE ad_products SET store_platform = ? WHERE id = ? AND store_platform = 'web'",
-                [$urlInfo['platform'], $existing['id']]
-            );
+            if ($existing['store_platform'] === 'web') {
+                $db->query(
+                    "UPDATE ad_products SET store_platform = ?, product_type = 'app' WHERE id = ?",
+                    [$platform, $existing['id']]
+                );
+                $platformFixed++;
+            }
             continue;
         }
 
-        // Create new product — use package name as temp name (enrichment will fix it)
-        $packageName = $urlInfo['package'];
-        // Convert package to readable name: com.example.myapp -> My App
-        $nameParts = explode('.', $packageName);
-        $lastPart = end($nameParts);
-        $tempName = ucwords(str_replace(array('_', '-'), ' ', $lastPart));
+        // Also check without advertiser (might be from a different advertiser mapping)
+        $existingAny = $db->fetchOne(
+            "SELECT id FROM ad_products WHERE store_url = ?",
+            [$storeUrl]
+        );
+        if ($existingAny) {
+            $productsExisted++;
+            continue;
+        }
+
+        // Create — use package name as temp name
+        $tempName = 'Unknown';
+        if ($platform === 'playstore' && preg_match('/id=([^&]+)/', $storeUrl, $m)) {
+            $parts = explode('.', $m[1]);
+            $tempName = ucwords(str_replace(array('_', '-'), ' ', end($parts)));
+        } elseif ($platform === 'ios' && preg_match('/id(\d+)/', $storeUrl, $m)) {
+            $tempName = 'iOS App ' . $m[1];
+        }
 
         try {
             $db->insert('ad_products', array(
                 'advertiser_id' => $advId,
                 'product_name' => $tempName,
                 'product_type' => 'app',
-                'store_platform' => $urlInfo['platform'],
-                'store_url' => $urlInfo['url'],
+                'store_platform' => $platform,
+                'store_url' => $storeUrl,
             ));
             $productsCreated++;
         } catch (Exception $e) {
@@ -132,106 +164,84 @@ foreach ($advertiserStoreUrls as $advId => $urls) {
 }
 $results['products_already_existed'] = $productsExisted;
 $results['new_products_created'] = $productsCreated;
+$results['platforms_fixed_to_app'] = $platformFixed;
 
-// Step 4: Now re-map ads to products using store URLs found in their asset URLs
-// Get ads that are mapped to 'web' products or 'Unknown' products
-$adsToRemap = $db->fetchAll(
-    "SELECT a.creative_id, a.advertiser_id, d.headline, d.landing_url,
-            (SELECT GROUP_CONCAT(ass.original_url SEPARATOR '||')
-             FROM ad_assets ass WHERE ass.creative_id = a.creative_id) as all_asset_urls,
-            pm.id as map_id, pm.product_id, p.store_platform as current_platform, p.product_name as current_product
+// ── Step 6: Map ads to products by matching asset URLs / landing URLs to store URLs ──
+// Find ads that have store URLs in their assets but are NOT mapped to the right product
+$adsWithStoreAssets = $db->fetchAll(
+    "SELECT a.creative_id, a.advertiser_id, ass.original_url
      FROM ads a
-     LEFT JOIN ad_details d ON a.creative_id = d.creative_id
-         AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
-     LEFT JOIN ad_product_map pm ON a.creative_id = pm.creative_id
-     LEFT JOIN ad_products p ON pm.product_id = p.id
-     WHERE " . ($specificAdvertiser ? "a.advertiser_id = ?" : "1=1") . "
-       AND (p.store_platform = 'web' OR p.product_name = 'Unknown' OR pm.id IS NULL)
-     ORDER BY a.advertiser_id
-     LIMIT 2000",
-    $specificAdvertiser ? [$specificAdvertiser] : []
+     INNER JOIN ad_assets ass ON ass.creative_id = a.creative_id
+     WHERE (ass.original_url LIKE '%play.google.com/store/apps/details%'
+         OR ass.original_url LIKE '%apps.apple.com%/app/%')" . $advFilter . "
+     LIMIT 5000",
+    $advParams
 );
-$results['ads_to_remap'] = count($adsToRemap);
 
-$remapped = 0;
-$newMapped = 0;
-foreach ($adsToRemap as $ad) {
-    $advId = $ad['advertiser_id'];
-    $allUrls = ($ad['landing_url'] ? $ad['landing_url'] : '') . '||' . ($ad['all_asset_urls'] ? $ad['all_asset_urls'] : '');
+$adsMapped = 0;
+foreach ($adsWithStoreAssets as $row) {
+    $parsed = parseStoreUrl($row['original_url']);
+    if (!$parsed) continue;
 
-    $matchedProductId = null;
+    $product = $db->fetchOne(
+        "SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?",
+        [$parsed['url'], $row['advertiser_id']]
+    );
+    if (!$product) continue;
 
-    // Check 1: Does this ad's URLs contain a store URL?
-    if ($allUrls) {
-        // Play Store
-        if (preg_match('/play\.google\.com(?:\\\\\/|\/)+store(?:\\\\\/|\/)+apps(?:\\\\\/|\/)+details\?id=([^&\s|"\'\\\\]+)/', $allUrls, $m)) {
-            $storeUrl = 'https://play.google.com/store/apps/details?id=' . $m[1];
-            $product = $db->fetchOne(
-                "SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?",
-                [$storeUrl, $advId]
-            );
-            if ($product) $matchedProductId = $product['id'];
-        }
-        // App Store
-        if (!$matchedProductId && preg_match('/apps\.apple\.com(?:\\\\\/|\/)+(?:[a-z]{2}(?:\\\\\/|\/)+)?app(?:\\\\\/|\/)+(?:[^\/\s|"\'\\\\]+(?:\\\\\/|\/)+)?id(\d+)/', $allUrls, $m)) {
-            $storeUrl = 'https://apps.apple.com/app/id' . $m[1];
-            $product = $db->fetchOne(
-                "SELECT id FROM ad_products WHERE store_url = ?",
-                [$storeUrl]
-            );
-            if ($product) $matchedProductId = $product['id'];
-        }
-    }
-
-    // Check 2: Does this ad's headline match a known app name for this advertiser?
-    if (!$matchedProductId && $ad['headline']) {
-        $headline = strtolower(trim($ad['headline']));
-        if (strlen($headline) >= 4 && isset($advertiserStoreUrls[$advId])) {
-            // Get all app products for this advertiser
-            $appProducts = $db->fetchAll(
-                "SELECT p.id, LOWER(COALESCE(NULLIF(am.app_name, ''), p.product_name)) as app_name
-                 FROM ad_products p
-                 LEFT JOIN app_metadata am ON am.product_id = p.id
-                 WHERE p.advertiser_id = ? AND p.store_platform IN ('ios', 'playstore') AND p.product_name != 'Unknown'",
-                [$advId]
-            );
-            foreach ($appProducts as $ap) {
-                if (strlen($ap['app_name']) >= 4 && strpos($headline, $ap['app_name']) !== false) {
-                    $matchedProductId = $ap['id'];
-                    break;
-                }
-            }
-        }
-    }
-
-    if ($matchedProductId) {
-        if ($ad['map_id']) {
-            // Update existing mapping
-            $db->query(
-                "UPDATE ad_product_map SET product_id = ? WHERE id = ?",
-                [$matchedProductId, $ad['map_id']]
-            );
-            $remapped++;
-        } else {
-            // Create new mapping
-            $exists = $db->fetchOne(
-                "SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?",
-                [$ad['creative_id'], $matchedProductId]
-            );
-            if (!$exists) {
-                $db->insert('ad_product_map', array(
-                    'creative_id' => $ad['creative_id'],
-                    'product_id' => $matchedProductId,
-                ));
-                $newMapped++;
-            }
-        }
+    $exists = $db->fetchOne(
+        "SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?",
+        [$row['creative_id'], $product['id']]
+    );
+    if (!$exists) {
+        try {
+            $db->insert('ad_product_map', array(
+                'creative_id' => $row['creative_id'],
+                'product_id' => $product['id'],
+            ));
+            $adsMapped++;
+        } catch (Exception $e) {}
     }
 }
-$results['ads_remapped_to_apps'] = $remapped;
-$results['ads_newly_mapped'] = $newMapped;
 
-// Step 5: Count products now needing enrichment
+// Also map by landing_url
+$adsWithStoreLanding = $db->fetchAll(
+    "SELECT a.creative_id, a.advertiser_id, d.landing_url
+     FROM ads a
+     INNER JOIN ad_details d ON d.creative_id = a.creative_id
+     WHERE (d.landing_url LIKE '%play.google.com/store/apps/details%'
+         OR d.landing_url LIKE '%apps.apple.com%/app/%')" . $advFilter . "
+     LIMIT 5000",
+    $advParams
+);
+
+foreach ($adsWithStoreLanding as $row) {
+    $parsed = parseStoreUrl($row['landing_url']);
+    if (!$parsed) continue;
+
+    $product = $db->fetchOne(
+        "SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?",
+        [$parsed['url'], $row['advertiser_id']]
+    );
+    if (!$product) continue;
+
+    $exists = $db->fetchOne(
+        "SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?",
+        [$row['creative_id'], $product['id']]
+    );
+    if (!$exists) {
+        try {
+            $db->insert('ad_product_map', array(
+                'creative_id' => $row['creative_id'],
+                'product_id' => $product['id'],
+            ));
+            $adsMapped++;
+        } catch (Exception $e) {}
+    }
+}
+$results['ads_mapped_by_store_url'] = $adsMapped;
+
+// ── Step 7: Run enrichment for new products ──
 $results['products_needing_enrichment'] = (int) $db->fetchColumn(
     "SELECT COUNT(*)
      FROM ad_products p
@@ -241,7 +251,6 @@ $results['products_needing_enrichment'] = (int) $db->fetchColumn(
        AND am.id IS NULL"
 );
 
-// Step 6: Run enrichment for newly created products
 require_once $basePath . '/src/AssetManager.php';
 require_once $basePath . '/src/Processor.php';
 $assetManager = new AssetManager($config['storage']);
@@ -249,7 +258,7 @@ $processor = new Processor($db, $assetManager);
 $enriched = $processor->enrichAppMetadata();
 $results['apps_enriched'] = $enriched;
 
-// Step 7: Update product names from new metadata
+// Update names from enriched metadata
 $stmt = $db->query(
     "UPDATE IGNORE ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
@@ -260,8 +269,8 @@ $stmt = $db->query(
 );
 $results['names_updated'] = $stmt->rowCount();
 
-// Step 8: Final stats per advertiser (top 10)
-$topAdvProducts = $db->fetchAll(
+// ── Step 8: Stats ──
+$topAdv = $db->fetchAll(
     "SELECT p.advertiser_id, COALESCE(ma.name, p.advertiser_id) as adv_name,
             COUNT(DISTINCT CASE WHEN p.store_platform IN ('ios','playstore') THEN p.id END) as app_count,
             COUNT(DISTINCT CASE WHEN p.store_platform = 'web' THEN p.id END) as web_count,
@@ -272,6 +281,48 @@ $topAdvProducts = $db->fetchAll(
      ORDER BY app_count DESC
      LIMIT 15"
 );
-$results['advertiser_product_stats'] = $topAdvProducts;
+$results['advertiser_product_stats'] = $topAdv;
+
+// Specific advertiser detail if requested
+if ($specificAdvertiser) {
+    $advProducts = $db->fetchAll(
+        "SELECT p.id, p.product_name, p.store_platform, p.store_url,
+                am.app_name, am.icon_url,
+                (SELECT COUNT(*) FROM ad_product_map pm WHERE pm.product_id = p.id) as mapped_ads
+         FROM ad_products p
+         LEFT JOIN app_metadata am ON am.product_id = p.id
+         WHERE p.advertiser_id = ?
+         ORDER BY mapped_ads DESC",
+        [$specificAdvertiser]
+    );
+    $results['advertiser_products'] = $advProducts;
+}
 
 echo json_encode(array('success' => true, 'results' => $results), JSON_PRETTY_PRINT);
+
+/**
+ * Parse a store URL into normalized form.
+ */
+function parseStoreUrl($url) {
+    if (!$url) return null;
+
+    // Play Store
+    if (preg_match('/play\.google\.com\/store\/apps\/details\?id=([^&\s"\']+)/', $url, $m)) {
+        return array(
+            'platform' => 'playstore',
+            'package' => $m[1],
+            'url' => 'https://play.google.com/store/apps/details?id=' . $m[1],
+        );
+    }
+
+    // App Store
+    if (preg_match('/apps\.apple\.com\/(?:[a-z]{2}\/)?app\/(?:[^\/]+\/)?id(\d+)/', $url, $m)) {
+        return array(
+            'platform' => 'ios',
+            'package' => 'id' . $m[1],
+            'url' => 'https://apps.apple.com/app/id' . $m[1],
+        );
+    }
+
+    return null;
+}
