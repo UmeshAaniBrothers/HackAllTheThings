@@ -35,12 +35,258 @@ $processor = new Processor($db, $assetManager);
 
 $limit = min(1000, max(50, (int)($_GET['limit'] ?? 200)));
 $targetAdvertiser = isset($_GET['advertiser_id']) ? trim($_GET['advertiser_id']) : '';
+$deepScan = isset($_GET['deep_scan']) && $_GET['deep_scan'] === '1';
 
 function progress($msg) {
     echo $msg . "\n";
     flush();
 }
 
+// ══════════════════════════════════════════════
+// DEEP SCAN MODE: Rescan ALL preview pages for an advertiser (even already-mapped)
+// Usage: &deep_scan=1&advertiser_id=AR...
+// ══════════════════════════════════════════════
+if ($deepScan && $targetAdvertiser) {
+    $advName = $db->fetchColumn(
+        "SELECT COALESCE(ma.name, ?) FROM managed_advertisers ma WHERE ma.advertiser_id = ?",
+        [$targetAdvertiser, $targetAdvertiser]
+    );
+    if (!$advName) $advName = $targetAdvertiser;
+
+    progress("=== DEEP APP SCAN: {$advName} ===");
+    progress("Advertiser: {$targetAdvertiser}");
+    progress("Time: " . date('Y-m-d H:i:s'));
+    progress("");
+
+    // Current products
+    $currentProducts = $db->fetchAll(
+        "SELECT p.id, p.product_name, p.store_platform, p.store_url,
+                (SELECT COUNT(*) FROM ad_product_map pm WHERE pm.product_id = p.id) as mapped_ads
+         FROM ad_products p WHERE p.advertiser_id = ? ORDER BY mapped_ads DESC",
+        [$targetAdvertiser]
+    );
+
+    progress("=== CURRENT PRODUCTS (" . count($currentProducts) . ") ===");
+    $knownStoreUrls = array();
+    foreach ($currentProducts as $p) {
+        $platform = $p['store_platform'] ?: 'unknown';
+        progress("  [{$platform}] {$p['product_name']} ({$p['mapped_ads']} ads)");
+        if ($p['store_url']) {
+            progress("    {$p['store_url']}");
+            $knownStoreUrls[$p['store_url']] = $p['product_name'];
+        }
+    }
+    progress("");
+
+    // Scan landing URLs for app store links
+    progress("=== SCANNING LANDING URLs ===");
+    $landingUrls = $db->fetchAll(
+        "SELECT DISTINCT d.landing_url, d.creative_id
+         FROM ad_details d INNER JOIN ads a ON d.creative_id = a.creative_id
+         WHERE a.advertiser_id = ? AND d.landing_url IS NOT NULL AND d.landing_url != ''",
+        [$targetAdvertiser]
+    );
+
+    $landingApps = array();
+    foreach ($landingUrls as $lu) {
+        $url = $lu['landing_url'];
+        if (preg_match('/(?:itunes\.apple\.com|apps\.apple\.com).*?(?:\/id|id=)(\d+)/', $url, $m)) {
+            $su = 'https://apps.apple.com/app/id' . $m[1];
+            if (!isset($landingApps[$su])) $landingApps[$su] = array('count' => 0, 'platform' => 'ios', 'creative_ids' => array());
+            $landingApps[$su]['count']++;
+            $landingApps[$su]['creative_ids'][] = $lu['creative_id'];
+        }
+        if (preg_match('/play\.google\.com.*?id=([a-zA-Z0-9._]+)/', $url, $m)) {
+            $su = 'https://play.google.com/store/apps/details?id=' . $m[1];
+            if (!isset($landingApps[$su])) $landingApps[$su] = array('count' => 0, 'platform' => 'playstore', 'creative_ids' => array());
+            $landingApps[$su]['count']++;
+            $landingApps[$su]['creative_ids'][] = $lu['creative_id'];
+        }
+    }
+    foreach ($landingApps as $url => $info) {
+        $status = isset($knownStoreUrls[$url]) ? 'KNOWN' : 'NEW!';
+        progress("  [{$status}] [{$info['platform']}] {$url} ({$info['count']} ads)");
+    }
+    if (empty($landingApps)) progress("  (no app store links in landing URLs)");
+    progress("");
+
+    // Get ALL ads with preview URLs (even already-mapped)
+    $allAds = $db->fetchAll(
+        "SELECT a.creative_id, a.ad_type, ass.original_url as preview_url
+         FROM ads a
+         INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
+            AND ass.original_url LIKE '%displayads-formats%'
+         WHERE a.advertiser_id = ?
+         GROUP BY a.creative_id ORDER BY a.last_seen DESC",
+        [$targetAdvertiser]
+    );
+
+    $totalAds = (int)$db->fetchColumn("SELECT COUNT(*) FROM ads WHERE advertiser_id = ?", [$targetAdvertiser]);
+    progress("Total ads: {$totalAds}, With preview URLs: " . count($allAds));
+    progress("=== SCANNING ALL " . count($allAds) . " PREVIEW PAGES ===");
+    progress("");
+
+    $allDiscovered = array();
+    $youtubeFound = 0;
+    $errors = 0;
+    $noData = 0;
+
+    foreach ($allAds as $i => $ad) {
+        $num = $i + 1;
+        $ch = curl_init();
+        curl_setopt_array($ch, array(
+            CURLOPT_URL => $ad['preview_url'], CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 10, CURLOPT_CONNECTTIMEOUT => 5, CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            CURLOPT_HTTPHEADER => array('Referer: https://adstransparency.google.com/', 'Accept: */*'),
+            CURLOPT_ENCODING => 'gzip, deflate',
+        ));
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if (!$response || $httpCode !== 200) { $errors++; usleep(200000); continue; }
+
+        $decoded = $response;
+        if (strpos($response, '\\u') !== false) {
+            $decoded .= "\n" . (json_decode('"' . str_replace('"', '\\"', $response) . '"') ?: '');
+        }
+        if (strpos($response, '\\x') !== false) {
+            $decoded .= "\n" . preg_replace_callback('/\\\\x([0-9a-fA-F]{2})/', function($m) { return chr(hexdec($m[1])); }, $response);
+        }
+
+        // Extract app
+        $storeUrl = null; $storePlatform = null; $appName = null; $appId = null; $appStoreType = null;
+        if (preg_match('/[\'"]appId[\'"]\s*:\s*[\'"]([a-zA-Z0-9._]+)[\'"]/', $decoded, $ai)) $appId = $ai[1];
+        if (preg_match('/[\'"]appStore[\'"]\s*:\s*[\'"]?(\d+)[\'"]?/', $decoded, $as)) $appStoreType = $as[1];
+
+        if ($appId && $appStoreType === '2') {
+            $storeUrl = 'https://play.google.com/store/apps/details?id=' . $appId; $storePlatform = 'playstore';
+        } elseif ($appId && $appStoreType === '1') {
+            $storeUrl = preg_match('/^\d+$/', $appId) ? 'https://apps.apple.com/app/id' . $appId : 'https://apps.apple.com/app/' . $appId;
+            $storePlatform = 'ios';
+        }
+        if (!$storeUrl && preg_match('/(?:itunes\.apple\.com|apps\.apple\.com)(?:%2F|\/)+(?:[a-z]{2}(?:%2F|\/)+)?app(?:%2F|\/)+(?:[^%"\'\\\\&\s]*(?:%2F|\/)+)?id(\d+)/', $decoded, $m)) {
+            $storeUrl = 'https://apps.apple.com/app/id' . $m[1]; $storePlatform = 'ios';
+        }
+        if (!$storeUrl && preg_match('/play\.google\.com(?:%2F|\/)+store(?:%2F|\/)+apps(?:%2F|\/)+details(?:%3F|\?)id(?:%3D|=)([a-zA-Z0-9._]+)/', $decoded, $m)) {
+            $storeUrl = 'https://play.google.com/store/apps/details?id=' . $m[1]; $storePlatform = 'playstore';
+        }
+        if (!$storeUrl && preg_match('/itunes\.apple\.com.*?(?:\/id|%2Fid)(\d+)/', $decoded, $m)) {
+            $storeUrl = 'https://apps.apple.com/app/id' . $m[1]; $storePlatform = 'ios';
+        }
+        if (preg_match('/[\'"]appName[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $an)) $appName = trim($an[1]);
+
+        if ($storeUrl) {
+            if (!isset($allDiscovered[$storeUrl])) $allDiscovered[$storeUrl] = array('name' => $appName ?: $appId ?: 'unknown', 'platform' => $storePlatform, 'count' => 0, 'creative_ids' => array());
+            $allDiscovered[$storeUrl]['count']++;
+            $allDiscovered[$storeUrl]['creative_ids'][] = $ad['creative_id'];
+            if ($appName && $allDiscovered[$storeUrl]['name'] === 'unknown') $allDiscovered[$storeUrl]['name'] = $appName;
+        } else {
+            $noData++;
+        }
+
+        // YouTube
+        $ytId = null;
+        if (preg_match('/[\'"]video_videoId[\'"]\s*:\s*[\'"]([a-zA-Z0-9_-]{11})[\'"]/', $decoded, $m)) $ytId = $m[1];
+        elseif (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $decoded, $m)) $ytId = $m[1];
+        elseif (preg_match('/youtube\.com\/(?:embed\/|watch\?v=|v\/)([a-zA-Z0-9_-]{11})/', $decoded, $m)) $ytId = $m[1];
+        if ($ytId && $ad['ad_type'] === 'video') { $processor->saveYouTubeAssets($ad['creative_id'], $ytId); $youtubeFound++; }
+
+        if ($num % 50 === 0) progress("[{$num}/" . count($allAds) . "] Apps: " . count($allDiscovered) . " | YT: {$youtubeFound} | Errors: {$errors}");
+        usleep(200000);
+    }
+
+    progress("");
+    progress("=== SCAN COMPLETE ===");
+    progress("Scanned: " . count($allAds) . " | Unique apps: " . count($allDiscovered) . " | YouTube: {$youtubeFound} | No data: {$noData} | Errors: {$errors}");
+    progress("");
+
+    // Show all discovered apps
+    progress("=== ALL APPS IN PREVIEW PAGES ===");
+    uasort($allDiscovered, function($a, $b) { return $b['count'] - $a['count']; });
+    $newApps = array();
+    foreach ($allDiscovered as $url => $info) {
+        $isNew = !isset($knownStoreUrls[$url]);
+        progress("  [" . ($isNew ? '** NEW **' : 'KNOWN') . "] [{$info['platform']}] {$info['name']} ({$info['count']} ads)");
+        progress("    {$url}");
+        if ($isNew) $newApps[$url] = $info;
+    }
+
+    // Add apps from landing URLs not found in preview pages
+    foreach ($landingApps as $url => $info) {
+        if (!isset($knownStoreUrls[$url]) && !isset($allDiscovered[$url])) {
+            $newApps[$url] = array('name' => 'unknown', 'platform' => $info['platform'], 'count' => $info['count'], 'creative_ids' => $info['creative_ids']);
+            progress("  [** NEW from landing **] [{$info['platform']}] {$url} ({$info['count']} ads)");
+        }
+    }
+    progress("");
+
+    // Create products for new apps
+    if (!empty($newApps)) {
+        progress("=== CREATING " . count($newApps) . " NEW PRODUCTS ===");
+        $created = 0;
+        foreach ($newApps as $storeUrl => $info) {
+            $existing = $db->fetchOne("SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?", [$storeUrl, $targetAdvertiser]);
+            $productId = null;
+            if ($existing) {
+                $productId = $existing['id'];
+                progress("  Exists: {$info['name']} (#{$productId})");
+            } else {
+                try {
+                    $productId = $db->insert('ad_products', array('advertiser_id' => $targetAdvertiser, 'product_name' => $info['name'], 'product_type' => 'app', 'store_platform' => $info['platform'], 'store_url' => $storeUrl));
+                    $created++;
+                    progress("  Created: {$info['name']} (#{$productId})");
+                } catch (Exception $e) {
+                    $existing = $db->fetchOne("SELECT id FROM ad_products WHERE store_url = ?", [$storeUrl]);
+                    if ($existing) $productId = $existing['id'];
+                }
+            }
+            if ($productId && !empty($info['creative_ids'])) {
+                $mapped = 0;
+                foreach ($info['creative_ids'] as $cid) {
+                    $exists = $db->fetchOne("SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?", [$cid, $productId]);
+                    if (!$exists) { try { $db->insert('ad_product_map', array('creative_id' => $cid, 'product_id' => $productId)); $mapped++; } catch (Exception $e) {} }
+                }
+                if ($mapped) progress("    Mapped {$mapped} ads");
+            }
+        }
+        progress("New products created: {$created}");
+    } else {
+        progress("No new apps discovered in preview pages or landing URLs.");
+    }
+
+    // Enrich metadata
+    progress("");
+    progress("=== Enriching metadata ===");
+    $enriched = $processor->enrichAppMetadata();
+    progress("Apps enriched: {$enriched}");
+    $stmt = $db->query("UPDATE IGNORE ad_products p INNER JOIN app_metadata am ON am.product_id = p.id SET p.product_name = am.app_name WHERE am.app_name IS NOT NULL AND am.app_name != '' AND BINARY p.product_name != BINARY am.app_name AND LENGTH(am.app_name) > 2");
+    progress("Names updated: " . $stmt->rowCount());
+
+    // Final list
+    progress("");
+    progress("=== FINAL APP LIST ===");
+    $final = $db->fetchAll(
+        "SELECT p.product_name, p.store_platform, p.store_url, COALESCE(am.app_name, p.product_name) as display_name,
+                (SELECT COUNT(*) FROM ad_product_map pm WHERE pm.product_id = p.id) as mapped_ads
+         FROM ad_products p LEFT JOIN app_metadata am ON am.product_id = p.id
+         WHERE p.advertiser_id = ? AND p.store_platform IN ('ios','playstore') ORDER BY mapped_ads DESC",
+        [$targetAdvertiser]
+    );
+    progress("Total apps: " . count($final));
+    foreach ($final as $p) {
+        progress("  [{$p['store_platform']}] {$p['display_name']} ({$p['mapped_ads']} ads)");
+        progress("    {$p['store_url']}");
+    }
+    progress("");
+    progress("Done! " . date('Y-m-d H:i:s'));
+    exit;
+}
+
+// ══════════════════════════════════════════════
+// NORMAL MODE: Process only unmapped ads
+// ══════════════════════════════════════════════
 progress("=== Store URL + Video Deep Enrichment ===");
 progress("Time: " . date('Y-m-d H:i:s'));
 if ($targetAdvertiser) {
