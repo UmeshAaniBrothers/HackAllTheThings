@@ -584,7 +584,7 @@
                 var viewCount = parseInt(ad.view_count) || 0;
                 var viewCountStr = viewCount > 0 ? formatNumber(viewCount) : '';
 
-                // "New" badge for ads first seen within last 7 days
+                // "New" badge for ads first seen within last 48 hours
                 var isNew = ad.is_new == 1;
                 var newBadge = isNew ? '<span class="badge bg-danger ms-1" style="font-size:.6rem;animation:pulse 2s infinite">NEW</span> ' : '';
 

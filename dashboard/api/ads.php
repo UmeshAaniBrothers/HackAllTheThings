@@ -106,9 +106,9 @@ try {
         $params[] = $videoGroup;
     }
 
-    // New this week filter (first_seen within last 7 days)
+    // New filter (first_seen within last 48 hours)
     if ($newOnly) {
-        $where[] = 'a.first_seen >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
+        $where[] = 'a.first_seen >= DATE_SUB(NOW(), INTERVAL 48 HOUR)';
     }
 
     $whereClause = implode(' AND ', $where);
@@ -156,8 +156,8 @@ try {
         $fetchParams
     );
 
-    // Add is_new flag (first_seen within 7 days)
-    $sevenDaysAgo = date('Y-m-d H:i:s', strtotime('-7 days'));
+    // Add is_new flag (first_seen within 48 hours)
+    $sevenDaysAgo = date('Y-m-d H:i:s', strtotime('-48 hours'));
     foreach ($ads as &$ad) {
         $ad['is_new'] = ($ad['first_seen'] >= $sevenDaysAgo) ? 1 : 0;
     }
