@@ -217,6 +217,7 @@ $processingSteps = [
     'countries' => 'enrichCountriesFromGoogle',
     'stores'    => 'enrichStoreUrlsFromPreview',
     'apps'      => 'enrichAppMetadata',
+    'devapps'   => 'discoverDeveloperApps',
     'products'  => 'detectProducts',
 ];
 

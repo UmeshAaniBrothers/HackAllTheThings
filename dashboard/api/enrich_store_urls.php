@@ -264,6 +264,12 @@ if ($deepScan && $targetAdvertiser) {
     $stmt = $db->query("UPDATE IGNORE ad_products p INNER JOIN app_metadata am ON am.product_id = p.id SET p.product_name = am.app_name WHERE am.app_name IS NOT NULL AND am.app_name != '' AND BINARY p.product_name != BINARY am.app_name AND LENGTH(am.app_name) > 2");
     progress("Names updated: " . $stmt->rowCount());
 
+    // Developer-based discovery: find ALL apps from same developers
+    progress("");
+    progress("=== DISCOVERING APPS FROM SAME DEVELOPERS ===");
+    $devDiscovered = $processor->discoverDeveloperApps($targetAdvertiser);
+    progress("New apps from developer accounts: {$devDiscovered}");
+
     // Final list
     progress("");
     progress("=== FINAL APP LIST ===");

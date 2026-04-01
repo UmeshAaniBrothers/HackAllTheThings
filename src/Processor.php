@@ -2810,6 +2810,134 @@ class Processor
     }
 
     /**
+     * Discover ALL apps by the same developers for a given advertiser.
+     * Uses the iTunes Lookup API (artistId → all apps) to find apps not yet in our database.
+     * Returns the number of new apps discovered.
+     */
+    public function discoverDeveloperApps($advertiserId = null)
+    {
+        // Get distinct developer URLs from existing app_metadata for this advertiser
+        $sql = "SELECT DISTINCT am.developer_name, am.developer_url, p.advertiser_id
+                FROM app_metadata am
+                INNER JOIN ad_products p ON p.id = am.product_id
+                WHERE am.developer_url IS NOT NULL AND am.developer_url != ''
+                  AND p.store_platform = 'ios'";
+        $params = array();
+        if ($advertiserId) {
+            $sql .= " AND p.advertiser_id = ?";
+            $params[] = $advertiserId;
+        }
+        $developers = $this->db->fetchAll($sql, $params);
+
+        if (empty($developers)) return 0;
+
+        $discovered = 0;
+
+        foreach ($developers as $dev) {
+            $devUrl = $dev['developer_url'];
+            $advId = $dev['advertiser_id'];
+
+            // Extract artist ID from developer URL (e.g., https://apps.apple.com/us/developer/.../id1787232087)
+            $artistId = null;
+            if (preg_match('/\/id(\d+)/', $devUrl, $m)) {
+                $artistId = $m[1];
+            }
+            if (!$artistId) continue;
+
+            // Fetch all apps by this developer from iTunes
+            $lookupUrl = 'https://itunes.apple.com/lookup?id=' . $artistId . '&entity=software&limit=200';
+            $ch = curl_init();
+            curl_setopt_array($ch, array(
+                CURLOPT_URL            => $lookupUrl,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 30,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_FOLLOWLOCATION => true,
+            ));
+            $resp = curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if (!$resp || $code !== 200) continue;
+            $data = json_decode($resp, true);
+            if (!$data || empty($data['results'])) continue;
+
+            foreach ($data['results'] as $app) {
+                // Skip the artist record itself
+                if (($app['wrapperType'] ?? '') === 'artist') continue;
+                if (empty($app['trackId'])) continue;
+
+                $storeUrl = 'https://apps.apple.com/app/id' . $app['trackId'];
+                $appName = $app['trackName'] ?? 'Unknown';
+
+                // Check if we already have this product for this advertiser
+                $exists = $this->db->fetchOne(
+                    "SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?",
+                    [$storeUrl, $advId]
+                );
+                if ($exists) continue;
+
+                // Also check without advertiser (might be under a different one)
+                $existsAny = $this->db->fetchOne(
+                    "SELECT id FROM ad_products WHERE store_url = ?",
+                    [$storeUrl]
+                );
+                if ($existsAny) continue;
+
+                // Create the product
+                try {
+                    $productId = $this->db->insert('ad_products', array(
+                        'advertiser_id' => $advId,
+                        'product_name' => $appName,
+                        'product_type' => 'app',
+                        'store_platform' => 'ios',
+                        'store_url' => $storeUrl,
+                    ));
+
+                    // Also insert metadata directly since we have it
+                    $screenshots = array();
+                    if (!empty($app['screenshotUrls'])) $screenshots = array_slice($app['screenshotUrls'], 0, 8);
+
+                    try {
+                        $this->db->insert('app_metadata', array(
+                            'product_id' => $productId,
+                            'store_platform' => 'ios',
+                            'store_url' => $storeUrl,
+                            'bundle_id' => $app['bundleId'] ?? null,
+                            'app_name' => $appName,
+                            'icon_url' => $app['artworkUrl512'] ?? $app['artworkUrl100'] ?? null,
+                            'developer_name' => $app['artistName'] ?? null,
+                            'developer_url' => $app['artistViewUrl'] ?? null,
+                            'description' => isset($app['description']) ? mb_substr($app['description'], 0, 5000) : null,
+                            'category' => $app['primaryGenreName'] ?? null,
+                            'rating' => $app['averageUserRating'] ?? null,
+                            'rating_count' => $app['userRatingCount'] ?? 0,
+                            'price' => isset($app['formattedPrice']) ? $app['formattedPrice'] : ($app['price'] == 0 ? 'Free' : '$' . $app['price']),
+                            'release_date' => isset($app['releaseDate']) ? date('Y-m-d', strtotime($app['releaseDate'])) : null,
+                            'last_updated' => isset($app['currentVersionReleaseDate']) ? date('Y-m-d', strtotime($app['currentVersionReleaseDate'])) : null,
+                            'version' => $app['version'] ?? null,
+                            'screenshots' => json_encode($screenshots),
+                            'fetched_at' => date('Y-m-d H:i:s'),
+                        ));
+                    } catch (\Exception $e) {
+                        // Duplicate metadata — skip
+                    }
+
+                    $discovered++;
+                    $this->log("Discovered developer app: {$appName} ({$storeUrl}) for {$advId}");
+                } catch (\Exception $e) {
+                    // Duplicate product — skip
+                }
+            }
+
+            usleep(500000); // 500ms rate limit between developer lookups
+        }
+
+        $this->log("Discovered {$discovered} new apps from developer accounts");
+        return $discovered;
+    }
+
+    /**
      * Fetch iOS app metadata from iTunes Lookup API.
      */
     private function fetchAppStoreMetadata(string $storeUrl): ?array
