@@ -15,6 +15,9 @@ require_once $basePath . '/src/Database.php';
 try {
     $db = Database::getInstance($config['db']);
 
+    // Fix collation mismatch between tables (utf8mb4_unicode_ci vs utf8mb4_general_ci)
+    $db->query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+
     $q       = isset($_GET['q']) ? trim($_GET['q']) : '';
     $type    = isset($_GET['type']) ? $_GET['type'] : 'all'; // all, ads, advertisers, apps, videos
     $page    = max(1, (int) ($_GET['page'] ?? 1));
