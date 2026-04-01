@@ -2006,12 +2006,85 @@ class Processor
 
         $this->log("Detected products for {$mapped} ads");
 
-        // Auto-assign new products to app groups based on keywords
+        // Merge duplicate products (same store_url across advertisers)
         if ($mapped > 0) {
+            $this->mergeDuplicateProducts();
             $this->autoAssignAppGroups();
         }
 
         return $mapped;
+    }
+
+    /**
+     * Merge duplicate products that share the same store_url.
+     * Keeps the one with best metadata, migrates all references.
+     */
+    public function mergeDuplicateProducts(): int
+    {
+        $pdo = $this->db->getPdo();
+
+        // Find duplicates: same store_url, different product IDs
+        $dupes = $pdo->query("
+            SELECT store_url, COUNT(*) as cnt, GROUP_CONCAT(id ORDER BY id) as ids
+            FROM ad_products
+            WHERE store_url IS NOT NULL AND store_url != '' AND store_url != 'not_found'
+              AND store_platform IN ('ios', 'playstore')
+            GROUP BY store_url
+            HAVING cnt > 1
+            LIMIT 200
+        ")->fetchAll(\PDO::FETCH_ASSOC);
+
+        if (empty($dupes)) return 0;
+
+        $merged = 0;
+
+        foreach ($dupes as $dupe) {
+            $ids = array_map('intval', explode(',', $dupe['ids']));
+
+            // Pick keeper: prefer one with app_metadata, then most ad mappings
+            $bestId = null;
+            $bestScore = -1;
+            foreach ($ids as $pid) {
+                $hasMeta = (int)$pdo->query("SELECT COUNT(*) FROM app_metadata WHERE product_id = {$pid}")->fetchColumn();
+                $adCount = (int)$pdo->query("SELECT COUNT(*) FROM ad_product_map WHERE product_id = {$pid}")->fetchColumn();
+                $score = $hasMeta * 10000 + $adCount;
+                if ($score > $bestScore) {
+                    $bestScore = $score;
+                    $bestId = $pid;
+                }
+            }
+
+            $dupeIds = array_filter($ids, fn($id) => $id !== $bestId);
+            if (empty($dupeIds)) continue;
+
+            $ph = implode(',', $dupeIds);
+
+            // Migrate ad_product_map
+            $pdo->exec("INSERT IGNORE INTO ad_product_map (creative_id, product_id)
+                         SELECT pm.creative_id, {$bestId} FROM ad_product_map pm WHERE pm.product_id IN ({$ph})");
+            $pdo->exec("DELETE FROM ad_product_map WHERE product_id IN ({$ph})");
+
+            // Migrate app_group_members
+            try {
+                $pdo->exec("INSERT IGNORE INTO app_group_members (group_id, product_id, matched_keyword, auto_assigned)
+                             SELECT agm.group_id, {$bestId}, agm.matched_keyword, agm.auto_assigned
+                             FROM app_group_members agm WHERE agm.product_id IN ({$ph})");
+                $pdo->exec("DELETE FROM app_group_members WHERE product_id IN ({$ph})");
+            } catch (\Exception $e) { /* table may not exist */ }
+
+            // Delete duplicate app_metadata
+            $pdo->exec("DELETE FROM app_metadata WHERE product_id IN ({$ph})");
+
+            // Delete duplicate products
+            $pdo->exec("DELETE FROM ad_products WHERE id IN ({$ph})");
+
+            $merged += count($dupeIds);
+        }
+
+        if ($merged > 0) {
+            $this->log("Merged {$merged} duplicate products");
+        }
+        return $merged;
     }
 
     /**
