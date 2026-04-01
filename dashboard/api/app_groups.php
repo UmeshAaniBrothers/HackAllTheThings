@@ -230,17 +230,18 @@ function autoAssignGroup(PDO $pdo, int $groupId): int
     $productKeywordMap = []; // product_id => first matched keyword
 
     foreach ($keywords as $kw) {
-        $like = '%' . strtolower($kw) . '%';
+        // Use word boundary regex so "art" matches "art" but not "smart" or "start"
+        $regex = '(^|[^a-zA-Z])' . preg_quote(strtolower($kw), '/') . '([^a-zA-Z]|$)';
         $matches = $pdo->prepare("
             SELECT DISTINCT p.id
             FROM ad_products p
             LEFT JOIN app_metadata a ON a.product_id = p.id
-            WHERE LOWER(p.product_name) LIKE ?
-               OR LOWER(COALESCE(a.app_name, '')) LIKE ?
-               OR LOWER(COALESCE(a.category, '')) LIKE ?
-               OR LOWER(COALESCE(a.description, '')) LIKE ?
+            WHERE LOWER(p.product_name) REGEXP ?
+               OR LOWER(COALESCE(a.app_name, '')) REGEXP ?
+               OR LOWER(COALESCE(a.category, '')) REGEXP ?
+               OR LOWER(COALESCE(a.description, '')) REGEXP ?
         ");
-        $matches->execute([$like, $like, $like, $like]);
+        $matches->execute([$regex, $regex, $regex, $regex]);
 
         foreach ($matches->fetchAll(PDO::FETCH_COLUMN) as $productId) {
             $matchedProductIds[$productId] = true;

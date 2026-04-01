@@ -213,14 +213,14 @@ function autoAssignVideoGroup(PDO $pdo, int $groupId): int
     $matchedKeyword = [];
 
     foreach ($keywords as $kw) {
-        $like = '%' . strtolower($kw) . '%';
+        $regex = '(^|[^a-zA-Z])' . preg_quote(strtolower($kw), '/') . '([^a-zA-Z]|$)';
         $matches = $pdo->prepare("
             SELECT video_id FROM youtube_metadata
-            WHERE LOWER(COALESCE(title, '')) LIKE ?
-               OR LOWER(COALESCE(channel_name, '')) LIKE ?
-               OR LOWER(COALESCE(description, '')) LIKE ?
+            WHERE LOWER(COALESCE(title, '')) REGEXP ?
+               OR LOWER(COALESCE(channel_name, '')) REGEXP ?
+               OR LOWER(COALESCE(description, '')) REGEXP ?
         ");
-        $matches->execute([$like, $like, $like]);
+        $matches->execute([$regex, $regex, $regex]);
 
         foreach ($matches->fetchAll(PDO::FETCH_COLUMN) as $vid) {
             $matchedIds[$vid] = true;

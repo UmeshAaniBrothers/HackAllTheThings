@@ -2046,14 +2046,15 @@ class Processor
             $matchedIds = [];
             $matchedKeyword = [];
             foreach ($keywords as $kw) {
-                $like = '%' . strtolower($kw) . '%';
+                // Word boundary regex: "art" matches "art" but not "smart"/"start"
+                $regex = '(^|[^a-zA-Z])' . preg_quote(strtolower($kw), '/') . '([^a-zA-Z]|$)';
                 $matches = $pdo->prepare("
                     SELECT DISTINCT p.id FROM ad_products p
                     LEFT JOIN app_metadata a ON a.product_id = p.id
-                    WHERE LOWER(p.product_name) LIKE ? OR LOWER(COALESCE(a.app_name, '')) LIKE ?
-                          OR LOWER(COALESCE(a.category, '')) LIKE ? OR LOWER(COALESCE(a.description, '')) LIKE ?
+                    WHERE LOWER(p.product_name) REGEXP ? OR LOWER(COALESCE(a.app_name, '')) REGEXP ?
+                          OR LOWER(COALESCE(a.category, '')) REGEXP ? OR LOWER(COALESCE(a.description, '')) REGEXP ?
                 ");
-                $matches->execute([$like, $like, $like, $like]);
+                $matches->execute([$regex, $regex, $regex, $regex]);
                 foreach ($matches->fetchAll(\PDO::FETCH_COLUMN) as $pid) {
                     $matchedIds[$pid] = true;
                     if (!isset($matchedKeyword[$pid])) $matchedKeyword[$pid] = $kw;
@@ -2112,14 +2113,14 @@ class Processor
             $matchedIds = [];
             $matchedKeyword = [];
             foreach ($keywords as $kw) {
-                $like = '%' . strtolower($kw) . '%';
+                $regex = '(^|[^a-zA-Z])' . preg_quote(strtolower($kw), '/') . '([^a-zA-Z]|$)';
                 $matches = $pdo->prepare("
                     SELECT video_id FROM youtube_metadata
-                    WHERE LOWER(COALESCE(title, '')) LIKE ?
-                       OR LOWER(COALESCE(channel_name, '')) LIKE ?
-                       OR LOWER(COALESCE(description, '')) LIKE ?
+                    WHERE LOWER(COALESCE(title, '')) REGEXP ?
+                       OR LOWER(COALESCE(channel_name, '')) REGEXP ?
+                       OR LOWER(COALESCE(description, '')) REGEXP ?
                 ");
-                $matches->execute([$like, $like, $like]);
+                $matches->execute([$regex, $regex, $regex]);
                 foreach ($matches->fetchAll(\PDO::FETCH_COLUMN) as $vid) {
                     $matchedIds[$vid] = true;
                     if (!isset($matchedKeyword[$vid])) $matchedKeyword[$vid] = $kw;
