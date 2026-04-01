@@ -217,13 +217,8 @@ try {
     // Timeline (adaptive granularity)
     // ---------------------------------------------------------------
     $gran = timelineGranularity($timePeriod);
-    $timelineLimit = match ($timePeriod) {
-        '1d'  => 24,
-        '7d'  => 168,   // 7 * 24
-        '30d' => 30,
-        '90d' => 13,    // ~13 weeks
-        default => 12,  // 12 months
-    };
+    $timelineLimits = ['1d' => 24, '7d' => 168, '30d' => 30, '90d' => 13];
+    $timelineLimit = $timelineLimits[$timePeriod] ?? 12;
 
     $timeline = $db->fetchAll(
         "SELECT {$gran['format']} as period, COUNT(*) as count
