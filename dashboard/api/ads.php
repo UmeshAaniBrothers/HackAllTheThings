@@ -143,19 +143,11 @@ try {
     $offset = ($page - 1) * $perPage;
     $fetchParams = array_merge($params, [$perPage, $offset]);
 
+    // Step 1: Get paginated ads with basic 1:1 JOINs (no correlated subqueries)
     $ads = $db->fetchAll(
         "SELECT a.creative_id, a.advertiser_id, a.ad_type, a.first_seen, a.last_seen, a.status, a.view_count,
                 d.headline, d.description, d.cta, d.landing_url, d.display_url, d.ad_width, d.ad_height, d.headlines_json, d.descriptions_json, d.tracking_ids_json, d.headline_source,
-                (SELECT GROUP_CONCAT(DISTINCT t.country) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as countries,
-                (SELECT GROUP_CONCAT(DISTINCT t.platform) FROM ad_targeting t WHERE t.creative_id = a.creative_id) as platforms,
-                (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'image' AND ass.original_url NOT LIKE '%displayads-formats%' ORDER BY (ass.original_url LIKE '%ytimg.com%') DESC, ass.id DESC LIMIT 1) as preview_image,
-                (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url,
-                (SELECT original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.original_url LIKE '%displayads-formats%' LIMIT 1) as preview_url,
-                adv.name as advertiser_name,
-                (SELECT GROUP_CONCAT(DISTINCT p.product_name SEPARATOR '||') FROM ad_product_map pm INNER JOIN ad_products p ON pm.product_id = p.id WHERE pm.creative_id = a.creative_id AND p.store_platform IN ('ios', 'playstore')) as product_names,
-                (SELECT pm2.product_id FROM ad_product_map pm2 INNER JOIN ad_products p2x ON pm2.product_id = p2x.id WHERE pm2.creative_id = a.creative_id AND p2x.store_platform IN ('ios', 'playstore') LIMIT 1) as product_id,
-                (SELECT p2.store_url FROM ad_product_map pm3 INNER JOIN ad_products p2 ON pm3.product_id = p2.id WHERE pm3.creative_id = a.creative_id AND p2.store_platform IN ('ios', 'playstore') AND p2.store_url IS NOT NULL AND p2.store_url != '' AND p2.store_url != 'not_found' LIMIT 1) as store_url,
-                (SELECT p3.store_platform FROM ad_product_map pm4 INNER JOIN ad_products p3 ON pm4.product_id = p3.id WHERE pm4.creative_id = a.creative_id AND p3.store_platform IN ('ios', 'playstore') LIMIT 1) as store_platform
+                adv.name as advertiser_name
          FROM ads a
          LEFT JOIN ad_details d ON a.creative_id = d.creative_id
              AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
@@ -165,6 +157,93 @@ try {
          LIMIT ? OFFSET ?",
         $fetchParams
     );
+
+    // Step 2: Batch-fetch supplemental data for just the returned page of ads
+    if (!empty($ads)) {
+        $creativeIds = array_column($ads, 'creative_id');
+        $placeholders = implode(',', array_fill(0, count($creativeIds), '?'));
+
+        // Batch fetch targeting (countries, platforms)
+        $targeting = $db->fetchAll(
+            "SELECT creative_id, GROUP_CONCAT(DISTINCT country) as countries, GROUP_CONCAT(DISTINCT platform) as platforms
+             FROM ad_targeting WHERE creative_id IN ($placeholders) GROUP BY creative_id",
+            $creativeIds
+        );
+        $targetingMap = [];
+        foreach ($targeting as $t) $targetingMap[$t['creative_id']] = $t;
+
+        // Batch fetch assets (images, videos, preview URLs)
+        $assets = $db->fetchAll(
+            "SELECT creative_id, type, original_url FROM ad_assets WHERE creative_id IN ($placeholders)",
+            $creativeIds
+        );
+        $assetMap = [];
+        foreach ($assets as $asset) {
+            $cid = $asset['creative_id'];
+            if (!isset($assetMap[$cid])) $assetMap[$cid] = ['images' => [], 'videos' => [], 'previews' => []];
+            if ($asset['type'] === 'image' && strpos($asset['original_url'], 'displayads-formats') === false) {
+                $assetMap[$cid]['images'][] = $asset['original_url'];
+            } elseif ($asset['type'] === 'video' && strpos($asset['original_url'], 'youtube.com') !== false) {
+                $assetMap[$cid]['videos'][] = $asset['original_url'];
+            }
+            if (strpos($asset['original_url'], 'displayads-formats') !== false) {
+                $assetMap[$cid]['previews'][] = $asset['original_url'];
+            }
+        }
+
+        // Batch fetch products
+        $products = $db->fetchAll(
+            "SELECT pm.creative_id, p.id as product_id, p.product_name, p.store_url, p.store_platform
+             FROM ad_product_map pm
+             INNER JOIN ad_products p ON pm.product_id = p.id
+             WHERE pm.creative_id IN ($placeholders) AND p.store_platform IN ('ios', 'playstore')",
+            $creativeIds
+        );
+        $productMap = [];
+        foreach ($products as $p) {
+            $cid = $p['creative_id'];
+            if (!isset($productMap[$cid])) {
+                $productMap[$cid] = [
+                    'product_names' => [],
+                    'product_id' => $p['product_id'],
+                    'store_url' => null,
+                    'store_platform' => $p['store_platform'],
+                ];
+            }
+            $productMap[$cid]['product_names'][] = $p['product_name'];
+            if (!$productMap[$cid]['store_url'] && $p['store_url'] && $p['store_url'] !== '' && $p['store_url'] !== 'not_found') {
+                $productMap[$cid]['store_url'] = $p['store_url'];
+            }
+        }
+
+        // Merge supplemental data into ads
+        foreach ($ads as &$ad) {
+            $cid = $ad['creative_id'];
+
+            // Targeting
+            $t = $targetingMap[$cid] ?? null;
+            $ad['countries'] = $t['countries'] ?? '';
+            $ad['platforms'] = $t['platforms'] ?? '';
+
+            // Assets — prefer ytimg thumbnails for preview_image
+            $a = $assetMap[$cid] ?? null;
+            $images = $a['images'] ?? [];
+            usort($images, function($x, $y) {
+                return (strpos($y, 'ytimg.com') !== false) - (strpos($x, 'ytimg.com') !== false);
+            });
+            $ad['preview_image'] = $images[0] ?? null;
+            $ad['youtube_url'] = ($a['videos'] ?? [])[0] ?? null;
+            $ad['preview_url'] = ($a['previews'] ?? [])[0] ?? null;
+
+            // Products
+            $pm = $productMap[$cid] ?? null;
+            $ad['product_names'] = $pm ? implode('||', array_unique($pm['product_names'])) : null;
+            $ad['product_id'] = $pm['product_id'] ?? null;
+            $ad['store_url'] = $pm['store_url'] ?? null;
+            $ad['store_platform'] = $pm['store_platform'] ?? null;
+        }
+        unset($ad);
+    }
 
     // Add is_new flag (first_seen within 48 hours)
     $sevenDaysAgo = date('Y-m-d H:i:s', strtotime('-48 hours'));
