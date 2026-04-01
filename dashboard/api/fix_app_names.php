@@ -46,12 +46,13 @@ $stmt = $db->query(
 );
 $results['names_updated_from_metadata'] = $stmt->rowCount();
 
-// Step 3: Find incomplete app_metadata
+// Step 3: Find incomplete app_metadata (missing key fields OR missing app_name)
 $incomplete = $db->fetchAll(
-    "SELECT p.id, p.product_name, p.store_url, am.id as am_id
+    "SELECT p.id, p.product_name, p.store_url, am.id as am_id, am.app_name
      FROM ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
-     WHERE am.icon_url IS NULL AND am.rating IS NULL AND am.developer_name IS NULL AND am.downloads IS NULL
+     WHERE ((am.icon_url IS NULL AND am.rating IS NULL AND am.developer_name IS NULL AND am.downloads IS NULL)
+            OR am.app_name IS NULL OR am.app_name = '')
        AND p.store_platform IN ('ios', 'playstore')
        AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found'
      LIMIT 100"
@@ -59,10 +60,11 @@ $incomplete = $db->fetchAll(
 $results['incomplete_metadata_found'] = count($incomplete);
 $results['incomplete_sample'] = array_slice($incomplete, 0, 10);
 
-// Step 4: Delete incomplete metadata
+// Step 4: Delete incomplete metadata (no icon/rating/developer) OR missing app_name
 $stmt = $db->query(
     "DELETE am FROM app_metadata am
-     WHERE am.icon_url IS NULL AND am.rating IS NULL AND am.developer_name IS NULL AND am.downloads IS NULL"
+     WHERE (am.icon_url IS NULL AND am.rating IS NULL AND am.developer_name IS NULL AND am.downloads IS NULL)
+        OR (am.app_name IS NULL OR am.app_name = '')"
 );
 $results['incomplete_metadata_deleted'] = $stmt->rowCount();
 

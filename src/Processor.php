@@ -2642,6 +2642,7 @@ class Processor
                AND (
                  am.id IS NULL
                  OR (am.icon_url IS NULL AND am.rating IS NULL AND am.developer_name IS NULL)
+                 OR am.app_name IS NULL OR am.app_name = ''
                )
              ORDER BY (SELECT COUNT(*) FROM ad_product_map pm WHERE pm.product_id = p.id) DESC
              LIMIT 50"
