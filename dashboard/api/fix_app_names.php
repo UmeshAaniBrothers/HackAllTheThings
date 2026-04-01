@@ -5,6 +5,7 @@
  * Delete this file after running.
  */
 header('Content-Type: application/json');
+set_time_limit(300);
 
 $basePath = dirname(dirname(__DIR__));
 $config = require $basePath . '/config/config.php';
@@ -22,12 +23,23 @@ require_once $basePath . '/src/Database.php';
 $db = Database::getInstance($config['db']);
 $results = array();
 
+// Step 0: Fix collation mismatch — normalize both tables to utf8mb4_unicode_ci
+try {
+    $db->execute("ALTER TABLE ad_products CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    $db->execute("ALTER TABLE app_metadata CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    $db->execute("ALTER TABLE ad_details CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    $results['collation_fix'] = 'done';
+} catch (Exception $e) {
+    $results['collation_fix'] = 'failed: ' . $e->getMessage();
+}
+
 // Step 1: Show current bad names (product_name != app_name)
 $badNames = $db->fetchAll(
     "SELECT p.id, p.product_name, am.app_name, p.store_url
      FROM ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
-     WHERE am.app_name IS NOT NULL AND am.app_name != '' AND am.app_name != p.product_name
+     WHERE am.app_name IS NOT NULL AND am.app_name != ''
+       AND p.product_name COLLATE utf8mb4_unicode_ci != am.app_name COLLATE utf8mb4_unicode_ci
      LIMIT 50"
 );
 $results['bad_names_found'] = count($badNames);
@@ -40,7 +52,7 @@ $db->execute(
      SET p.product_name = am.app_name
      WHERE am.app_name IS NOT NULL
        AND am.app_name != ''
-       AND am.app_name != p.product_name
+       AND p.product_name COLLATE utf8mb4_unicode_ci != am.app_name COLLATE utf8mb4_unicode_ci
        AND LENGTH(am.app_name) > 2"
 );
 $results['names_updated_from_metadata'] = $db->rowCount();
@@ -77,7 +89,6 @@ $noMeta = $db->fetchColumn(
 $results['products_needing_enrichment'] = (int) $noMeta;
 
 // Step 6: Now try to enrich them (fetch from Play Store / App Store)
-// Load the Processor
 require_once $basePath . '/src/Processor.php';
 $processor = new Processor($config);
 $enriched = $processor->enrichAppMetadata();
@@ -90,7 +101,7 @@ $db->execute(
      SET p.product_name = am.app_name
      WHERE am.app_name IS NOT NULL
        AND am.app_name != ''
-       AND am.app_name != p.product_name
+       AND p.product_name COLLATE utf8mb4_unicode_ci != am.app_name COLLATE utf8mb4_unicode_ci
        AND LENGTH(am.app_name) > 2"
 );
 $results['names_updated_after_enrichment'] = $db->rowCount();
@@ -104,7 +115,7 @@ $db->execute(
      INNER JOIN app_metadata am ON am.product_id = p2.id
        AND am.app_name IS NOT NULL AND am.app_name != ''
      SET p1.product_name = am.app_name
-     WHERE p1.product_name != am.app_name"
+     WHERE p1.product_name COLLATE utf8mb4_unicode_ci != am.app_name COLLATE utf8mb4_unicode_ci"
 );
 $results['duplicate_names_normalized'] = $db->rowCount();
 
