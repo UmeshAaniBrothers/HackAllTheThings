@@ -1999,7 +1999,57 @@ class Processor
         }
 
         $this->log("Detected products for {$mapped} ads");
+
+        // Auto-assign new products to app groups based on keywords
+        if ($mapped > 0) {
+            $this->autoAssignAppGroups();
+        }
+
         return $mapped;
+    }
+
+    /**
+     * Auto-assign unassigned products to app groups based on keyword matching.
+     */
+    public function autoAssignAppGroups(): int
+    {
+        $pdo = $this->db->getPdo();
+
+        // Check if app_groups table exists
+        try {
+            $pdo->query("SELECT 1 FROM app_groups LIMIT 1");
+        } catch (\Exception $e) {
+            return 0; // Table doesn't exist yet
+        }
+
+        $groups = $pdo->query("SELECT g.id, k.keyword FROM app_groups g JOIN app_group_keywords k ON k.group_id = g.id")->fetchAll(PDO::FETCH_ASSOC);
+        if (empty($groups)) return 0;
+
+        $assigned = 0;
+        $insertStmt = $pdo->prepare(
+            "INSERT IGNORE INTO app_group_members (group_id, product_id, matched_keyword, auto_assigned) VALUES (?, ?, ?, 1)"
+        );
+
+        foreach ($groups as $row) {
+            $like = '%' . strtolower($row['keyword']) . '%';
+            $matches = $pdo->prepare("
+                SELECT DISTINCT p.id FROM ad_products p
+                LEFT JOIN app_metadata a ON a.product_id = p.id
+                WHERE p.id NOT IN (SELECT product_id FROM app_group_members WHERE group_id = ?)
+                  AND (LOWER(p.product_name) LIKE ? OR LOWER(COALESCE(a.app_name, '')) LIKE ?
+                       OR LOWER(COALESCE(a.category, '')) LIKE ? OR LOWER(COALESCE(a.description, '')) LIKE ?)
+            ");
+            $matches->execute([$row['id'], $like, $like, $like, $like]);
+            foreach ($matches->fetchAll(PDO::FETCH_COLUMN) as $pid) {
+                $insertStmt->execute([$row['id'], $pid, $row['keyword']]);
+                if ($insertStmt->rowCount() > 0) $assigned++;
+            }
+        }
+
+        if ($assigned > 0) {
+            $this->log("Auto-assigned {$assigned} products to app groups");
+        }
+        return $assigned;
     }
 
     /**
