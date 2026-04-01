@@ -407,7 +407,7 @@ try {
         $topAppsWhere .= " AND {$wa['sql']}";
     }
     $topApps = $db->fetchAll(
-        "SELECT p.id, p.product_name, p.store_platform, p.store_url,
+        "SELECT p.id, COALESCE(MAX(NULLIF(am.app_name, '')), p.product_name) as product_name, p.store_platform, p.store_url,
                 MAX(am.icon_url) as icon_url, MAX(am.rating) as rating, MAX(am.downloads) as downloads,
                 COUNT(DISTINCT pm.creative_id) as ad_count,
                 COALESCE(SUM(a.view_count), 0) as total_views

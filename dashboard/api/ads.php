@@ -191,11 +191,14 @@ try {
             }
         }
 
-        // Batch fetch products
+        // Batch fetch products (prefer app_metadata.app_name over ad_products.product_name)
         $products = $db->fetchAll(
-            "SELECT pm.creative_id, p.id as product_id, p.product_name, p.store_url, p.store_platform
+            "SELECT pm.creative_id, p.id as product_id,
+                    COALESCE(NULLIF(am.app_name, ''), p.product_name) as product_name,
+                    p.store_url, p.store_platform
              FROM ad_product_map pm
              INNER JOIN ad_products p ON pm.product_id = p.id
+             LEFT JOIN app_metadata am ON am.product_id = p.id
              WHERE pm.creative_id IN ($placeholders) AND p.store_platform IN ('ios', 'playstore')",
             $creativeIds
         );

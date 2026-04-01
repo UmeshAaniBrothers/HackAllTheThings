@@ -2633,12 +2633,16 @@ class Processor
     public function enrichAppMetadata()
     {
         $products = $this->db->fetchAll(
-            "SELECT p.id AS product_id, p.store_platform, p.store_url, p.product_name
+            "SELECT p.id AS product_id, p.store_platform, p.store_url, p.product_name,
+                    am.id AS metadata_id
              FROM ad_products p
              LEFT JOIN app_metadata am ON am.product_id = p.id
              WHERE p.store_platform IN ('ios', 'playstore')
                AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found'
-               AND am.id IS NULL
+               AND (
+                 am.id IS NULL
+                 OR (am.icon_url IS NULL AND am.rating IS NULL AND am.developer_name IS NULL)
+               )
              ORDER BY (SELECT COUNT(*) FROM ad_product_map pm WHERE pm.product_id = p.id) DESC
              LIMIT 50"
         );
@@ -2656,24 +2660,35 @@ class Processor
                 $meta = $this->fetchPlayStoreMetadata($product['store_url']);
             }
 
+            $hasExistingMetadata = !empty($product['metadata_id']);
+
             if (!$meta) {
-                // Insert minimal record to avoid retrying
-                $this->db->insert('app_metadata', [
-                    'product_id'     => $product['product_id'],
-                    'store_platform' => $product['store_platform'],
-                    'store_url'      => $product['store_url'],
-                    'app_name'       => $product['product_name'],
-                    'fetched_at'     => date('Y-m-d H:i:s'),
-                ]);
+                if (!$hasExistingMetadata) {
+                    // Insert minimal record to avoid retrying
+                    $this->db->insert('app_metadata', [
+                        'product_id'     => $product['product_id'],
+                        'store_platform' => $product['store_platform'],
+                        'store_url'      => $product['store_url'],
+                        'app_name'       => $product['product_name'],
+                        'fetched_at'     => date('Y-m-d H:i:s'),
+                    ]);
+                }
                 continue;
             }
 
-            $this->db->insert('app_metadata', array_merge($meta, [
-                'product_id'     => $product['product_id'],
+            $metaRow = array_merge($meta, [
                 'store_platform' => $product['store_platform'],
                 'store_url'      => $product['store_url'],
                 'fetched_at'     => date('Y-m-d H:i:s'),
-            ]));
+            ]);
+
+            if ($hasExistingMetadata) {
+                // Update the existing incomplete record
+                $this->db->update('app_metadata', $metaRow, 'id = ?', [$product['metadata_id']]);
+            } else {
+                $metaRow['product_id'] = $product['product_id'];
+                $this->db->insert('app_metadata', $metaRow);
+            }
 
             // Update product name if we got a better one
             if (!empty($meta['app_name']) && $meta['app_name'] !== $product['product_name']) {
@@ -2775,8 +2790,21 @@ class Processor
             'screenshots'    => null,
         ];
 
-        // Title
+        // Title - try multiple patterns for resilience against HTML changes
+        // Pattern 1: <title> tag
         if (preg_match('/<title>([^<]+?)(?:\s*-\s*Apps on Google Play)?<\/title>/i', $html, $tm)) {
+            $meta['app_name'] = trim($tm[1]);
+        }
+        // Pattern 2: og:title meta tag
+        if (!$meta['app_name'] && preg_match('/property="og:title"\s+content="([^"]+)"/i', $html, $tm)) {
+            $meta['app_name'] = trim($tm[1]);
+        }
+        // Pattern 3: itemprop name
+        if (!$meta['app_name'] && preg_match('/itemprop="name"[^>]*>([^<]+)</i', $html, $tm)) {
+            $meta['app_name'] = trim(html_entity_decode($tm[1], ENT_QUOTES, 'UTF-8'));
+        }
+        // Pattern 4: JSON-LD
+        if (!$meta['app_name'] && preg_match('/"name"\s*:\s*"([^"]+)"/', $html, $tm)) {
             $meta['app_name'] = trim($tm[1]);
         }
 
