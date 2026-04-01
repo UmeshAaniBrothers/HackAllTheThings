@@ -35,7 +35,7 @@ $results['bad_names_found'] = count($badNames);
 $results['bad_names_sample'] = array_slice($badNames, 0, 20);
 
 // Step 2: Update product_name from app_metadata
-$db->execute(
+$stmt = $db->query(
     "UPDATE ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
      SET p.product_name = am.app_name
@@ -44,7 +44,7 @@ $db->execute(
        AND BINARY p.product_name != BINARY am.app_name
        AND LENGTH(am.app_name) > 2"
 );
-$results['names_updated_from_metadata'] = $db->rowCount();
+$results['names_updated_from_metadata'] = $stmt->rowCount();
 
 // Step 3: Find incomplete app_metadata
 $incomplete = $db->fetchAll(
@@ -60,11 +60,11 @@ $results['incomplete_metadata_found'] = count($incomplete);
 $results['incomplete_sample'] = array_slice($incomplete, 0, 10);
 
 // Step 4: Delete incomplete metadata
-$db->execute(
+$stmt = $db->query(
     "DELETE am FROM app_metadata am
      WHERE am.icon_url IS NULL AND am.rating IS NULL AND am.developer_name IS NULL AND am.downloads IS NULL"
 );
-$results['incomplete_metadata_deleted'] = $db->rowCount();
+$results['incomplete_metadata_deleted'] = $stmt->rowCount();
 
 // Step 5: Count products needing enrichment
 $noMeta = $db->fetchColumn(
@@ -84,7 +84,7 @@ $enriched = $processor->enrichAppMetadata();
 $results['apps_enriched_now'] = $enriched;
 
 // Step 7: Update names again after enrichment
-$db->execute(
+$stmt = $db->query(
     "UPDATE ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
      SET p.product_name = am.app_name
@@ -93,10 +93,10 @@ $db->execute(
        AND BINARY p.product_name != BINARY am.app_name
        AND LENGTH(am.app_name) > 2"
 );
-$results['names_updated_after_enrichment'] = $db->rowCount();
+$results['names_updated_after_enrichment'] = $stmt->rowCount();
 
 // Step 8: Normalize duplicate store_urls
-$db->execute(
+$stmt = $db->query(
     "UPDATE ad_products p1
      INNER JOIN ad_products p2 ON BINARY p1.store_url = BINARY p2.store_url
        AND p1.id != p2.id
@@ -106,7 +106,7 @@ $db->execute(
      SET p1.product_name = am.app_name
      WHERE BINARY p1.product_name != BINARY am.app_name"
 );
-$results['duplicate_names_normalized'] = $db->rowCount();
+$results['duplicate_names_normalized'] = $stmt->rowCount();
 
 // Step 9: Check specific app
 $specificApp = $db->fetchAll(
@@ -130,16 +130,16 @@ $results['still_needing_enrichment'] = (int) $db->fetchColumn(
 );
 
 // Step 11: Clean up JS code in headlines/descriptions
-$db->execute(
+$stmt = $db->query(
     "UPDATE ad_details SET headline = NULL
      WHERE headline REGEXP 'function\\\\(|var [a-z]|Object\\\\.create|typeof |prototype|globalThis|querySelector|document\\\\.|window\\\\.|createElement|appendChild|innerHTML'"
 );
-$results['js_headlines_cleaned'] = $db->rowCount();
+$results['js_headlines_cleaned'] = $stmt->rowCount();
 
-$db->execute(
+$stmt = $db->query(
     "UPDATE ad_details SET description = NULL
      WHERE description REGEXP 'function\\\\(|var [a-z]|Object\\\\.create|typeof |prototype|globalThis|querySelector|document\\\\.|window\\\\.|createElement|appendChild|innerHTML'"
 );
-$results['js_descriptions_cleaned'] = $db->rowCount();
+$results['js_descriptions_cleaned'] = $stmt->rowCount();
 
 echo json_encode(array('success' => true, 'results' => $results), JSON_PRETTY_PRINT);
