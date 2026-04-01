@@ -1,10 +1,11 @@
 <?php
 /**
- * Deep enrich: Fetch displayads-formats preview pages to discover app store URLs.
+ * Deep enrich: Fetch displayads-formats preview pages to discover app store URLs + YouTube videos.
  * Streams progress to browser so it doesn't time out.
  *
  * Run: /dashboard/api/enrich_store_urls.php?token=ads-intelligent-2024
  * Optional: &limit=500 (default 200, max 1000)
+ * Optional: &advertiser_id=AR00744063166605950977  (target specific advertiser)
  */
 header('Content-Type: text/plain; charset=utf-8');
 header('X-Accel-Buffering: no');
@@ -33,17 +34,29 @@ $assetManager = new AssetManager($config['storage']);
 $processor = new Processor($db, $assetManager);
 
 $limit = min(1000, max(50, (int)($_GET['limit'] ?? 200)));
+$targetAdvertiser = isset($_GET['advertiser_id']) ? trim($_GET['advertiser_id']) : '';
 
 function progress($msg) {
     echo $msg . "\n";
     flush();
 }
 
-progress("=== Store URL Deep Enrichment ===");
+progress("=== Store URL + Video Deep Enrichment ===");
 progress("Time: " . date('Y-m-d H:i:s'));
+if ($targetAdvertiser) {
+    progress("Target advertiser: {$targetAdvertiser}");
+}
 progress("");
 
-// Step 1: Count ads needing enrichment
+// Build advertiser filter
+$advFilter = '';
+$advParams = array();
+if ($targetAdvertiser) {
+    $advFilter = ' AND a.advertiser_id = ?';
+    $advParams = array($targetAdvertiser);
+}
+
+// Step 1: Count ads needing store URL enrichment
 $needsEnrichment = (int)$db->fetchColumn(
     "SELECT COUNT(DISTINCT a.creative_id)
      FROM ads a
@@ -55,37 +68,81 @@ $needsEnrichment = (int)$db->fetchColumn(
          WHERE pm.creative_id = a.creative_id
            AND p.store_platform IN ('ios', 'playstore')
            AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found'
-     )"
+     )" . $advFilter,
+    $advParams
 );
-progress("Ads needing store URL: {$needsEnrichment}");
-progress("Processing limit: {$limit}");
-progress("");
 
-// Step 2: Get ads to process
-$ads = $db->fetchAll(
-    "SELECT a.creative_id, a.advertiser_id, ass.original_url as preview_url,
-            COALESCE(ma.name, a.advertiser_id) as adv_name
+// Count video ads needing YouTube extraction
+$needsYouTube = (int)$db->fetchColumn(
+    "SELECT COUNT(DISTINCT a.creative_id)
      FROM ads a
      INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
         AND ass.original_url LIKE '%displayads-formats%'
-     LEFT JOIN managed_advertisers ma ON a.advertiser_id = ma.advertiser_id
-     WHERE NOT EXISTS (
-         SELECT 1 FROM ad_product_map pm
-         INNER JOIN ad_products p ON pm.product_id = p.id
-         WHERE pm.creative_id = a.creative_id
-           AND p.store_platform IN ('ios', 'playstore')
-           AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found'
-     )
-     GROUP BY a.creative_id
-     ORDER BY a.last_seen DESC
-     LIMIT " . (int)$limit
+     WHERE a.ad_type = 'video'
+       AND NOT EXISTS (
+           SELECT 1 FROM ad_assets v
+           WHERE v.creative_id = a.creative_id
+             AND v.type = 'video'
+             AND v.original_url LIKE '%youtube.com%'
+       )" . $advFilter,
+    $advParams
 );
+
+progress("Ads needing store URL: {$needsEnrichment}");
+progress("Video ads needing YouTube: {$needsYouTube}");
+progress("Processing limit: {$limit}");
+progress("");
+
+// Step 2: Get ads to process (UNION of store-needing + youtube-needing)
+// We fetch ALL ads that need EITHER store URL or YouTube, then process once per preview page
+$sql = "SELECT a.creative_id, a.advertiser_id, a.ad_type, ass.original_url as preview_url,
+            COALESCE(ma.name, a.advertiser_id) as adv_name,
+            CASE WHEN EXISTS (
+                SELECT 1 FROM ad_product_map pm
+                INNER JOIN ad_products p ON pm.product_id = p.id
+                WHERE pm.creative_id = a.creative_id
+                  AND p.store_platform IN ('ios', 'playstore')
+                  AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found'
+            ) THEN 1 ELSE 0 END as has_store,
+            CASE WHEN a.ad_type = 'video' AND NOT EXISTS (
+                SELECT 1 FROM ad_assets v
+                WHERE v.creative_id = a.creative_id
+                  AND v.type = 'video'
+                  AND v.original_url LIKE '%youtube.com%'
+            ) THEN 1 ELSE 0 END as needs_youtube
+        FROM ads a
+        INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
+            AND ass.original_url LIKE '%displayads-formats%'
+        LEFT JOIN managed_advertisers ma ON a.advertiser_id = ma.advertiser_id
+        WHERE (
+            NOT EXISTS (
+                SELECT 1 FROM ad_product_map pm
+                INNER JOIN ad_products p ON pm.product_id = p.id
+                WHERE pm.creative_id = a.creative_id
+                  AND p.store_platform IN ('ios', 'playstore')
+                  AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found'
+            )
+            OR (
+                a.ad_type = 'video' AND NOT EXISTS (
+                    SELECT 1 FROM ad_assets v
+                    WHERE v.creative_id = a.creative_id
+                      AND v.type = 'video'
+                      AND v.original_url LIKE '%youtube.com%'
+                )
+            )
+        )" . $advFilter . "
+        GROUP BY a.creative_id
+        ORDER BY a.last_seen DESC
+        LIMIT " . (int)$limit;
+
+$ads = $db->fetchAll($sql, $advParams);
 
 $total = count($ads);
 progress("Fetching {$total} preview pages...");
 progress("");
 
-$found = 0;
+$foundApps = 0;
+$foundYouTube = 0;
 $notFound = 0;
 $errors = 0;
 $appsByAdvertiser = array();
@@ -132,102 +189,126 @@ foreach ($ads as $i => $ad) {
         $decoded .= "\n" . $hexDecoded;
     }
 
-    // Extract appId + appStore
-    $storeUrl = null;
-    $storePlatform = null;
-    $appName = null;
+    $foundSomething = false;
 
-    $appId = null;
-    $appStoreType = null;
-    if (preg_match('/[\'"]appId[\'"]\s*:\s*[\'"]([a-zA-Z0-9._]+)[\'"]/', $decoded, $ai)) {
-        $appId = $ai[1];
-    }
-    if (preg_match('/[\'"]appStore[\'"]\s*:\s*[\'"]?(\d+)[\'"]?/', $decoded, $as)) {
-        $appStoreType = $as[1];
-    }
+    // ── Extract Store URL (if this ad needs it) ──
+    if (!$ad['has_store']) {
+        $storeUrl = null;
+        $storePlatform = null;
+        $appName = null;
 
-    if ($appId && $appStoreType === '2') {
-        $storeUrl = 'https://play.google.com/store/apps/details?id=' . $appId;
-        $storePlatform = 'playstore';
-    } elseif ($appId && $appStoreType === '1') {
-        if (preg_match('/^\d+$/', $appId)) {
-            $storeUrl = 'https://apps.apple.com/app/id' . $appId;
-        } else {
-            $storeUrl = 'https://apps.apple.com/app/' . $appId;
+        $appId = null;
+        $appStoreType = null;
+        if (preg_match('/[\'"]appId[\'"]\s*:\s*[\'"]([a-zA-Z0-9._]+)[\'"]/', $decoded, $ai)) {
+            $appId = $ai[1];
         }
-        $storePlatform = 'ios';
-    }
+        if (preg_match('/[\'"]appStore[\'"]\s*:\s*[\'"]?(\d+)[\'"]?/', $decoded, $as)) {
+            $appStoreType = $as[1];
+        }
 
-    // Fallback: direct URL patterns
-    if (!$storeUrl && preg_match('/(?:itunes\.apple\.com|apps\.apple\.com)(?:%2F|\/)+(?:[a-z]{2}(?:%2F|\/)+)?app(?:%2F|\/)+(?:[^%"\'\\\\&\s]*(?:%2F|\/)+)?id(\d+)/', $decoded, $m)) {
-        $storeUrl = 'https://apps.apple.com/app/id' . $m[1];
-        $storePlatform = 'ios';
-    }
-    if (!$storeUrl && preg_match('/play\.google\.com(?:%2F|\/)+store(?:%2F|\/)+apps(?:%2F|\/)+details(?:%3F|\?)id(?:%3D|=)([a-zA-Z0-9._]+)/', $decoded, $m)) {
-        $storeUrl = 'https://play.google.com/store/apps/details?id=' . $m[1];
-        $storePlatform = 'playstore';
-    }
-
-    // Extract app name
-    if (preg_match('/[\'"]appName[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $an)) {
-        $appName = trim($an[1]);
-    }
-
-    if ($storeUrl) {
-        // Find or create product
-        $existing = $db->fetchOne(
-            "SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?",
-            [$storeUrl, $ad['advertiser_id']]
-        );
-
-        $productId = null;
-        if ($existing) {
-            $productId = $existing['id'];
-        } else {
-            // Create product
-            $pName = $appName ?: ($appId ?: 'Unknown');
-            try {
-                $productId = $db->insert('ad_products', array(
-                    'advertiser_id' => $ad['advertiser_id'],
-                    'product_name' => $pName,
-                    'product_type' => 'app',
-                    'store_platform' => $storePlatform,
-                    'store_url' => $storeUrl,
-                ));
-            } catch (Exception $e) {
-                // Duplicate — find it
-                $existing = $db->fetchOne("SELECT id FROM ad_products WHERE store_url = ?", [$storeUrl]);
-                if ($existing) $productId = $existing['id'];
+        if ($appId && $appStoreType === '2') {
+            $storeUrl = 'https://play.google.com/store/apps/details?id=' . $appId;
+            $storePlatform = 'playstore';
+        } elseif ($appId && $appStoreType === '1') {
+            if (preg_match('/^\d+$/', $appId)) {
+                $storeUrl = 'https://apps.apple.com/app/id' . $appId;
+            } else {
+                $storeUrl = 'https://apps.apple.com/app/' . $appId;
             }
+            $storePlatform = 'ios';
         }
 
-        if ($productId) {
-            // Map ad to product
-            $mapExists = $db->fetchOne(
-                "SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?",
-                [$ad['creative_id'], $productId]
+        // Fallback: direct URL patterns
+        if (!$storeUrl && preg_match('/(?:itunes\.apple\.com|apps\.apple\.com)(?:%2F|\/)+(?:[a-z]{2}(?:%2F|\/)+)?app(?:%2F|\/)+(?:[^%"\'\\\\&\s]*(?:%2F|\/)+)?id(\d+)/', $decoded, $m)) {
+            $storeUrl = 'https://apps.apple.com/app/id' . $m[1];
+            $storePlatform = 'ios';
+        }
+        if (!$storeUrl && preg_match('/play\.google\.com(?:%2F|\/)+store(?:%2F|\/)+apps(?:%2F|\/)+details(?:%3F|\?)id(?:%3D|=)([a-zA-Z0-9._]+)/', $decoded, $m)) {
+            $storeUrl = 'https://play.google.com/store/apps/details?id=' . $m[1];
+            $storePlatform = 'playstore';
+        }
+
+        // Extract app name
+        if (preg_match('/[\'"]appName[\'"]\s*:\s*[\'"]([^"\']{3,200})[\'"]/', $decoded, $an)) {
+            $appName = trim($an[1]);
+        }
+
+        if ($storeUrl) {
+            // Find or create product
+            $existing = $db->fetchOne(
+                "SELECT id FROM ad_products WHERE store_url = ? AND advertiser_id = ?",
+                [$storeUrl, $ad['advertiser_id']]
             );
-            if (!$mapExists) {
+
+            $productId = null;
+            if ($existing) {
+                $productId = $existing['id'];
+            } else {
+                $pName = $appName ?: ($appId ?: 'Unknown');
                 try {
-                    $db->insert('ad_product_map', array(
-                        'creative_id' => $ad['creative_id'],
-                        'product_id' => $productId,
+                    $productId = $db->insert('ad_products', array(
+                        'advertiser_id' => $ad['advertiser_id'],
+                        'product_name' => $pName,
+                        'product_type' => 'app',
+                        'store_platform' => $storePlatform,
+                        'store_url' => $storeUrl,
                     ));
-                } catch (Exception $e) {}
+                } catch (Exception $e) {
+                    $existing = $db->fetchOne("SELECT id FROM ad_products WHERE store_url = ?", [$storeUrl]);
+                    if ($existing) $productId = $existing['id'];
+                }
             }
+
+            if ($productId) {
+                $mapExists = $db->fetchOne(
+                    "SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?",
+                    [$ad['creative_id'], $productId]
+                );
+                if (!$mapExists) {
+                    try {
+                        $db->insert('ad_product_map', array(
+                            'creative_id' => $ad['creative_id'],
+                            'product_id' => $productId,
+                        ));
+                    } catch (Exception $e) {}
+                }
+            }
+
+            $foundApps++;
+            $foundSomething = true;
+            $advName = $ad['adv_name'];
+            if (!isset($appsByAdvertiser[$advName])) $appsByAdvertiser[$advName] = array();
+            $displayName = $appName ?: $appId;
+            $appsByAdvertiser[$advName][$storeUrl] = $displayName;
+        }
+    }
+
+    // ── Extract YouTube ID (if this is a video ad needing it) ──
+    if ($ad['needs_youtube']) {
+        $ytId = null;
+        if (preg_match('/[\'"]video_videoId[\'"]\s*:\s*[\'"]([a-zA-Z0-9_-]{11})[\'"]/', $decoded, $m)) {
+            $ytId = $m[1];
+        } elseif (preg_match('/ytimg\.com\/vi\/([a-zA-Z0-9_-]{11})\//', $decoded, $m)) {
+            $ytId = $m[1];
+        } elseif (preg_match('/youtube\.com\/(?:embed\/|watch\?v=|v\/)([a-zA-Z0-9_-]{11})/', $decoded, $m)) {
+            $ytId = $m[1];
+        } elseif (preg_match('/youtu\.be\/([a-zA-Z0-9_-]{11})/', $decoded, $m)) {
+            $ytId = $m[1];
         }
 
-        $found++;
-        $advName = $ad['adv_name'];
-        if (!isset($appsByAdvertiser[$advName])) $appsByAdvertiser[$advName] = array();
-        $displayName = $appName ?: $appId;
-        $appsByAdvertiser[$advName][$storeUrl] = $displayName;
-
-        if ($found % 10 === 0 || $num % 50 === 0) {
-            progress("[{$num}/{$total}] Found {$found} apps so far...");
+        if ($ytId) {
+            $processor->saveYouTubeAssets($ad['creative_id'], $ytId);
+            $foundYouTube++;
+            $foundSomething = true;
         }
-    } else {
+    }
+
+    if (!$foundSomething) {
         $notFound++;
+    }
+
+    if ($num % 50 === 0 || ($foundApps + $foundYouTube) % 20 === 0) {
+        progress("[{$num}/{$total}] Apps: {$foundApps} | YouTube: {$foundYouTube} | Errors: {$errors}");
     }
 
     usleep(200000); // 200ms rate limit
@@ -236,8 +317,9 @@ foreach ($ads as $i => $ad) {
 progress("");
 progress("=== RESULTS ===");
 progress("Total processed: {$total}");
-progress("Apps found: {$found}");
-progress("No app data: {$notFound}");
+progress("Apps found: {$foundApps}");
+progress("YouTube videos found: {$foundYouTube}");
+progress("No data: {$notFound}");
 progress("Errors: {$errors}");
 progress("");
 
@@ -271,8 +353,8 @@ $stmt = $db->query(
 );
 progress("Names updated: " . $stmt->rowCount());
 
-// Remaining
-$remaining = (int)$db->fetchColumn(
+// Remaining counts
+$remainingApps = (int)$db->fetchColumn(
     "SELECT COUNT(DISTINCT a.creative_id)
      FROM ads a
      INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
@@ -283,11 +365,29 @@ $remaining = (int)$db->fetchColumn(
          WHERE pm.creative_id = a.creative_id
            AND p.store_platform IN ('ios', 'playstore')
            AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found'
-     )"
+     )" . $advFilter,
+    $advParams
 );
+
+$remainingYT = (int)$db->fetchColumn(
+    "SELECT COUNT(DISTINCT a.creative_id)
+     FROM ads a
+     INNER JOIN ad_assets ass ON a.creative_id = ass.creative_id
+        AND ass.original_url LIKE '%displayads-formats%'
+     WHERE a.ad_type = 'video'
+       AND NOT EXISTS (
+           SELECT 1 FROM ad_assets v
+           WHERE v.creative_id = a.creative_id
+             AND v.type = 'video'
+             AND v.original_url LIKE '%youtube.com%'
+       )" . $advFilter,
+    $advParams
+);
+
 progress("");
-progress("Still needing enrichment: {$remaining}");
-if ($remaining > 0) {
+progress("Still needing store URL: {$remainingApps}");
+progress("Still needing YouTube: {$remainingYT}");
+if ($remainingApps > 0 || $remainingYT > 0) {
     progress("Run this URL again to process more.");
 }
 

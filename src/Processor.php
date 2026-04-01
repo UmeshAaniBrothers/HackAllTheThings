@@ -1239,7 +1239,7 @@ class Processor
                )
              GROUP BY a.creative_id
              ORDER BY a.last_seen DESC
-             LIMIT 100"
+             LIMIT 500"
         );
 
         if (empty($ads)) {
@@ -1257,39 +1257,11 @@ class Processor
 
             $ytId = $data['youtube_id'];
             if ($ytId) {
-                $youtubeUrl = 'https://www.youtube.com/watch?v=' . $ytId;
-                $thumbnail = 'https://i.ytimg.com/vi/' . $ytId . '/hqdefault.jpg';
-
-                $exists = $this->db->fetchOne(
-                    "SELECT id FROM ad_assets WHERE creative_id = ? AND type = 'video' AND original_url = ?",
-                    [$ad['creative_id'], $youtubeUrl]
-                );
-                if (!$exists) {
-                    $this->db->insert('ad_assets', [
-                        'creative_id'  => $ad['creative_id'],
-                        'type'         => 'video',
-                        'original_url' => $youtubeUrl,
-                        'local_path'   => null,
-                    ]);
-                }
-
-                $exists2 = $this->db->fetchOne(
-                    "SELECT id FROM ad_assets WHERE creative_id = ? AND type = 'image' AND original_url = ?",
-                    [$ad['creative_id'], $thumbnail]
-                );
-                if (!$exists2) {
-                    $this->db->insert('ad_assets', [
-                        'creative_id'  => $ad['creative_id'],
-                        'type'         => 'image',
-                        'original_url' => $thumbnail,
-                        'local_path'   => null,
-                    ]);
-                }
-
+                $this->saveYouTubeAssets($ad['creative_id'], $ytId);
                 $extracted++;
             }
 
-            usleep(300000); // 300ms rate limit
+            usleep(200000); // 200ms rate limit
         }
 
         $this->log("Extracted {$extracted} YouTube URLs from video ads");
@@ -1302,6 +1274,46 @@ class Processor
      * extracts App Store / Play Store URLs embedded in the ad creative.
      * This is the ONLY source of app/store detection.
      */
+
+    /**
+     * Save YouTube video + thumbnail assets for an ad.
+     */
+    public function saveYouTubeAssets($creativeId, $ytId)
+    {
+        $youtubeUrl = 'https://www.youtube.com/watch?v=' . $ytId;
+        $thumbnail = 'https://i.ytimg.com/vi/' . $ytId . '/hqdefault.jpg';
+
+        $exists = $this->db->fetchOne(
+            "SELECT id FROM ad_assets WHERE creative_id = ? AND type = 'video' AND original_url = ?",
+            [$creativeId, $youtubeUrl]
+        );
+        if (!$exists) {
+            try {
+                $this->db->insert('ad_assets', array(
+                    'creative_id'  => $creativeId,
+                    'type'         => 'video',
+                    'original_url' => $youtubeUrl,
+                    'local_path'   => null,
+                ));
+            } catch (\Exception $e) {}
+        }
+
+        $exists2 = $this->db->fetchOne(
+            "SELECT id FROM ad_assets WHERE creative_id = ? AND type = 'image' AND original_url = ?",
+            [$creativeId, $thumbnail]
+        );
+        if (!$exists2) {
+            try {
+                $this->db->insert('ad_assets', array(
+                    'creative_id'  => $creativeId,
+                    'type'         => 'image',
+                    'original_url' => $thumbnail,
+                    'local_path'   => null,
+                ));
+            } catch (\Exception $e) {}
+        }
+    }
+
     public function enrichStoreUrlsFromPreview($limit = 200)
     {
         // Get ALL ads with a preview URL that don't yet have an ios/playstore product
