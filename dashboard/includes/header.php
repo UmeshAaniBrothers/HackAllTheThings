@@ -14,6 +14,7 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
             'ads_viewer' => ' - Ads Viewer',
             'search' => ' - Search',
             'app_groups' => ' - App Groups',
+            'video_groups' => ' - Video Groups',
             'manage' => ' - Manage',
         ];
         echo $pageTitles[$currentPage] ?? '';
@@ -53,6 +54,11 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                     <li class="nav-item">
                         <a class="nav-link <?= $currentPage === 'app_groups' ? 'active' : '' ?>" href="app_groups.php">
                             <i class="bi bi-collection me-1"></i>App Groups
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?= $currentPage === 'video_groups' ? 'active' : '' ?>" href="video_groups.php">
+                            <i class="bi bi-camera-video me-1"></i>Video Groups
                         </a>
                     </li>
                     <li class="nav-item">

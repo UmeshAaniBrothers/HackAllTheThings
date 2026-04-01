@@ -97,11 +97,36 @@ const YT_ONLY = args.includes('--yt');
         });
         await sleep(3000);
 
-        // Since this is REAL Chrome with real cookies, no CAPTCHA expected
-        if (page.url().includes('google.com/sorry')) {
-            log('⚠️ Still blocked on this IP. Wait a few hours and try again.');
-            log('   Your IP was flagged from earlier scraping attempts.');
+        // Handle CAPTCHA / block if IP is flagged from earlier
+        if (page.url().includes('google.com/sorry') || page.url().includes('consent.google')) {
+            log('⚠️ CAPTCHA detected — please solve it in the Chrome window!');
+            log('   Waiting up to 3 minutes for you to complete it...\n');
+            try {
+                await page.waitForFunction(
+                    () => !window.location.href.includes('google.com/sorry') && !window.location.href.includes('consent.google'),
+                    { timeout: 180000 }
+                );
+                log('✅ CAPTCHA solved! Continuing...');
+                await page.goto(`${GOOGLE_BASE}/?region=anywhere`, { waitUntil: 'networkidle2', timeout: 30000 });
+                await sleep(3000);
+            } catch {
+                log('❌ CAPTCHA not solved in time. Please solve it and re-run: bash cli/scrape.sh');
+                await page.close();
+                browser.disconnect();
+                return;
+            }
+        }
+
+        // Handle consent popup
+        try {
+            const btn = await page.$('button[aria-label="Accept all"], form[action*="consent"] button');
+            if (btn) { await btn.click(); await sleep(2000); }
+        } catch {}
+
+        if (!page.url().includes('adstransparency.google.com')) {
+            log('❌ Could not reach Ads Transparency Center. Current URL: ' + page.url());
             await page.close();
+            browser.disconnect();
             return;
         }
 
@@ -133,6 +158,23 @@ const YT_ONLY = args.includes('--yt');
             } catch (err) {
                 log(`  ERROR: ${err.message}`);
                 totalFailed++;
+
+                // If blocked mid-scrape, wait for manual CAPTCHA
+                if (err.message === 'BLOCKED' || page.url().includes('google.com/sorry')) {
+                    log('\n⚠️ CAPTCHA detected mid-scrape! Please solve it in Chrome...');
+                    try {
+                        await page.waitForFunction(
+                            () => !window.location.href.includes('google.com/sorry'),
+                            { timeout: 180000 }
+                        );
+                        log('✅ CAPTCHA solved! Resuming scraping...');
+                        await page.goto(`${GOOGLE_BASE}/?region=anywhere`, { waitUntil: 'networkidle2', timeout: 30000 });
+                        await sleep(3000);
+                    } catch {
+                        log('❌ CAPTCHA not solved. Stopping scrape, will continue with processing.');
+                        break;
+                    }
+                }
             }
 
             // Human-like delay between advertisers

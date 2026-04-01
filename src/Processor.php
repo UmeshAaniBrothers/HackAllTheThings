@@ -1935,6 +1935,12 @@ class Processor
         $newCount = count($newAds);
         $staleCount = count($staleAds);
         $this->log("YouTube enrichment: {$enriched} updated ({$newCount} new, {$staleCount} refreshed after 15d)");
+
+        // Auto-assign new videos to video groups based on keywords
+        if ($enriched > 0) {
+            $this->autoAssignVideoGroups();
+        }
+
         return $enriched;
     }
 
@@ -2048,6 +2054,50 @@ class Processor
 
         if ($assigned > 0) {
             $this->log("Auto-assigned {$assigned} products to app groups");
+        }
+        return $assigned;
+    }
+
+    /**
+     * Auto-assign unassigned videos to video groups based on keyword matching.
+     */
+    public function autoAssignVideoGroups(): int
+    {
+        $pdo = $this->db->getPdo();
+
+        // Check if video_groups table exists
+        try {
+            $pdo->query("SELECT 1 FROM video_groups LIMIT 1");
+        } catch (\Exception $e) {
+            return 0; // Table doesn't exist yet
+        }
+
+        $groups = $pdo->query("SELECT g.id, k.keyword FROM video_groups g JOIN video_group_keywords k ON k.group_id = g.id")->fetchAll(\PDO::FETCH_ASSOC);
+        if (empty($groups)) return 0;
+
+        $assigned = 0;
+        $insertStmt = $pdo->prepare(
+            "INSERT IGNORE INTO video_group_members (group_id, video_id, matched_keyword, auto_assigned) VALUES (?, ?, ?, 1)"
+        );
+
+        foreach ($groups as $row) {
+            $like = '%' . strtolower($row['keyword']) . '%';
+            $matches = $pdo->prepare("
+                SELECT video_id FROM youtube_metadata
+                WHERE video_id NOT IN (SELECT video_id FROM video_group_members WHERE group_id = ?)
+                  AND (LOWER(COALESCE(title, '')) LIKE ?
+                       OR LOWER(COALESCE(channel_name, '')) LIKE ?
+                       OR LOWER(COALESCE(description, '')) LIKE ?)
+            ");
+            $matches->execute([$row['id'], $like, $like, $like]);
+            foreach ($matches->fetchAll(\PDO::FETCH_COLUMN) as $vid) {
+                $insertStmt->execute([$row['id'], $vid, $row['keyword']]);
+                if ($insertStmt->rowCount() > 0) $assigned++;
+            }
+        }
+
+        if ($assigned > 0) {
+            $this->log("Auto-assigned {$assigned} videos to video groups");
         }
         return $assigned;
     }
