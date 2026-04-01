@@ -1290,7 +1290,6 @@
     document.addEventListener('DOMContentLoaded', function() {
         applyHashToState();
         syncFormFromState();
-        setupDebounce();
         setupFilterListeners();
         load();
     });
