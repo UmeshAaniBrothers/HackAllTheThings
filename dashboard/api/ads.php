@@ -83,7 +83,7 @@ try {
     $cta = isset($_GET['cta']) ? trim($_GET['cta']) : null;
     $appGroup = isset($_GET['app_group']) ? (int)$_GET['app_group'] : null;
     $videoGroup = isset($_GET['video_group']) ? (int)$_GET['video_group'] : null;
-    $newOnly = isset($_GET['new_only']) && $_GET['new_only'] === '1';
+    $timeFilter = isset($_GET['time_filter']) ? trim($_GET['time_filter']) : null;
 
     if ($domain) {
         $where[] = 'EXISTS (SELECT 1 FROM ad_details dd WHERE dd.creative_id = a.creative_id AND dd.landing_url LIKE ?)';
@@ -106,9 +106,19 @@ try {
         $params[] = $videoGroup;
     }
 
-    // New filter (first_seen within last 48 hours)
-    if ($newOnly) {
-        $where[] = 'a.first_seen >= DATE_SUB(NOW(), INTERVAL 48 HOUR)';
+    // Time-based filter
+    $timeIntervals = [
+        '48h'  => 'INTERVAL 48 HOUR',
+        '7d'   => 'INTERVAL 7 DAY',
+        '30d'  => 'INTERVAL 30 DAY',
+        '90d'  => 'INTERVAL 90 DAY',
+    ];
+    if ($timeFilter && isset($timeIntervals[$timeFilter])) {
+        $where[] = 'a.first_seen >= DATE_SUB(NOW(), ' . $timeIntervals[$timeFilter] . ')';
+    }
+    // "oldest" sort override — show oldest ads first
+    if ($timeFilter === 'oldest') {
+        $sort = 'oldest';
     }
 
     $whereClause = implode(' AND ', $where);

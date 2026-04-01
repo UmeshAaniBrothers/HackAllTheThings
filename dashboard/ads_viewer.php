@@ -119,16 +119,18 @@
                 <option value="">All Video Groups</option>
             </select>
         </div>
-        <div class="col-md-1">
-            <label class="form-label small mb-1">&nbsp;</label>
-            <div class="form-check mt-1">
-                <input class="form-check-input" type="checkbox" id="vFilterNewOnly">
-                <label class="form-check-label small" for="vFilterNewOnly">
-                    <span class="badge bg-danger" style="font-size:.65rem">NEW</span> Only
-                </label>
-            </div>
+        <div class="col-md-2">
+            <label class="form-label small mb-1">Time Filter</label>
+            <select id="vFilterTimeFilter" class="form-select form-select-sm">
+                <option value="">All Time</option>
+                <option value="48h">🔴 Last 48 Hours (NEW)</option>
+                <option value="7d">Last 7 Days</option>
+                <option value="30d">Last 30 Days</option>
+                <option value="90d">Last 90 Days</option>
+                <option value="oldest">Oldest First</option>
+            </select>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <label class="form-label small mb-1">Search</label>
             <input type="text" id="vFilterSearch" class="form-control form-control-sm" placeholder="Search headlines, descriptions...">
         </div>
@@ -234,7 +236,7 @@
     // ── Hash ↔ State ───────────────────────────────────────
     const FILTER_KEYS = [
         'advertiser_id', 'product_id', 'country', 'platform', 'ad_type', 'status',
-        'date_from', 'date_to', 'app_group', 'video_group', 'new_only', 'search'
+        'date_from', 'date_to', 'app_group', 'video_group', 'time_filter', 'search'
     ];
     const ELEMENT_MAP = {
         advertiser_id: 'vFilterAdvertiser',
@@ -247,7 +249,7 @@
         date_to:       'vFilterDateTo',
         app_group:     'vFilterAppGroup',
         video_group:   'vFilterVideoGroup',
-        new_only:      'vFilterNewOnly',
+        time_filter:   'vFilterTimeFilter',
         search:        'vFilterSearch',
     };
 
@@ -319,7 +321,7 @@
     const LABEL_MAP = {
         advertiser_id: 'Advertiser', product_id: 'App', country: 'Country', platform: 'Platform',
         ad_type: 'Type', status: 'Status', date_from: 'From', date_to: 'To',
-        app_group: 'App Group', video_group: 'Video Group', new_only: 'New Only',
+        app_group: 'App Group', video_group: 'Video Group', time_filter: 'Time',
         search: 'Search',
     };
 
@@ -347,7 +349,10 @@
                     var platLabels = { ios: 'iOS', playstore: 'Play Store', web: 'Web' };
                     displayVal = platLabels[displayVal] || displayVal;
                 }
-                if (k === 'new_only') displayVal = 'This Week';
+                if (k === 'time_filter') {
+                    var tfLabels = { '48h': 'Last 48 Hours', '7d': 'Last 7 Days', '30d': 'Last 30 Days', '90d': 'Last 90 Days', 'oldest': 'Oldest First' };
+                    displayVal = tfLabels[displayVal] || displayVal;
+                }
                 if (k === 'app_group') {
                     var agSel = document.getElementById('vFilterAppGroup');
                     if (agSel && agSel.selectedIndex > 0) displayVal = agSel.options[agSel.selectedIndex].textContent;
