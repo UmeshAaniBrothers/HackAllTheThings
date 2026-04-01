@@ -78,9 +78,13 @@ try {
         $params[] = $searchParam;
     }
 
-    // Advanced filters: domain (landing_url), CTA
+    // Advanced filters
     $domain = isset($_GET['domain']) ? trim($_GET['domain']) : null;
     $cta = isset($_GET['cta']) ? trim($_GET['cta']) : null;
+    $appGroup = isset($_GET['app_group']) ? (int)$_GET['app_group'] : null;
+    $videoGroup = isset($_GET['video_group']) ? (int)$_GET['video_group'] : null;
+    $newOnly = isset($_GET['new_only']) && $_GET['new_only'] === '1';
+
     if ($domain) {
         $where[] = 'EXISTS (SELECT 1 FROM ad_details dd WHERE dd.creative_id = a.creative_id AND dd.landing_url LIKE ?)';
         $params[] = '%' . $domain . '%';
@@ -88,6 +92,23 @@ try {
     if ($cta) {
         $where[] = 'EXISTS (SELECT 1 FROM ad_details dd WHERE dd.creative_id = a.creative_id AND dd.cta LIKE ?)';
         $params[] = '%' . $cta . '%';
+    }
+
+    // App Group filter
+    if ($appGroup) {
+        $where[] = 'EXISTS (SELECT 1 FROM ad_product_map pm5 JOIN app_group_members agm ON agm.product_id = pm5.product_id WHERE pm5.creative_id = a.creative_id AND agm.group_id = ?)';
+        $params[] = $appGroup;
+    }
+
+    // Video Group filter
+    if ($videoGroup) {
+        $where[] = "EXISTS (SELECT 1 FROM ad_assets va JOIN video_group_members vgm ON vgm.video_id = SUBSTRING_INDEX(SUBSTRING_INDEX(va.original_url, 'v=', -1), '&', 1) WHERE va.creative_id = a.creative_id AND va.type = 'video' AND vgm.group_id = ?)";
+        $params[] = $videoGroup;
+    }
+
+    // New this week filter (first_seen within last 7 days)
+    if ($newOnly) {
+        $where[] = 'a.first_seen >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
     }
 
     $whereClause = implode(' AND ', $where);
@@ -135,13 +156,32 @@ try {
         $fetchParams
     );
 
+    // Add is_new flag (first_seen within 7 days)
+    $sevenDaysAgo = date('Y-m-d H:i:s', strtotime('-7 days'));
+    foreach ($ads as &$ad) {
+        $ad['is_new'] = ($ad['first_seen'] >= $sevenDaysAgo) ? 1 : 0;
+    }
+    unset($ad);
+
     // Get available filter values
     $filterOptions = [
         'advertisers' => $db->fetchAll("SELECT DISTINCT a.advertiser_id, COALESCE(ma.name, a.advertiser_id) as name FROM ads a LEFT JOIN managed_advertisers ma ON a.advertiser_id = ma.advertiser_id ORDER BY ma.name, a.advertiser_id"),
         'countries'   => $db->fetchAll("SELECT DISTINCT country FROM ad_targeting ORDER BY country"),
         'platforms'   => $db->fetchAll("SELECT DISTINCT store_platform as platform FROM ad_products WHERE store_platform IS NOT NULL ORDER BY FIELD(store_platform, 'ios', 'playstore', 'web')"),
         'products'    => $db->fetchAll("SELECT p.id as product_id, p.product_name, p.product_type, p.store_platform, p.store_url, p.advertiser_id, COUNT(pm.creative_id) as ad_count FROM ad_products p LEFT JOIN ad_product_map pm ON p.id = pm.product_id WHERE p.store_platform IN ('ios', 'playstore') GROUP BY p.id ORDER BY ad_count DESC"),
+        'app_groups'  => [],
+        'video_groups' => [],
     ];
+
+    // Load app groups (graceful if table doesn't exist yet)
+    try {
+        $filterOptions['app_groups'] = $db->fetchAll("SELECT id, name, color FROM app_groups ORDER BY name");
+    } catch (Exception $e) {}
+
+    // Load video groups (graceful if table doesn't exist yet)
+    try {
+        $filterOptions['video_groups'] = $db->fetchAll("SELECT id, name, color FROM video_groups ORDER BY name");
+    } catch (Exception $e) {}
 
     echo json_encode([
         'success'        => true,

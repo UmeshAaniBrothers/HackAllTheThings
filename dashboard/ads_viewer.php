@@ -106,46 +106,29 @@
         </div>
     </div>
     <div class="row g-2 align-items-end mt-1">
-        <!-- Row 2: Advanced filters + search -->
+        <!-- Row 2: Groups + search -->
         <div class="col-md-2">
-            <label class="form-label small mb-1">Domain</label>
-            <input type="text" id="vFilterDomain" class="form-control form-control-sm" placeholder="e.g. example.com">
+            <label class="form-label small mb-1">App Group</label>
+            <select id="vFilterAppGroup" class="form-select form-select-sm">
+                <option value="">All App Groups</option>
+            </select>
         </div>
         <div class="col-md-2">
-            <label class="form-label small mb-1">CTA</label>
-            <input type="text" id="vFilterCta" class="form-control form-control-sm" placeholder="e.g. Sign Up">
-        </div>
-        <div class="col-md-1">
-            <label class="form-label small mb-1">Sentiment</label>
-            <select id="vFilterSentiment" class="form-select form-select-sm">
-                <option value="">All</option>
-                <option value="aggressive">Aggressive</option>
-                <option value="moderate">Moderate</option>
-                <option value="soft">Soft</option>
-                <option value="neutral">Neutral</option>
+            <label class="form-label small mb-1">Video Group</label>
+            <select id="vFilterVideoGroup" class="form-select form-select-sm">
+                <option value="">All Video Groups</option>
             </select>
         </div>
         <div class="col-md-1">
-            <label class="form-label small mb-1">Hook</label>
-            <select id="vFilterHook" class="form-select form-select-sm">
-                <option value="">All</option>
-                <option value="urgency">Urgency</option>
-                <option value="scarcity">Scarcity</option>
-                <option value="social_proof">Social Proof</option>
-                <option value="free_offer">Free Offer</option>
-                <option value="discount">Discount</option>
-                <option value="guarantee">Guarantee</option>
-                <option value="authority">Authority</option>
-                <option value="curiosity">Curiosity</option>
-            </select>
+            <label class="form-label small mb-1">&nbsp;</label>
+            <div class="form-check mt-1">
+                <input class="form-check-input" type="checkbox" id="vFilterNewOnly">
+                <label class="form-check-label small" for="vFilterNewOnly">
+                    <span class="badge bg-danger" style="font-size:.65rem">NEW</span> Only
+                </label>
+            </div>
         </div>
-        <div class="col-md-2">
-            <label class="form-label small mb-1">Tag</label>
-            <select id="vFilterTag" class="form-select form-select-sm">
-                <option value="">All Tags</option>
-            </select>
-        </div>
-        <div class="col-md-3">
+        <div class="col-md-4">
             <label class="form-label small mb-1">Search</label>
             <input type="text" id="vFilterSearch" class="form-control form-control-sm" placeholder="Search headlines, descriptions...">
         </div>
@@ -251,8 +234,7 @@
     // ── Hash ↔ State ───────────────────────────────────────
     const FILTER_KEYS = [
         'advertiser_id', 'product_id', 'country', 'platform', 'ad_type', 'status',
-        'date_from', 'date_to', 'domain', 'cta', 'sentiment',
-        'hook', 'tag', 'search'
+        'date_from', 'date_to', 'app_group', 'video_group', 'new_only', 'search'
     ];
     const ELEMENT_MAP = {
         advertiser_id: 'vFilterAdvertiser',
@@ -263,11 +245,9 @@
         status:        'vFilterStatus',
         date_from:     'vFilterDateFrom',
         date_to:       'vFilterDateTo',
-        domain:        'vFilterDomain',
-        cta:           'vFilterCta',
-        sentiment:     'vFilterSentiment',
-        hook:          'vFilterHook',
-        tag:           'vFilterTag',
+        app_group:     'vFilterAppGroup',
+        video_group:   'vFilterVideoGroup',
+        new_only:      'vFilterNewOnly',
         search:        'vFilterSearch',
     };
 
@@ -309,7 +289,12 @@
     function syncFormFromState() {
         FILTER_KEYS.forEach(k => {
             const el = document.getElementById(ELEMENT_MAP[k]);
-            if (el) el.value = S.filters[k] || '';
+            if (!el) return;
+            if (el.type === 'checkbox') {
+                el.checked = S.filters[k] === '1';
+            } else {
+                el.value = S.filters[k] || '';
+            }
         });
         document.getElementById('vViewGrid').classList.toggle('active', S.view === 'grid');
         document.getElementById('vViewTable').classList.toggle('active', S.view === 'table');
@@ -321,7 +306,12 @@
     function readFormToState() {
         FILTER_KEYS.forEach(k => {
             const el = document.getElementById(ELEMENT_MAP[k]);
-            S.filters[k] = el ? el.value.trim() : '';
+            if (!el) { S.filters[k] = ''; return; }
+            if (el.type === 'checkbox') {
+                S.filters[k] = el.checked ? '1' : '';
+            } else {
+                S.filters[k] = el.value.trim();
+            }
         });
     }
 
@@ -329,8 +319,8 @@
     const LABEL_MAP = {
         advertiser_id: 'Advertiser', product_id: 'App', country: 'Country', platform: 'Platform',
         ad_type: 'Type', status: 'Status', date_from: 'From', date_to: 'To',
-        domain: 'Domain', cta: 'CTA', sentiment: 'Sentiment', hook: 'Hook',
-        tag: 'Tag', search: 'Search',
+        app_group: 'App Group', video_group: 'Video Group', new_only: 'New Only',
+        search: 'Search',
     };
 
     function renderFilterPills() {
@@ -350,6 +340,15 @@
                     var platLabels = { ios: 'iOS', playstore: 'Play Store', web: 'Web' };
                     displayVal = platLabels[displayVal] || displayVal;
                 }
+                if (k === 'new_only') displayVal = 'This Week';
+                if (k === 'app_group') {
+                    var agSel = document.getElementById('vFilterAppGroup');
+                    if (agSel && agSel.selectedIndex > 0) displayVal = agSel.options[agSel.selectedIndex].textContent;
+                }
+                if (k === 'video_group') {
+                    var vgSel = document.getElementById('vFilterVideoGroup');
+                    if (vgSel && vgSel.selectedIndex > 0) displayVal = vgSel.options[vgSel.selectedIndex].textContent;
+                }
                 pills.push(`<span class="badge bg-primary d-inline-flex align-items-center gap-1 viewer-pill"
                     >${LABEL_MAP[k]}: ${escapeHtml(displayVal)}
                     <i class="bi bi-x-circle" role="button" data-filter="${k}" style="cursor:pointer"></i></span>`);
@@ -364,7 +363,10 @@
                 const key = this.dataset.filter;
                 S.filters[key] = '';
                 const el = document.getElementById(ELEMENT_MAP[key]);
-                if (el) el.value = '';
+                if (el) {
+                    if (el.type === 'checkbox') el.checked = false;
+                    else el.value = '';
+                }
                 S.page = 1;
                 viewerLoad();
             });
@@ -486,6 +488,10 @@
                 countrySel.appendChild(opt);
             });
         }
+        // App Groups dropdown
+        addOptions('vFilterAppGroup', options.app_groups || [], 'id', 'name');
+        // Video Groups dropdown
+        addOptions('vFilterVideoGroup', options.video_groups || [], 'id', 'name');
         refreshAppDropdown();
         syncFormFromState();
     }
@@ -530,9 +536,6 @@
         });
     }
 
-    async function loadTags() {
-        // Tags feature placeholder — tags API not yet implemented
-    }
 
     // ── Grid Render ────────────────────────────────────────
     // Copy text to clipboard with button feedback
@@ -581,13 +584,8 @@
                 var viewCount = parseInt(ad.view_count) || 0;
                 var viewCountStr = viewCount > 0 ? formatNumber(viewCount) : '';
 
-                // "New" badge for ads discovered in last 48 hours
-                var isNew = false;
-                if (ad.first_seen) {
-                    var firstSeenDate = new Date(ad.first_seen);
-                    var hoursSinceFirst = (Date.now() - firstSeenDate.getTime()) / (1000 * 60 * 60);
-                    isNew = hoursSinceFirst < 48;
-                }
+                // "New" badge for ads first seen within last 7 days
+                var isNew = ad.is_new == 1;
                 var newBadge = isNew ? '<span class="badge bg-danger ms-1" style="font-size:.6rem;animation:pulse 2s infinite">NEW</span> ' : '';
 
                 // Thumbnail
@@ -710,9 +708,10 @@
                     return '<span class="badge bg-secondary bg-opacity-75 viewer-clickable" data-filter="country" data-value="' + escapeHtml(c) + '" style="cursor:pointer" title="' + escapeHtml(countryName(c)) + '">' + countryFlag(c) + '</span>';
                 }).join(' ') : '<small class="text-muted">-</small>';
 
+                var tblNewBadge = ad.is_new == 1 ? '<span class="badge bg-danger ms-1" style="font-size:.55rem">NEW</span>' : '';
                 html += '<tr class="viewer-row" role="button" data-id="' + escapeHtml(ad.creative_id) + '">' +
                     '<td><span class="viewer-clickable text-primary" data-filter="advertiser_id" data-value="' + escapeHtml(ad.advertiser_id) + '" style="cursor:pointer">' + escapeHtml(advName) + '</span></td>' +
-                    '<td style="max-width:200px"><div class="text-truncate fw-bold">' + escapeHtml(hl || '-') + hlSourceBadge + '</div>' + (ad.description ? '<div class="text-truncate text-muted small">' + escapeHtml(ad.description.substring(0,60)) + '</div>' : '') + '</td>' +
+                    '<td style="max-width:200px"><div class="text-truncate fw-bold">' + tblNewBadge + escapeHtml(hl || '-') + hlSourceBadge + '</div>' + (ad.description ? '<div class="text-truncate text-muted small">' + escapeHtml(ad.description.substring(0,60)) + '</div>' : '') + '</td>' +
                     '<td>' + (pName && pName !== 'Unknown' ? '<span class="badge bg-warning text-dark" style="font-size:.75rem">' + escapeHtml(pName) + '</span>' : '<small class="text-muted">-</small>') + '</td>' +
                     '<td><span class="badge bg-info" style="font-size:.75rem">' + (tblPlatformLabels[sPlatform] || 'Web') + '</span></td>' +
                     '<td>' + (vCount > 0 ? '<strong>' + formatNumber(vCount) + '</strong>' : '<small class="text-muted">-</small>') + '</td>' +
@@ -1102,7 +1101,12 @@
         FILTER_KEYS.forEach(k => {
             S.filters[k] = '';
             const el = document.getElementById(ELEMENT_MAP[k]);
-            if (el) el.value = '';
+            if (!el) return;
+            if (el.type === 'checkbox') {
+                el.checked = false;
+            } else {
+                el.value = '';
+            }
         });
         S.page = 1;
         load();
@@ -1138,23 +1142,10 @@
             load();
         };
         ['vFilterAdvertiser', 'vFilterProduct', 'vFilterCountry', 'vFilterPlatform', 'vFilterType',
-         'vFilterStatus', 'vFilterDateFrom', 'vFilterDateTo', 'vFilterSentiment',
-         'vFilterHook', 'vFilterTag'].forEach(id => {
+         'vFilterStatus', 'vFilterDateFrom', 'vFilterDateTo', 'vFilterAppGroup',
+         'vFilterVideoGroup', 'vFilterNewOnly'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', onChange);
-        });
-
-        // Debounce for text inputs (domain, cta)
-        ['vFilterDomain', 'vFilterCta'].forEach(id => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.addEventListener('input', function() {
-                clearTimeout(S.debounceTimer);
-                S.debounceTimer = setTimeout(onChange, 400);
-            });
-            el.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') { clearTimeout(S.debounceTimer); onChange(); }
-            });
         });
     }
 
