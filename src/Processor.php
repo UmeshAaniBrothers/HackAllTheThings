@@ -1967,7 +1967,7 @@ class Processor
      */
     public function detectProducts()
     {
-        // Get unmapped ads with headlines, URLs, and ad platform info (batched)
+        // Get unmapped ads with headlines, URLs, and ad platform info (larger batch)
         $ads = $this->db->fetchAll(
             "SELECT a.creative_id, a.advertiser_id, d.headline, d.landing_url,
                     (SELECT GROUP_CONCAT(ass.original_url SEPARATOR '||')
@@ -1981,7 +1981,7 @@ class Processor
                  SELECT 1 FROM ad_product_map pm WHERE pm.creative_id = a.creative_id
              )
              ORDER BY a.advertiser_id, a.last_seen DESC
-             LIMIT 100"
+             LIMIT 500"
         );
 
         if (empty($ads)) {
@@ -1990,6 +1990,10 @@ class Processor
 
         // Pre-load store URLs from raw payloads per advertiser (fast indexed query)
         $advertiserStoreUrls = $this->preloadStoreUrlsFromPayloads($ads);
+
+        // Also pre-load known products per advertiser from ad_products table
+        $advertiserIds = array_unique(array_column($ads, 'advertiser_id'));
+        $knownProducts = $this->preloadKnownProducts($advertiserIds);
 
         $mapped = 0;
 
@@ -2018,6 +2022,32 @@ class Processor
                     $mapped++;
                 }
             }
+
+            // Also try to match this ad to known app products by headline similarity
+            if ($result['platform'] === 'web' || !$result['url']) {
+                $advId = $ad['advertiser_id'];
+                if (isset($knownProducts[$advId])) {
+                    $headline = strtolower(trim($ad['headline'] ?? ''));
+                    foreach ($knownProducts[$advId] as $kp) {
+                        if ($kp['store_platform'] === 'web') continue;
+                        $appName = strtolower($kp['product_name']);
+                        // Match if headline contains the app name (min 4 chars)
+                        if (strlen($appName) >= 4 && $headline && strpos($headline, $appName) !== false) {
+                            $exists2 = $this->db->fetchOne(
+                                "SELECT id FROM ad_product_map WHERE creative_id = ? AND product_id = ?",
+                                [$ad['creative_id'], $kp['id']]
+                            );
+                            if (!$exists2) {
+                                $this->db->insert('ad_product_map', [
+                                    'creative_id' => $ad['creative_id'],
+                                    'product_id'  => $kp['id'],
+                                ]);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         $this->log("Detected products for {$mapped} ads");
@@ -2029,6 +2059,36 @@ class Processor
         }
 
         return $mapped;
+    }
+
+    /**
+     * Pre-load known products per advertiser from ad_products table.
+     * Returns: [advertiser_id => [['id' => ..., 'product_name' => ..., 'store_platform' => ...], ...]]
+     */
+    private function preloadKnownProducts(array $advertiserIds): array
+    {
+        if (empty($advertiserIds)) return [];
+
+        $placeholders = implode(',', array_fill(0, count($advertiserIds), '?'));
+        $rows = $this->db->fetchAll(
+            "SELECT p.id, p.advertiser_id, COALESCE(NULLIF(am.app_name, ''), p.product_name) as product_name,
+                    p.store_platform, p.store_url
+             FROM ad_products p
+             LEFT JOIN app_metadata am ON am.product_id = p.id
+             WHERE p.advertiser_id IN ($placeholders)
+               AND p.store_platform IN ('ios', 'playstore')
+               AND p.product_name != 'Unknown'
+             ORDER BY (SELECT COUNT(*) FROM ad_product_map pm WHERE pm.product_id = p.id) DESC",
+            $advertiserIds
+        );
+
+        $result = [];
+        foreach ($rows as $row) {
+            $advId = $row['advertiser_id'];
+            if (!isset($result[$advId])) $result[$advId] = [];
+            $result[$advId][] = $row;
+        }
+        return $result;
     }
 
     /**
@@ -2457,9 +2517,9 @@ class Processor
 
         $result = [];
         foreach ($advertiserIds as $advId) {
-            // Use indexed advertiser_id column (fast query)
+            // Use indexed advertiser_id column — scan more payloads for better store URL coverage
             $rows = $this->db->fetchAll(
-                "SELECT raw_json FROM raw_payloads WHERE advertiser_id = ? ORDER BY id DESC LIMIT 5",
+                "SELECT raw_json FROM raw_payloads WHERE advertiser_id = ? ORDER BY id DESC LIMIT 30",
                 [$advId]
             );
 
