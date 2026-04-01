@@ -329,6 +329,13 @@
         FILTER_KEYS.forEach(k => {
             if (S.filters[k]) {
                 var displayVal = S.filters[k];
+                // For advertiser_id, show the advertiser name from dropdown text
+                if (k === 'advertiser_id') {
+                    var aSel = document.getElementById('vFilterAdvertiser');
+                    if (aSel && aSel.selectedIndex > 0) {
+                        displayVal = aSel.options[aSel.selectedIndex].textContent;
+                    }
+                }
                 // For product_id, show the product name from dropdown text
                 if (k === 'product_id') {
                     var pSel = document.getElementById('vFilterProduct');
@@ -635,6 +642,15 @@
                     ytLink = '<a href="youtube_profile.php?id=' + encodeURIComponent(ytId) + '" class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation()"><i class="bi bi-youtube me-1"></i>YouTube</a> ';
                 }
 
+                // App Store / Play Store direct link
+                var appStoreLink = '';
+                if (ad.store_url && ad.store_url !== 'not_found') {
+                    var storeIcon = storePlatform === 'ios' ? 'bi-apple' : 'bi-google-play';
+                    var storeLabel = storePlatform === 'ios' ? 'App Store' : 'Play Store';
+                    var storeBtnClass = storePlatform === 'ios' ? 'btn-outline-dark' : 'btn-outline-success';
+                    appStoreLink = '<a href="' + escapeHtml(ad.store_url) + '" target="_blank" rel="noopener" class="btn ' + storeBtnClass + ' btn-sm viewer-ext-link" onclick="event.stopPropagation()" title="View on ' + storeLabel + '"><i class="bi ' + storeIcon + ' me-1"></i>' + storeLabel + '</a> ';
+                }
+
                 // Product link
                 var productHtml = '';
                 if (productName && productName !== 'Unknown') {
@@ -660,6 +676,7 @@
                     '<div class="mt-2 d-flex flex-wrap gap-1">' +
                     (ad.headline || ad.description ? '<button class="btn btn-outline-secondary btn-sm viewer-ext-link" onclick="event.stopPropagation();copyAdText(this,' + "'" + escapeHtml((ad.headline || '') + (ad.description ? '\\n' + ad.description : '')) + "'" + ')" title="Copy ad text"><i class="bi bi-clipboard me-1"></i>Copy Text</button> ' : '') +
                     (ad.youtube_url ? '<button class="btn btn-outline-danger btn-sm viewer-ext-link" onclick="event.stopPropagation();copyAdText(this,' + "'" + escapeHtml(ad.youtube_url) + "'" + ')" title="Copy YouTube URL"><i class="bi bi-youtube me-1"></i>Copy URL</button> ' : '') +
+                    appStoreLink +
                     ytLink +
                     '<a href="' + escapeHtml(transparencyUrl) + '" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm viewer-ext-link" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right me-1"></i>Google</a>' +
                     '</div></div>' +
@@ -720,8 +737,9 @@
                     '<td>' + countryTd + '</td>' +
                     '<td><small>' + formatDate(ad.first_seen) + '</small></td>' +
                     '<td><small>' + formatDate(ad.last_seen) + '</small></td>' +
-                    '<td><a href="' + escapeHtml(tUrl) + '" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right"></i></a>' +
-                    (ad.youtube_url ? ' <a href="' + escapeHtml(ad.youtube_url) + '" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="event.stopPropagation()"><i class="bi bi-youtube"></i></a>' : '') + '</td></tr>';
+                    '<td class="text-nowrap"><a href="' + escapeHtml(tUrl) + '" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm py-0 px-1" onclick="event.stopPropagation()" title="Google Ads Transparency"><i class="bi bi-box-arrow-up-right"></i></a>' +
+                    (ad.store_url && ad.store_url !== 'not_found' ? ' <a href="' + escapeHtml(ad.store_url) + '" target="_blank" rel="noopener" class="btn ' + (sPlatform === 'ios' ? 'btn-outline-dark' : 'btn-outline-success') + ' btn-sm py-0 px-1" onclick="event.stopPropagation()" title="' + (sPlatform === 'ios' ? 'App Store' : 'Play Store') + '"><i class="bi ' + (sPlatform === 'ios' ? 'bi-apple' : 'bi-google-play') + '"></i></a>' : '') +
+                    (ad.youtube_url ? ' <a href="' + escapeHtml(ad.youtube_url) + '" target="_blank" rel="noopener" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="event.stopPropagation()" title="YouTube"><i class="bi bi-youtube"></i></a>' : '') + '</td></tr>';
             } catch(e) {
                 console.error('Table row error:', ad.creative_id, e);
             }
@@ -817,6 +835,7 @@
                         <a href="${escapeHtml(transparencyUrl)}" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm">
                             <i class="bi bi-box-arrow-up-right me-1"></i>Google Ads Transparency
                         </a>
+                        ${ad.store_url && ad.store_url !== 'not_found' ? `<a href="${escapeHtml(ad.store_url)}" target="_blank" rel="noopener" class="btn ${(ad.store_platform || '') === 'ios' ? 'btn-outline-dark' : 'btn-outline-success'} btn-sm"><i class="bi ${(ad.store_platform || '') === 'ios' ? 'bi-apple' : 'bi-google-play'} me-1"></i>${(ad.store_platform || '') === 'ios' ? 'App Store' : 'Play Store'}</a>` : ''}
                     </div>
                 </div>
                 <div class="col-md-4 text-md-end">
