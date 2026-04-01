@@ -2796,19 +2796,30 @@ class Processor
         ];
 
         // Title - try multiple patterns for resilience against HTML changes
-        // Pattern 1: <title> tag
-        if (preg_match('/<title>([^<]+?)(?:\s*-\s*Apps on Google Play)?<\/title>/i', $html, $tm)) {
+        // Pattern 1: og:title meta tag (most reliable, always present)
+        if (preg_match('/property="og:title"\s*content="([^"]+)"/i', $html, $tm)) {
             $meta['app_name'] = trim($tm[1]);
         }
-        // Pattern 2: og:title meta tag
-        if (!$meta['app_name'] && preg_match('/property="og:title"\s+content="([^"]+)"/i', $html, $tm)) {
+        // Also try content before property (some pages flip attribute order)
+        if (!$meta['app_name'] && preg_match('/content="([^"]+)"\s*property="og:title"/i', $html, $tm)) {
+            $meta['app_name'] = trim($tm[1]);
+        }
+        // Pattern 2: <title> tag (may have attributes like id="main-title")
+        if (!$meta['app_name'] && preg_match('/<title[^>]*>([^<]+?)(?:\s*-\s*Apps on Google Play)?<\/title>/i', $html, $tm)) {
             $meta['app_name'] = trim($tm[1]);
         }
         // Pattern 3: itemprop name
         if (!$meta['app_name'] && preg_match('/itemprop="name"[^>]*>([^<]+)</i', $html, $tm)) {
             $meta['app_name'] = trim(html_entity_decode($tm[1], ENT_QUOTES, 'UTF-8'));
         }
-        // Pattern 4: JSON-LD
+        // Pattern 4: appstore meta tag (bundle info)
+        if (!$meta['app_name'] && preg_match('/name="appstore:store_id"\s*content="([^"]+)"/i', $html, $tm)) {
+            // This gives package name as last resort; check twitter:title first
+            if (preg_match('/name="twitter:title"\s*content="([^"]+)"/i', $html, $tm2)) {
+                $meta['app_name'] = trim($tm2[1]);
+            }
+        }
+        // Pattern 5: JSON-LD
         if (!$meta['app_name'] && preg_match('/"name"\s*:\s*"([^"]+)"/', $html, $tm)) {
             $meta['app_name'] = trim($tm[1]);
         }
