@@ -1302,7 +1302,7 @@ class Processor
      * extracts App Store / Play Store URLs embedded in the ad creative.
      * This is the ONLY source of app/store detection.
      */
-    public function enrichStoreUrlsFromPreview()
+    public function enrichStoreUrlsFromPreview($limit = 200)
     {
         // Get ALL ads with a preview URL that don't yet have an ios/playstore product
         $ads = $this->db->fetchAll(
@@ -1319,7 +1319,7 @@ class Processor
              )
              GROUP BY a.creative_id
              ORDER BY a.last_seen DESC
-             LIMIT 100"
+             LIMIT " . (int)$limit
         );
 
         if (empty($ads)) {
