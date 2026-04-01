@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS video_groups (
 CREATE TABLE IF NOT EXISTS video_group_keywords (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     group_id BIGINT UNSIGNED NOT NULL,
-    keyword VARCHAR(128) NOT NULL,
+    keyword VARCHAR(512) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_group (group_id),
     UNIQUE KEY uk_group_keyword (group_id, keyword),
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS video_group_members (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     group_id BIGINT UNSIGNED NOT NULL,
     video_id VARCHAR(16) NOT NULL,
-    matched_keyword VARCHAR(128),
+    matched_keyword VARCHAR(512),
     auto_assigned TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_group_video (group_id, video_id),

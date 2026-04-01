@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS app_groups (
 CREATE TABLE IF NOT EXISTS app_group_keywords (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     group_id BIGINT UNSIGNED NOT NULL,
-    keyword VARCHAR(128) NOT NULL COMMENT 'Matched against app name, category, description',
+    keyword VARCHAR(512) NOT NULL COMMENT 'Matched against app name, category, description',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_group (group_id),
     INDEX idx_keyword (keyword),
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS app_group_members (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     group_id BIGINT UNSIGNED NOT NULL,
     product_id BIGINT UNSIGNED NOT NULL,
-    matched_keyword VARCHAR(128) COMMENT 'Which keyword triggered the match',
+    matched_keyword VARCHAR(512) COMMENT 'Which keyword triggered the match',
     auto_assigned TINYINT(1) DEFAULT 1 COMMENT '1=auto, 0=manual',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_group_product (group_id, product_id),
