@@ -2693,9 +2693,13 @@ class Processor
 
             // Update product name if we got a better one
             if (!empty($meta['app_name']) && $meta['app_name'] !== $product['product_name']) {
-                $this->db->update('ad_products', [
-                    'product_name' => $meta['app_name'],
-                ], 'id = ?', [$product['product_id']]);
+                try {
+                    $this->db->update('ad_products', [
+                        'product_name' => $meta['app_name'],
+                    ], 'id = ?', [$product['product_id']]);
+                } catch (\Exception $e) {
+                    // Duplicate name for same advertiser — skip
+                }
             }
 
             $enriched++;
@@ -2807,6 +2811,14 @@ class Processor
         // Pattern 4: JSON-LD
         if (!$meta['app_name'] && preg_match('/"name"\s*:\s*"([^"]+)"/', $html, $tm)) {
             $meta['app_name'] = trim($tm[1]);
+        }
+
+        // Clean up app_name — strip store suffixes
+        if ($meta['app_name']) {
+            $meta['app_name'] = preg_replace('/\s*-\s*Apps on Google Play$/i', '', $meta['app_name']);
+            $meta['app_name'] = preg_replace('/\s*on the App Store$/i', '', $meta['app_name']);
+            $meta['app_name'] = preg_replace('/\s*\| Google Play$/i', '', $meta['app_name']);
+            $meta['app_name'] = trim($meta['app_name']);
         }
 
         // Icon (og:image or itemprop image)
