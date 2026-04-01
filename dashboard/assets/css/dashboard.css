@@ -15,6 +15,26 @@ body {
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
+/* Global Filter Bar */
+#globalTimePeriod .gtp-btn {
+    font-size: .75rem;
+    padding: 2px 10px;
+    border-radius: 4px !important;
+    font-weight: 600;
+}
+#globalTimePeriod .gtp-btn.active {
+    background: #fff !important;
+    color: #1a1a2e !important;
+    border-color: #fff !important;
+}
+#globalAdvertiser {
+    font-size: .8rem;
+}
+#globalAdvertiser option {
+    background: #212529;
+    color: #f8f9fa;
+}
+
 /* KPI Cards */
 .kpi-card {
     border: none;

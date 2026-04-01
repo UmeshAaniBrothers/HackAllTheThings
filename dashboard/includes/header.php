@@ -23,7 +23,8 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link href="assets/css/dashboard.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="assets/js/dashboard.js?v=20260331"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="assets/js/dashboard.js?v=20260401"></script>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
@@ -67,7 +68,21 @@ $currentPage = basename($_SERVER['PHP_SELF'], '.php');
                         </a>
                     </li>
                 </ul>
-                <ul class="navbar-nav ms-auto">
+                <ul class="navbar-nav ms-auto align-items-center gap-2">
+                    <li class="nav-item">
+                        <select id="globalAdvertiser" class="form-select form-select-sm bg-dark text-light border-secondary" style="width:200px;font-size:.8rem" title="Filter by advertiser">
+                            <option value="">All Advertisers</option>
+                        </select>
+                    </li>
+                    <li class="nav-item">
+                        <div class="btn-group btn-group-sm" role="group" id="globalTimePeriod">
+                            <button type="button" class="btn btn-outline-light btn-sm gtp-btn" data-period="1d">24h</button>
+                            <button type="button" class="btn btn-outline-light btn-sm gtp-btn" data-period="7d">7D</button>
+                            <button type="button" class="btn btn-outline-light btn-sm gtp-btn" data-period="30d">30D</button>
+                            <button type="button" class="btn btn-outline-light btn-sm gtp-btn" data-period="90d">90D</button>
+                            <button type="button" class="btn btn-light btn-sm gtp-btn active" data-period="all">All</button>
+                        </div>
+                    </li>
                     <li class="nav-item">
                         <span class="nav-link text-muted small" id="navClock"></span>
                     </li>

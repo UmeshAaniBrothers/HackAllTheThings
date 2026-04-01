@@ -10,6 +10,112 @@
 const API_BASE = 'api/';
 
 // ============================================================
+// Global Filters — shared across all pages
+// ============================================================
+const GlobalFilters = {
+    _advertiserId: '',
+    _timePeriod: 'all',
+    _advertiserName: '',
+    _loaded: false,
+
+    get advertiserId() { return this._advertiserId; },
+    get timePeriod() { return this._timePeriod; },
+    get advertiserName() { return this._advertiserName; },
+
+    setAdvertiser(id, name) {
+        this._advertiserId = id || '';
+        this._advertiserName = name || '';
+        sessionStorage.setItem('gf_advertiser', this._advertiserId);
+        sessionStorage.setItem('gf_advertiser_name', this._advertiserName);
+        this._dispatch();
+    },
+
+    setTimePeriod(period) {
+        if (!['1d','7d','30d','90d','all'].includes(period)) period = 'all';
+        this._timePeriod = period;
+        sessionStorage.setItem('gf_time_period', period);
+        this._dispatch();
+    },
+
+    getApiParams() {
+        const p = {};
+        if (this._advertiserId) p.advertiser_id = this._advertiserId;
+        if (this._timePeriod !== 'all') p.time_period = this._timePeriod;
+        return p;
+    },
+
+    restore() {
+        this._advertiserId = sessionStorage.getItem('gf_advertiser') || '';
+        this._advertiserName = sessionStorage.getItem('gf_advertiser_name') || '';
+        this._timePeriod = sessionStorage.getItem('gf_time_period') || 'all';
+    },
+
+    _dispatch() {
+        window.dispatchEvent(new CustomEvent('globalfilter:change', { detail: this.getApiParams() }));
+    },
+
+    init() {
+        this.restore();
+
+        // Time period buttons
+        document.querySelectorAll('#globalTimePeriod .gtp-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#globalTimePeriod .gtp-btn').forEach(b => {
+                    b.classList.remove('btn-light','active');
+                    b.classList.add('btn-outline-light');
+                });
+                btn.classList.remove('btn-outline-light');
+                btn.classList.add('btn-light','active');
+                GlobalFilters.setTimePeriod(btn.dataset.period);
+            });
+        });
+
+        // Sync time period button state
+        const activeBtn = document.querySelector(`#globalTimePeriod .gtp-btn[data-period="${this._timePeriod}"]`);
+        if (activeBtn) {
+            document.querySelectorAll('#globalTimePeriod .gtp-btn').forEach(b => {
+                b.classList.remove('btn-light','active');
+                b.classList.add('btn-outline-light');
+            });
+            activeBtn.classList.remove('btn-outline-light');
+            activeBtn.classList.add('btn-light','active');
+        }
+
+        // Advertiser dropdown
+        const advSel = document.getElementById('globalAdvertiser');
+        if (advSel) {
+            advSel.addEventListener('change', () => {
+                const opt = advSel.options[advSel.selectedIndex];
+                GlobalFilters.setAdvertiser(advSel.value, opt ? opt.textContent : '');
+            });
+        }
+
+        // Load advertiser list
+        this._loadAdvertisers();
+        this._loaded = true;
+    },
+
+    async _loadAdvertisers() {
+        try {
+            const data = await fetchAPI('overview.php', { time_period: 'all' });
+            if (!data.success || !data.advertisers) return;
+            const sel = document.getElementById('globalAdvertiser');
+            if (!sel || sel.options.length > 1) return;
+            data.advertisers.forEach(a => {
+                const opt = document.createElement('option');
+                opt.value = a.advertiser_id;
+                opt.textContent = (a.name || a.advertiser_id) + ' (' + (a.total_ads || 0) + ')';
+                sel.appendChild(opt);
+            });
+            // Restore selection
+            if (this._advertiserId) sel.value = this._advertiserId;
+        } catch(e) { console.warn('Failed to load advertisers:', e); }
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => GlobalFilters.init());
+
+// ============================================================
 // Utility Functions
 // ============================================================
 
