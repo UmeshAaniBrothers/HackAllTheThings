@@ -71,6 +71,9 @@ try {
         case 'update_youtube':
             updateYouTube($db);
             break;
+        case 'pending_youtube':
+            pendingYouTube($db);
+            break;
         default:
             echo json_encode(['success' => false, 'error' => 'Unknown action: ' . $action]);
     }
@@ -222,6 +225,18 @@ function updateAdvertiser($db)
         if (!empty($updates)) {
             $db->update('managed_advertisers', $updates, 'advertiser_id = ?', [$data['advertiser_id']]);
         }
+    }
+
+    // Mark as fetched (update last_fetched_at timestamp)
+    if (!empty($data['mark_fetched'])) {
+        $db->query(
+            "UPDATE managed_advertisers SET
+                last_fetched_at = NOW(),
+                total_ads = (SELECT COUNT(*) FROM ads WHERE advertiser_id = ?),
+                active_ads = (SELECT COUNT(*) FROM ads WHERE advertiser_id = ? AND status='active')
+             WHERE advertiser_id = ?",
+            [$data['advertiser_id'], $data['advertiser_id'], $data['advertiser_id']]
+        );
     }
 
     echo json_encode(['success' => true, 'message' => 'Advertiser updated']);
@@ -650,5 +665,80 @@ function updateYouTube($db)
         'success' => true,
         'updated' => $updated,
         'message' => "Updated YouTube data for {$updated} videos",
+    ]);
+}
+
+/**
+ * Return list of YouTube videos that need fetching:
+ * 1. New: video ads with no view_count or no youtube_metadata entry
+ * 2. Stale: youtube_metadata.fetched_at > 15 days old
+ *
+ * Returns deduplicated video_ids with creative_id + reason.
+ * This avoids the client downloading all 97K+ ads just to filter.
+ */
+function pendingYouTube($db)
+{
+    $limit = min(1000, max(1, (int) ($_GET['limit'] ?? 200)));
+
+    // Part 1: New videos — no view_count or not in youtube_metadata
+    $newVideos = $db->fetchAll(
+        "SELECT a.creative_id,
+                (SELECT ass.original_url FROM ad_assets ass WHERE ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%' LIMIT 1) as youtube_url
+         FROM ads a
+         WHERE a.ad_type = 'video'
+           AND EXISTS (SELECT 1 FROM ad_assets v WHERE v.creative_id = a.creative_id AND v.type = 'video' AND v.original_url LIKE '%youtube.com%')
+           AND (a.view_count = 0 OR a.view_count IS NULL)
+         ORDER BY a.last_seen DESC
+         LIMIT ?",
+        [$limit]
+    );
+
+    // Part 2: Stale videos — fetched_at > 15 days ago
+    $staleVideos = $db->fetchAll(
+        "SELECT a.creative_id,
+                ass.original_url as youtube_url
+         FROM ads a
+         INNER JOIN ad_assets ass ON ass.creative_id = a.creative_id AND ass.type = 'video' AND ass.original_url LIKE '%youtube.com%'
+         INNER JOIN youtube_metadata ym ON CONCAT('https://www.youtube.com/watch?v=', ym.video_id) COLLATE utf8mb4_unicode_ci = ass.original_url COLLATE utf8mb4_unicode_ci
+         WHERE a.ad_type = 'video'
+           AND a.view_count > 0
+           AND ym.fetched_at < DATE_SUB(NOW(), INTERVAL 15 DAY)
+         ORDER BY ym.fetched_at ASC
+         LIMIT ?",
+        [max(1, (int)($limit / 2))]
+    );
+
+    // Deduplicate by video_id
+    $seen = [];
+    $result = [];
+
+    foreach ($newVideos as $v) {
+        if (empty($v['youtube_url'])) continue;
+        if (preg_match('/[?&]v=([a-zA-Z0-9_-]{11})/', $v['youtube_url'], $m)) {
+            $vid = $m[1];
+            if (!isset($seen[$vid])) {
+                $seen[$vid] = true;
+                $result[] = ['creative_id' => $v['creative_id'], 'video_id' => $vid, 'youtube_url' => $v['youtube_url'], 'reason' => 'new'];
+            }
+        }
+    }
+
+    foreach ($staleVideos as $v) {
+        if (empty($v['youtube_url'])) continue;
+        if (preg_match('/[?&]v=([a-zA-Z0-9_-]{11})/', $v['youtube_url'], $m)) {
+            $vid = $m[1];
+            if (!isset($seen[$vid])) {
+                $seen[$vid] = true;
+                $result[] = ['creative_id' => $v['creative_id'], 'video_id' => $vid, 'youtube_url' => $v['youtube_url'], 'reason' => 'stale'];
+            }
+        }
+    }
+
+    echo json_encode([
+        'success' => true,
+        'total'   => count($result),
+        'new'     => count(array_filter($result, fn($v) => $v['reason'] === 'new')),
+        'stale'   => count(array_filter($result, fn($v) => $v['reason'] === 'stale')),
+        'videos'  => $result,
     ]);
 }

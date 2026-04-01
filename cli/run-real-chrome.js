@@ -86,6 +86,15 @@ const YT_ONLY = args.includes('--yt');
         // ── Step 2: Scrape ads ──────────────────────────
         log('\n━━━ Step 2: Scraping ads ━━━\n');
 
+        // Sort advertisers: new/never-fetched first, then oldest-fetched
+        const sortedAdvertisers = await getSortedAdvertisers(advertisers);
+        log(`📋 Scrape order (new first, then oldest):`);
+        sortedAdvertisers.forEach((a, i) => {
+            const tag = a.total_ads === 0 ? '🆕 NEW' : `📊 ${a.total_ads} ads, fetched: ${a.last_fetched_at || 'never'}`;
+            log(`   ${i+1}. ${a.name} — ${tag}`);
+        });
+        log('');
+
         // Open a new tab for scraping (don't mess with user's existing tabs)
         const page = await browser.newPage();
 
@@ -137,10 +146,11 @@ const YT_ONLY = args.includes('--yt');
         let totalAds = 0;
         const scrapeStart = Date.now();
 
-        for (let i = 0; i < advertisers.length; i++) {
-            const adv = advertisers[i];
+        for (let i = 0; i < sortedAdvertisers.length; i++) {
+            const adv = sortedAdvertisers[i];
             const elapsed = formatElapsed(Date.now() - scrapeStart);
-            log(`--- [${i + 1}/${advertisers.length}] ${adv.name} (${adv.id}) [${elapsed}] ---`);
+            const tag = adv.total_ads === 0 ? ' 🆕' : '';
+            log(`--- [${i + 1}/${sortedAdvertisers.length}] ${adv.name}${tag} (${adv.id}) [${elapsed}] ---`);
 
             try {
                 const payloads = await scrapeAdvertiser(page, adv.id);
@@ -150,6 +160,12 @@ const YT_ONLY = args.includes('--yt');
                         try { const d = JSON.parse(raw); adsCount += Array.isArray(d['1']) ? d['1'].length : 0; } catch {}
                     }
                     await sendPayloadsToServer(adv.id, adv.name, 'anywhere', payloads);
+                    // Update last_fetched_at on server
+                    try {
+                        await httpPost(`${SERVER_URL}/dashboard/api/ingest.php?action=update_advertiser&token=${AUTH_TOKEN}`, {
+                            advertiser_id: adv.id, advertiser_name: adv.name, mark_fetched: true,
+                        });
+                    } catch {}
                     totalAds += adsCount;
                     totalSuccess++;
                 } else {
@@ -178,7 +194,7 @@ const YT_ONLY = args.includes('--yt');
             }
 
             // Human-like delay between advertisers
-            if (i < advertisers.length - 1) {
+            if (i < sortedAdvertisers.length - 1) {
                 const delay = 5000 + Math.random() * 5000; // 5-10s
                 await sleep(delay);
             }
@@ -205,11 +221,11 @@ const YT_ONLY = args.includes('--yt');
         // ── Step 4: YouTube metadata ────────────────────
         log('\n━━━ Step 4: Fetching YouTube view counts ━━━\n');
 
-        const videoAds = await getVideoAdsFromServer();
-        const pending = videoAds.filter(a => a.youtube_url && (!a.view_count || a.view_count === 0));
-        log(`Found ${videoAds.length} video ads, ${pending.length} need YouTube data\n`);
+        // Ask server for only videos that need fetching (new or stale)
+        const pendingVideos = await getPendingYouTubeVideos();
+        log(`Found ${pendingVideos.length} videos needing YouTube data\n`);
 
-        if (pending.length > 0) {
+        if (pendingVideos.length > 0) {
             const ytPage = await browser.newPage();
 
             // Block heavy resources for speed
@@ -225,20 +241,12 @@ const YT_ONLY = args.includes('--yt');
             await ytPage.goto('https://www.youtube.com', { waitUntil: 'domcontentloaded', timeout: 20000 });
             await sleep(2000);
 
-            // Deduplicate
-            const seen = new Set();
-            const uniqueVideos = [];
-            for (const ad of pending) {
-                const vid = extractVideoId(ad.youtube_url);
-                if (vid && !seen.has(vid)) { seen.add(vid); uniqueVideos.push({ ...ad, video_id: vid }); }
-            }
-            log(`${uniqueVideos.length} unique videos to fetch\n`);
-
             let ytFetched = 0, ytFailed = 0, batch = [];
 
-            for (let i = 0; i < uniqueVideos.length; i++) {
-                const video = uniqueVideos[i];
-                process.stdout.write(`  [${i + 1}/${uniqueVideos.length}] ${video.video_id}... `);
+            for (let i = 0; i < pendingVideos.length; i++) {
+                const video = pendingVideos[i];
+                const reason = video.reason === 'new' ? '🆕' : '🔄';
+                process.stdout.write(`  ${reason} [${i + 1}/${pendingVideos.length}] ${video.video_id}... `);
 
                 try {
                     const meta = await fetchYouTubeMetadata(ytPage, video.video_id);
@@ -261,11 +269,11 @@ const YT_ONLY = args.includes('--yt');
                     ytFailed++;
                 }
 
-                if (batch.length >= 50 || i === uniqueVideos.length - 1) {
+                if (batch.length >= 50 || i === pendingVideos.length - 1) {
                     if (batch.length > 0) await sendYouTubeToServer(batch.splice(0));
                 }
 
-                if (i < uniqueVideos.length - 1) await sleep(800 + Math.random() * 500);
+                if (i < pendingVideos.length - 1) await sleep(800 + Math.random() * 500);
             }
 
             await ytPage.close();
@@ -398,19 +406,49 @@ async function sendPayloadsToServer(advertiserId, name, region, payloads) {
     log(`  Sent ${sent}/${payloads.length} pages to server`);
 }
 
-async function getVideoAdsFromServer() {
-    const allAds = [];
-    let pg = 1;
-    while (true) {
-        try {
-            const data = JSON.parse(await httpGet(`${SERVER_URL}/dashboard/api/ads.php?token=${AUTH_TOKEN}&type=video&per_page=100&page=${pg}`));
-            allAds.push(...(data.ads || []));
-            if ((data.ads || []).length < 100) break;
-            pg++;
-            if (pg > 500) break;
-        } catch { break; }
+/**
+ * Get advertiser list sorted by priority: new (0 ads) first, then oldest-fetched.
+ */
+async function getSortedAdvertisers(advertisers) {
+    try {
+        const resp = JSON.parse(await httpGet(`${SERVER_URL}/dashboard/api/overview.php`));
+        const serverMap = {};
+        for (const a of (resp.advertisers || [])) {
+            serverMap[a.advertiser_id] = { total_ads: parseInt(a.total_ads) || 0, last_fetched_at: a.last_fetched_at };
+        }
+        return advertisers.map(a => ({
+            ...a,
+            total_ads: (serverMap[a.id] || {}).total_ads || 0,
+            last_fetched_at: (serverMap[a.id] || {}).last_fetched_at || null,
+        })).sort((a, b) => {
+            // New advertisers (0 ads or never fetched) first
+            const aIsNew = a.total_ads === 0 || !a.last_fetched_at;
+            const bIsNew = b.total_ads === 0 || !b.last_fetched_at;
+            if (aIsNew && !bIsNew) return -1;
+            if (!aIsNew && bIsNew) return 1;
+            // Both new: alphabetical
+            if (aIsNew && bIsNew) return a.name.localeCompare(b.name);
+            // Both old: oldest-fetched first
+            return (a.last_fetched_at || '').localeCompare(b.last_fetched_at || '');
+        });
+    } catch (err) {
+        log(`  ⚠️ Could not get priority order: ${err.message}. Using default order.`);
+        return advertisers.map(a => ({ ...a, total_ads: 0, last_fetched_at: null }));
     }
-    return allAds;
+}
+
+/**
+ * Get only videos that need YouTube data (new or stale >15 days).
+ * Uses server-side API to avoid downloading all 97K ads.
+ */
+async function getPendingYouTubeVideos() {
+    try {
+        const data = JSON.parse(await httpGet(`${SERVER_URL}/dashboard/api/ingest.php?action=pending_youtube&token=${AUTH_TOKEN}&limit=500`));
+        return data.videos || [];
+    } catch (err) {
+        log(`  ⚠️ Could not get pending videos: ${err.message}`);
+        return [];
+    }
 }
 
 async function sendYouTubeToServer(batch) {
