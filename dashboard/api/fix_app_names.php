@@ -78,8 +78,10 @@ $noMeta = $db->fetchColumn(
 $results['products_needing_enrichment'] = (int) $noMeta;
 
 // Step 6: Enrich (fetch from stores)
+require_once $basePath . '/src/AssetManager.php';
 require_once $basePath . '/src/Processor.php';
-$processor = new Processor($config);
+$assetManager = new AssetManager($config['storage']);
+$processor = new Processor($db, $assetManager);
 $enriched = $processor->enrichAppMetadata();
 $results['apps_enriched_now'] = $enriched;
 
