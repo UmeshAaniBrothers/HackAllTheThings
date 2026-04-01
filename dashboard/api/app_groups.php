@@ -204,6 +204,7 @@ try {
                 LEFT JOIN app_metadata a ON a.product_id = p.id
                 LEFT JOIN managed_advertisers ma ON ma.advertiser_id = p.advertiser_id
                 WHERE p.id NOT IN (SELECT product_id FROM app_group_members)
+                  AND p.store_platform IN ('ios', 'playstore')
                 GROUP BY LOWER(p.product_name), p.store_platform
                 ORDER BY p.product_name ASC
             ")->fetchAll(PDO::FETCH_ASSOC);

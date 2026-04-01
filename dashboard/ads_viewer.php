@@ -803,7 +803,7 @@
         const body = document.getElementById('adDetailBody');
         body.innerHTML = '<div class="loading-overlay"><div class="spinner-border text-primary" role="status"></div></div>';
         document.getElementById('adDetailModalLabel').textContent = 'Loading...';
-        document.getElementById('modalOpenCreative').href = 'creative.php?id=' + encodeURIComponent(creativeId);
+        document.getElementById('modalOpenCreative').href = 'https://adstransparency.google.com/advertiser/creative/' + encodeURIComponent(creativeId) + '?region=anywhere';
 
         const modal = new bootstrap.Modal(document.getElementById('adDetailModal'));
         modal.show();
@@ -1160,28 +1160,6 @@
         load();
     };
 
-    // ── Debounced search input ─────────────────────────────
-    function setupDebounce() {
-        const searchInput = document.getElementById('vFilterSearch');
-        if (!searchInput) return;
-        searchInput.addEventListener('input', function() {
-            clearTimeout(S.debounceTimer);
-            S.debounceTimer = setTimeout(() => {
-                readFormToState();
-                S.page = 1;
-                load();
-            }, 400);
-        });
-        searchInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                clearTimeout(S.debounceTimer);
-                readFormToState();
-                S.page = 1;
-                load();
-            }
-        });
-    }
-
     // Filter change handlers — ALL filters trigger instant reload
     function setupFilterListeners() {
         const onChange = () => {
@@ -1192,12 +1170,12 @@
         // All dropdown and date filters
         ['vFilterAdvertiser', 'vFilterProduct', 'vFilterCountry', 'vFilterPlatform', 'vFilterType',
          'vFilterStatus', 'vFilterDateFrom', 'vFilterDateTo', 'vFilterAppGroup',
-         'vFilterVideoGroup', 'vFilterTimeFilter', 'vFilterNewOnly'].forEach(id => {
+         'vFilterVideoGroup', 'vFilterTimeFilter'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', onChange);
         });
 
-        // Search input — debounced (300ms after typing stops)
+        // Search input — single debounced handler (300ms after typing stops)
         var searchTimer = null;
         var searchEl = document.getElementById('vFilterSearch');
         if (searchEl) {

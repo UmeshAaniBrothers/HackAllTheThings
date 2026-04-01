@@ -289,7 +289,7 @@ try {
                     foreach ($pm['product_names'] as $pName) {
                         $pNameLower = strtolower($pName);
                         // Match if headline/desc contains the app name (at least 4 chars to avoid false positives)
-                        if (strlen($pName) >= 4 && ($adHeadline && strpos($adHeadline, $pNameLower) !== false) || ($adDesc && strpos($adDesc, $pNameLower) !== false)) {
+                        if (strlen($pName) >= 4 && (($adHeadline && strpos($adHeadline, $pNameLower) !== false) || ($adDesc && strpos($adDesc, $pNameLower) !== false))) {
                             $matchedProductNames[] = $pName;
                             $showAppProduct = true;
                         }
@@ -329,41 +329,48 @@ try {
     }
 
     // Add is_new flag (first_seen within 48 hours)
-    $sevenDaysAgo = date('Y-m-d H:i:s', strtotime('-48 hours'));
+    $recentCutoff = date('Y-m-d H:i:s', strtotime('-48 hours'));
     foreach ($ads as &$ad) {
-        $ad['is_new'] = ($ad['first_seen'] >= $sevenDaysAgo) ? 1 : 0;
+        $ad['is_new'] = ($ad['first_seen'] >= $recentCutoff) ? 1 : 0;
     }
     unset($ad);
 
-    // Get available filter values
-    $filterOptions = [
-        'advertisers' => $db->fetchAll("SELECT DISTINCT a.advertiser_id, COALESCE(ma.name, a.advertiser_id) as name FROM ads a LEFT JOIN managed_advertisers ma ON a.advertiser_id = ma.advertiser_id ORDER BY ma.name, a.advertiser_id"),
-        'countries'   => $db->fetchAll("SELECT DISTINCT country FROM ad_targeting ORDER BY country"),
-        'platforms'   => $db->fetchAll("SELECT DISTINCT store_platform as platform FROM ad_products WHERE store_platform IS NOT NULL ORDER BY FIELD(store_platform, 'ios', 'playstore', 'web')"),
-        'products'    => $db->fetchAll("SELECT p.id as product_id, p.product_name, p.product_type, p.store_platform, p.store_url, p.advertiser_id, COUNT(pm.creative_id) as ad_count FROM ad_products p LEFT JOIN ad_product_map pm ON p.id = pm.product_id WHERE p.store_platform IN ('ios', 'playstore') GROUP BY p.id ORDER BY ad_count DESC"),
-        'app_groups'  => [],
-        'video_groups' => [],
-    ];
+    // Get available filter values (only on first page to avoid redundant queries)
+    $filterOptions = null;
+    if ($page <= 1) {
+        $filterOptions = [
+            'advertisers' => $db->fetchAll("SELECT DISTINCT a.advertiser_id, COALESCE(ma.name, a.advertiser_id) as name FROM ads a LEFT JOIN managed_advertisers ma ON a.advertiser_id = ma.advertiser_id ORDER BY ma.name, a.advertiser_id"),
+            'countries'   => $db->fetchAll("SELECT DISTINCT country FROM ad_targeting ORDER BY country"),
+            'platforms'   => $db->fetchAll("SELECT DISTINCT store_platform as platform FROM ad_products WHERE store_platform IS NOT NULL ORDER BY FIELD(store_platform, 'ios', 'playstore', 'web')"),
+            'products'    => $db->fetchAll("SELECT p.id as product_id, p.product_name, p.product_type, p.store_platform, p.store_url, p.advertiser_id, COUNT(pm.creative_id) as ad_count FROM ad_products p LEFT JOIN ad_product_map pm ON p.id = pm.product_id WHERE p.store_platform IN ('ios', 'playstore') GROUP BY p.id ORDER BY ad_count DESC"),
+            'app_groups'  => [],
+            'video_groups' => [],
+        ];
 
-    // Load app groups (graceful if table doesn't exist yet)
-    try {
-        $filterOptions['app_groups'] = $db->fetchAll("SELECT id, name, color FROM app_groups ORDER BY name");
-    } catch (Exception $e) {}
+        // Load app groups (graceful if table doesn't exist yet)
+        try {
+            $filterOptions['app_groups'] = $db->fetchAll("SELECT id, name, color FROM app_groups ORDER BY name");
+        } catch (Exception $e) {}
 
-    // Load video groups (graceful if table doesn't exist yet)
-    try {
-        $filterOptions['video_groups'] = $db->fetchAll("SELECT id, name, color FROM video_groups ORDER BY name");
-    } catch (Exception $e) {}
+        // Load video groups (graceful if table doesn't exist yet)
+        try {
+            $filterOptions['video_groups'] = $db->fetchAll("SELECT id, name, color FROM video_groups ORDER BY name");
+        } catch (Exception $e) {}
+    }
 
-    echo json_encode([
+    $response = [
         'success'        => true,
         'ads'            => $ads,
         'total'          => $total,
         'page'           => $page,
         'per_page'       => $perPage,
         'total_pages'    => ceil($total / $perPage),
-        'filter_options' => $filterOptions,
-    ]);
+    ];
+    if ($filterOptions !== null) {
+        $response['filter_options'] = $filterOptions;
+    }
+
+    echo json_encode($response);
 
 } catch (Exception $e) {
     http_response_code(500);

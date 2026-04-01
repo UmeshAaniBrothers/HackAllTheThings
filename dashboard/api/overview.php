@@ -457,7 +457,8 @@ try {
                 ym.comment_count, ym.thumbnail_url, ym.duration, ym.publish_date,
                 COUNT(DISTINCT a.creative_id) as ad_count
          FROM youtube_metadata ym
-         LEFT JOIN ad_assets aa ON aa.type = 'video' AND aa.original_url LIKE CONCAT('%', ym.video_id, '%')
+         LEFT JOIN ad_assets aa ON aa.type = 'video'
+            AND aa.original_url = CONCAT('https://www.youtube.com/watch?v=', ym.video_id)
          LEFT JOIN ads a ON a.creative_id = aa.creative_id {$videoJoinFilter}
          WHERE ym.view_count > 0
          GROUP BY ym.video_id

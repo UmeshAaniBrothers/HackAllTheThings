@@ -376,10 +376,11 @@
         fetchAPI('overview.php', params).then(function(data) {
             if (seq !== loadSeq) return;
             if (!data.success) return;
+            var hadFastData = !!cachedFastData;
             cachedFullData = data;
 
             // Also update KPIs/charts if fast hasn't returned yet
-            if (!cachedFastData || cachedFastData === null) {
+            if (!hadFastData) {
                 updateKPIs(data.stats);
                 updateContextBanner();
                 cachedTimelineRaw = data.timeline || [];

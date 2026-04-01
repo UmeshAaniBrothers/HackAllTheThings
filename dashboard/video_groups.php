@@ -158,7 +158,7 @@ async function loadGroups() {
                             <button class="btn btn-sm btn-link text-muted" data-bs-toggle="dropdown"><i class="bi bi-three-dots-vertical"></i></button>
                             <ul class="dropdown-menu dropdown-menu-end">
                                 <li><a class="dropdown-item" href="#" onclick="editGroup(${g.id}); return false"><i class="bi bi-pencil me-2"></i>Edit</a></li>
-                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteGroup(${g.id}, '${escHtml(g.name)}'); return false"><i class="bi bi-trash me-2"></i>Delete</a></li>
+                                <li><a class="dropdown-item text-danger" href="#" onclick="deleteGroup(${g.id}, ${JSON.stringify(g.name)}); return false"><i class="bi bi-trash me-2"></i>Delete</a></li>
                             </ul>
                         </div>
                     </div>
