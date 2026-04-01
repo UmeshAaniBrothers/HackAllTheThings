@@ -307,6 +307,7 @@ try {
 
     echo json_encode([
         'success'     => true,
+        '_v'          => 3,
         'query'       => $q,
         'type'        => $type,
         'counts'      => $counts,
