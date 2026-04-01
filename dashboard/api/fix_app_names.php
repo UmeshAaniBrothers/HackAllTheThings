@@ -2,7 +2,6 @@
 /**
  * One-time fix: Update app names from store metadata + re-enrich incomplete records.
  * Run via: /dashboard/api/fix_app_names.php?token=ads-intelligent-2024
- * Delete this file after running.
  */
 header('Content-Type: application/json');
 set_time_limit(300);
@@ -19,39 +18,37 @@ if ($token !== $authToken) {
 }
 
 require_once $basePath . '/src/Database.php';
-
 $db = Database::getInstance($config['db']);
 $results = array();
+$C = 'utf8mb4_general_ci'; // force all comparisons to this collation
 
-// Collation is now fixed at connection level in Database.php (MYSQL_ATTR_INIT_COMMAND)
-
-// Step 1: Show current bad names (product_name != app_name)
+// Step 1: Show bad names
 $badNames = $db->fetchAll(
     "SELECT p.id, p.product_name, am.app_name, p.store_url
      FROM ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
      WHERE am.app_name IS NOT NULL AND am.app_name != ''
-       AND p.product_name != am.app_name
+       AND BINARY p.product_name != BINARY am.app_name
      LIMIT 50"
 );
 $results['bad_names_found'] = count($badNames);
 $results['bad_names_sample'] = array_slice($badNames, 0, 20);
 
-// Step 2: Update product_name from app_metadata where store has better name
+// Step 2: Update product_name from app_metadata
 $db->execute(
     "UPDATE ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
      SET p.product_name = am.app_name
      WHERE am.app_name IS NOT NULL
        AND am.app_name != ''
-       AND p.product_name != am.app_name
+       AND BINARY p.product_name != BINARY am.app_name
        AND LENGTH(am.app_name) > 2"
 );
 $results['names_updated_from_metadata'] = $db->rowCount();
 
-// Step 3: Find incomplete app_metadata (fetch failed, no real data)
+// Step 3: Find incomplete app_metadata
 $incomplete = $db->fetchAll(
-    "SELECT p.id, p.product_name, p.store_url, am.id as am_id, am.app_name as am_app_name
+    "SELECT p.id, p.product_name, p.store_url, am.id as am_id
      FROM ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
      WHERE am.icon_url IS NULL AND am.rating IS NULL AND am.developer_name IS NULL AND am.downloads IS NULL
@@ -62,14 +59,14 @@ $incomplete = $db->fetchAll(
 $results['incomplete_metadata_found'] = count($incomplete);
 $results['incomplete_sample'] = array_slice($incomplete, 0, 10);
 
-// Step 4: Delete incomplete metadata so enrichAppMetadata() re-fetches them
+// Step 4: Delete incomplete metadata
 $db->execute(
     "DELETE am FROM app_metadata am
      WHERE am.icon_url IS NULL AND am.rating IS NULL AND am.developer_name IS NULL AND am.downloads IS NULL"
 );
 $results['incomplete_metadata_deleted'] = $db->rowCount();
 
-// Step 5: Find products with NO metadata at all
+// Step 5: Count products needing enrichment
 $noMeta = $db->fetchColumn(
     "SELECT COUNT(*)
      FROM ad_products p
@@ -80,7 +77,7 @@ $noMeta = $db->fetchColumn(
 );
 $results['products_needing_enrichment'] = (int) $noMeta;
 
-// Step 6: Now try to enrich them (fetch from Play Store / App Store)
+// Step 6: Enrich (fetch from stores)
 require_once $basePath . '/src/Processor.php';
 $processor = new Processor($config);
 $enriched = $processor->enrichAppMetadata();
@@ -93,25 +90,25 @@ $db->execute(
      SET p.product_name = am.app_name
      WHERE am.app_name IS NOT NULL
        AND am.app_name != ''
-       AND p.product_name != am.app_name
+       AND BINARY p.product_name != BINARY am.app_name
        AND LENGTH(am.app_name) > 2"
 );
 $results['names_updated_after_enrichment'] = $db->rowCount();
 
-// Step 8: Normalize names for duplicate store_urls
+// Step 8: Normalize duplicate store_urls
 $db->execute(
     "UPDATE ad_products p1
-     INNER JOIN ad_products p2 ON p1.store_url = p2.store_url
+     INNER JOIN ad_products p2 ON BINARY p1.store_url = BINARY p2.store_url
        AND p1.id != p2.id
        AND p1.store_url IS NOT NULL AND p1.store_url != '' AND p1.store_url != 'not_found'
      INNER JOIN app_metadata am ON am.product_id = p2.id
        AND am.app_name IS NOT NULL AND am.app_name != ''
      SET p1.product_name = am.app_name
-     WHERE p1.product_name != am.app_name"
+     WHERE BINARY p1.product_name != BINARY am.app_name"
 );
 $results['duplicate_names_normalized'] = $db->rowCount();
 
-// Step 9: Check the specific app user mentioned
+// Step 9: Check specific app
 $specificApp = $db->fetchAll(
     "SELECT p.id, p.product_name, p.store_url, p.store_platform, am.app_name, am.icon_url, am.developer_name
      FROM ad_products p
@@ -132,7 +129,7 @@ $results['still_needing_enrichment'] = (int) $db->fetchColumn(
     "SELECT COUNT(*) FROM ad_products p LEFT JOIN app_metadata am ON am.product_id = p.id WHERE p.store_platform IN ('ios','playstore') AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found' AND am.id IS NULL"
 );
 
-// Step 11: Clean up JS code that leaked into headlines/descriptions
+// Step 11: Clean up JS code in headlines/descriptions
 $db->execute(
     "UPDATE ad_details SET headline = NULL
      WHERE headline REGEXP 'function\\\\(|var [a-z]|Object\\\\.create|typeof |prototype|globalThis|querySelector|document\\\\.|window\\\\.|createElement|appendChild|innerHTML'"
