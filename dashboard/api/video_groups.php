@@ -202,12 +202,15 @@ function autoAssignVideoGroup(PDO $pdo, int $groupId): int
     $keywords = $pdo->prepare("SELECT keyword FROM video_group_keywords WHERE group_id = ?");
     $keywords->execute([$groupId]);
     $keywords = $keywords->fetchAll(PDO::FETCH_COLUMN);
-    if (empty($keywords)) return 0;
 
-    $assigned = 0;
-    $insertStmt = $pdo->prepare(
-        "INSERT IGNORE INTO video_group_members (group_id, video_id, matched_keyword, auto_assigned) VALUES (?, ?, ?, 1)"
-    );
+    if (empty($keywords)) {
+        $pdo->prepare("DELETE FROM video_group_members WHERE group_id = ? AND auto_assigned = 1")->execute([$groupId]);
+        return 0;
+    }
+
+    // Find all videos matching any keyword
+    $matchedIds = [];
+    $matchedKeyword = [];
 
     foreach ($keywords as $kw) {
         $like = '%' . strtolower($kw) . '%';
@@ -220,9 +223,28 @@ function autoAssignVideoGroup(PDO $pdo, int $groupId): int
         $matches->execute([$like, $like, $like]);
 
         foreach ($matches->fetchAll(PDO::FETCH_COLUMN) as $vid) {
-            $insertStmt->execute([$groupId, $vid, $kw]);
-            if ($insertStmt->rowCount() > 0) $assigned++;
+            $matchedIds[$vid] = true;
+            if (!isset($matchedKeyword[$vid])) $matchedKeyword[$vid] = $kw;
         }
+    }
+
+    // Remove auto-assigned that no longer match
+    if (!empty($matchedIds)) {
+        $ph = implode(',', array_fill(0, count($matchedIds), '?'));
+        $pdo->prepare("DELETE FROM video_group_members WHERE group_id = ? AND auto_assigned = 1 AND video_id NOT IN ($ph)")
+            ->execute(array_merge([$groupId], array_keys($matchedIds)));
+    } else {
+        $pdo->prepare("DELETE FROM video_group_members WHERE group_id = ? AND auto_assigned = 1")->execute([$groupId]);
+    }
+
+    // Add new matches
+    $assigned = 0;
+    $insertStmt = $pdo->prepare(
+        "INSERT IGNORE INTO video_group_members (group_id, video_id, matched_keyword, auto_assigned) VALUES (?, ?, ?, 1)"
+    );
+    foreach ($matchedKeyword as $vid => $kw) {
+        $insertStmt->execute([$groupId, $vid, $kw]);
+        if ($insertStmt->rowCount() > 0) $assigned++;
     }
 
     return $assigned;

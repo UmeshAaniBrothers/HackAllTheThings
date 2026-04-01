@@ -2028,26 +2028,50 @@ class Processor
             return 0; // Table doesn't exist yet
         }
 
-        $groups = $pdo->query("SELECT g.id, k.keyword FROM app_groups g JOIN app_group_keywords k ON k.group_id = g.id")->fetchAll(PDO::FETCH_ASSOC);
-        if (empty($groups)) return 0;
+        // Get all group IDs and their keywords
+        $groupKeywords = []; // group_id => [keywords]
+        $rows = $pdo->query("SELECT g.id, k.keyword FROM app_groups g JOIN app_group_keywords k ON k.group_id = g.id")->fetchAll(\PDO::FETCH_ASSOC);
+        foreach ($rows as $row) {
+            $groupKeywords[$row['id']][] = $row['keyword'];
+        }
+        if (empty($groupKeywords)) return 0;
 
         $assigned = 0;
         $insertStmt = $pdo->prepare(
             "INSERT IGNORE INTO app_group_members (group_id, product_id, matched_keyword, auto_assigned) VALUES (?, ?, ?, 1)"
         );
 
-        foreach ($groups as $row) {
-            $like = '%' . strtolower($row['keyword']) . '%';
-            $matches = $pdo->prepare("
-                SELECT DISTINCT p.id FROM ad_products p
-                LEFT JOIN app_metadata a ON a.product_id = p.id
-                WHERE p.id NOT IN (SELECT product_id FROM app_group_members WHERE group_id = ?)
-                  AND (LOWER(p.product_name) LIKE ? OR LOWER(COALESCE(a.app_name, '')) LIKE ?
-                       OR LOWER(COALESCE(a.category, '')) LIKE ? OR LOWER(COALESCE(a.description, '')) LIKE ?)
-            ");
-            $matches->execute([$row['id'], $like, $like, $like, $like]);
-            foreach ($matches->fetchAll(PDO::FETCH_COLUMN) as $pid) {
-                $insertStmt->execute([$row['id'], $pid, $row['keyword']]);
+        foreach ($groupKeywords as $groupId => $keywords) {
+            // Find all products matching any keyword in this group
+            $matchedIds = [];
+            $matchedKeyword = [];
+            foreach ($keywords as $kw) {
+                $like = '%' . strtolower($kw) . '%';
+                $matches = $pdo->prepare("
+                    SELECT DISTINCT p.id FROM ad_products p
+                    LEFT JOIN app_metadata a ON a.product_id = p.id
+                    WHERE LOWER(p.product_name) LIKE ? OR LOWER(COALESCE(a.app_name, '')) LIKE ?
+                          OR LOWER(COALESCE(a.category, '')) LIKE ? OR LOWER(COALESCE(a.description, '')) LIKE ?
+                ");
+                $matches->execute([$like, $like, $like, $like]);
+                foreach ($matches->fetchAll(\PDO::FETCH_COLUMN) as $pid) {
+                    $matchedIds[$pid] = true;
+                    if (!isset($matchedKeyword[$pid])) $matchedKeyword[$pid] = $kw;
+                }
+            }
+
+            // Remove auto-assigned members that no longer match any keyword
+            if (!empty($matchedIds)) {
+                $ph = implode(',', array_fill(0, count($matchedIds), '?'));
+                $pdo->prepare("DELETE FROM app_group_members WHERE group_id = ? AND auto_assigned = 1 AND product_id NOT IN ($ph)")
+                    ->execute(array_merge([$groupId], array_keys($matchedIds)));
+            } else {
+                $pdo->prepare("DELETE FROM app_group_members WHERE group_id = ? AND auto_assigned = 1")->execute([$groupId]);
+            }
+
+            // Add new matches
+            foreach ($matchedKeyword as $pid => $kw) {
+                $insertStmt->execute([$groupId, $pid, $kw]);
                 if ($insertStmt->rowCount() > 0) $assigned++;
             }
         }
@@ -2072,26 +2096,48 @@ class Processor
             return 0; // Table doesn't exist yet
         }
 
-        $groups = $pdo->query("SELECT g.id, k.keyword FROM video_groups g JOIN video_group_keywords k ON k.group_id = g.id")->fetchAll(\PDO::FETCH_ASSOC);
-        if (empty($groups)) return 0;
+        $groupKeywords = [];
+        $rows = $pdo->query("SELECT g.id, k.keyword FROM video_groups g JOIN video_group_keywords k ON k.group_id = g.id")->fetchAll(\PDO::FETCH_ASSOC);
+        foreach ($rows as $row) {
+            $groupKeywords[$row['id']][] = $row['keyword'];
+        }
+        if (empty($groupKeywords)) return 0;
 
         $assigned = 0;
         $insertStmt = $pdo->prepare(
             "INSERT IGNORE INTO video_group_members (group_id, video_id, matched_keyword, auto_assigned) VALUES (?, ?, ?, 1)"
         );
 
-        foreach ($groups as $row) {
-            $like = '%' . strtolower($row['keyword']) . '%';
-            $matches = $pdo->prepare("
-                SELECT video_id FROM youtube_metadata
-                WHERE video_id NOT IN (SELECT video_id FROM video_group_members WHERE group_id = ?)
-                  AND (LOWER(COALESCE(title, '')) LIKE ?
+        foreach ($groupKeywords as $groupId => $keywords) {
+            $matchedIds = [];
+            $matchedKeyword = [];
+            foreach ($keywords as $kw) {
+                $like = '%' . strtolower($kw) . '%';
+                $matches = $pdo->prepare("
+                    SELECT video_id FROM youtube_metadata
+                    WHERE LOWER(COALESCE(title, '')) LIKE ?
                        OR LOWER(COALESCE(channel_name, '')) LIKE ?
-                       OR LOWER(COALESCE(description, '')) LIKE ?)
-            ");
-            $matches->execute([$row['id'], $like, $like, $like]);
-            foreach ($matches->fetchAll(\PDO::FETCH_COLUMN) as $vid) {
-                $insertStmt->execute([$row['id'], $vid, $row['keyword']]);
+                       OR LOWER(COALESCE(description, '')) LIKE ?
+                ");
+                $matches->execute([$like, $like, $like]);
+                foreach ($matches->fetchAll(\PDO::FETCH_COLUMN) as $vid) {
+                    $matchedIds[$vid] = true;
+                    if (!isset($matchedKeyword[$vid])) $matchedKeyword[$vid] = $kw;
+                }
+            }
+
+            // Remove auto-assigned members that no longer match any keyword
+            if (!empty($matchedIds)) {
+                $ph = implode(',', array_fill(0, count($matchedIds), '?'));
+                $pdo->prepare("DELETE FROM video_group_members WHERE group_id = ? AND auto_assigned = 1 AND video_id NOT IN ($ph)")
+                    ->execute(array_merge([$groupId], array_keys($matchedIds)));
+            } else {
+                $pdo->prepare("DELETE FROM video_group_members WHERE group_id = ? AND auto_assigned = 1")->execute([$groupId]);
+            }
+
+            // Add new matches
+            foreach ($matchedKeyword as $vid => $kw) {
+                $insertStmt->execute([$groupId, $vid, $kw]);
                 if ($insertStmt->rowCount() > 0) $assigned++;
             }
         }

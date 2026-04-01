@@ -219,18 +219,18 @@ function autoAssignGroup(PDO $pdo, int $groupId): int
     $keywords->execute([$groupId]);
     $keywords = $keywords->fetchAll(PDO::FETCH_COLUMN);
 
-    if (empty($keywords)) return 0;
+    // If no keywords, remove all auto-assigned members
+    if (empty($keywords)) {
+        $pdo->prepare("DELETE FROM app_group_members WHERE group_id = ? AND auto_assigned = 1")->execute([$groupId]);
+        return 0;
+    }
 
-    $assigned = 0;
-    $insertStmt = $pdo->prepare(
-        "INSERT IGNORE INTO app_group_members (group_id, product_id, matched_keyword, auto_assigned)
-         VALUES (?, ?, ?, 1)"
-    );
+    // Step 1: Find all products matching ANY keyword
+    $matchedProductIds = [];
+    $productKeywordMap = []; // product_id => first matched keyword
 
     foreach ($keywords as $kw) {
         $like = '%' . strtolower($kw) . '%';
-
-        // Match against product name, app name, category, and app description
         $matches = $pdo->prepare("
             SELECT DISTINCT p.id
             FROM ad_products p
@@ -243,9 +243,38 @@ function autoAssignGroup(PDO $pdo, int $groupId): int
         $matches->execute([$like, $like, $like, $like]);
 
         foreach ($matches->fetchAll(PDO::FETCH_COLUMN) as $productId) {
-            $insertStmt->execute([$groupId, $productId, $kw]);
-            if ($insertStmt->rowCount() > 0) $assigned++;
+            $matchedProductIds[$productId] = true;
+            if (!isset($productKeywordMap[$productId])) {
+                $productKeywordMap[$productId] = $kw;
+            }
         }
+    }
+
+    // Step 2: Remove auto-assigned members that NO LONGER match any keyword
+    if (!empty($matchedProductIds)) {
+        $placeholders = implode(',', array_fill(0, count($matchedProductIds), '?'));
+        $removeStmt = $pdo->prepare(
+            "DELETE FROM app_group_members WHERE group_id = ? AND auto_assigned = 1 AND product_id NOT IN ($placeholders)"
+        );
+        $removeStmt->execute(array_merge([$groupId], array_keys($matchedProductIds)));
+        $removed = $removeStmt->rowCount();
+    } else {
+        // No matches at all — remove all auto-assigned
+        $removeStmt = $pdo->prepare("DELETE FROM app_group_members WHERE group_id = ? AND auto_assigned = 1");
+        $removeStmt->execute([$groupId]);
+        $removed = $removeStmt->rowCount();
+    }
+
+    // Step 3: Add new matches (INSERT IGNORE skips existing)
+    $assigned = 0;
+    $insertStmt = $pdo->prepare(
+        "INSERT IGNORE INTO app_group_members (group_id, product_id, matched_keyword, auto_assigned)
+         VALUES (?, ?, ?, 1)"
+    );
+
+    foreach ($productKeywordMap as $productId => $kw) {
+        $insertStmt->execute([$groupId, $productId, $kw]);
+        if ($insertStmt->rowCount() > 0) $assigned++;
     }
 
     return $assigned;
