@@ -23,15 +23,7 @@ require_once $basePath . '/src/Database.php';
 $db = Database::getInstance($config['db']);
 $results = array();
 
-// Step 0: Fix collation mismatch — normalize both tables to utf8mb4_unicode_ci
-try {
-    $db->execute("ALTER TABLE ad_products CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-    $db->execute("ALTER TABLE app_metadata CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-    $db->execute("ALTER TABLE ad_details CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-    $results['collation_fix'] = 'done';
-} catch (Exception $e) {
-    $results['collation_fix'] = 'failed: ' . $e->getMessage();
-}
+// Collation is now fixed at connection level in Database.php (MYSQL_ATTR_INIT_COMMAND)
 
 // Step 1: Show current bad names (product_name != app_name)
 $badNames = $db->fetchAll(
@@ -39,7 +31,7 @@ $badNames = $db->fetchAll(
      FROM ad_products p
      INNER JOIN app_metadata am ON am.product_id = p.id
      WHERE am.app_name IS NOT NULL AND am.app_name != ''
-       AND p.product_name COLLATE utf8mb4_unicode_ci != am.app_name COLLATE utf8mb4_unicode_ci
+       AND p.product_name != am.app_name
      LIMIT 50"
 );
 $results['bad_names_found'] = count($badNames);
@@ -52,7 +44,7 @@ $db->execute(
      SET p.product_name = am.app_name
      WHERE am.app_name IS NOT NULL
        AND am.app_name != ''
-       AND p.product_name COLLATE utf8mb4_unicode_ci != am.app_name COLLATE utf8mb4_unicode_ci
+       AND p.product_name != am.app_name
        AND LENGTH(am.app_name) > 2"
 );
 $results['names_updated_from_metadata'] = $db->rowCount();
@@ -101,7 +93,7 @@ $db->execute(
      SET p.product_name = am.app_name
      WHERE am.app_name IS NOT NULL
        AND am.app_name != ''
-       AND p.product_name COLLATE utf8mb4_unicode_ci != am.app_name COLLATE utf8mb4_unicode_ci
+       AND p.product_name != am.app_name
        AND LENGTH(am.app_name) > 2"
 );
 $results['names_updated_after_enrichment'] = $db->rowCount();
@@ -115,7 +107,7 @@ $db->execute(
      INNER JOIN app_metadata am ON am.product_id = p2.id
        AND am.app_name IS NOT NULL AND am.app_name != ''
      SET p1.product_name = am.app_name
-     WHERE p1.product_name COLLATE utf8mb4_unicode_ci != am.app_name COLLATE utf8mb4_unicode_ci"
+     WHERE p1.product_name != am.app_name"
 );
 $results['duplicate_names_normalized'] = $db->rowCount();
 
