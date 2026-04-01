@@ -519,10 +519,31 @@ function log(msg) { console.log(msg); }
 
 function readAdvertisers() {
     if (!fs.existsSync(ADVERTISERS_FILE)) return [];
-    return fs.readFileSync(ADVERTISERS_FILE, 'utf8').split('\n')
+    const lines = fs.readFileSync(ADVERTISERS_FILE, 'utf8').split('\n');
+    const all = lines
         .map(l => l.trim()).filter(l => l && !l.startsWith('#'))
         .map(l => { const p = l.split('|').map(s => s.trim()); return { id: p[0], name: p[1] || p[0] }; })
         .filter(a => a.id);
+
+    // Deduplicate by advertiser ID
+    const seen = new Set();
+    const unique = [];
+    const dupes = [];
+    for (const a of all) {
+        if (seen.has(a.id)) { dupes.push(a.id); continue; }
+        seen.add(a.id);
+        unique.push(a);
+    }
+
+    // If duplicates found, rewrite the file with clean list
+    if (dupes.length > 0) {
+        log(`⚠️ Removed ${dupes.length} duplicate(s) from advertisers.txt`);
+        const header = lines.filter(l => l.trimStart().startsWith('#')).join('\n');
+        const body = unique.map(a => `${a.id} | ${a.name}`).join('\n');
+        fs.writeFileSync(ADVERTISERS_FILE, header + '\n\n' + body + '\n', 'utf8');
+    }
+
+    return unique;
 }
 
 function extractVideoId(url) {
