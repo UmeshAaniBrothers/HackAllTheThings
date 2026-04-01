@@ -129,4 +129,17 @@ $results['still_needing_enrichment'] = (int) $db->fetchColumn(
     "SELECT COUNT(*) FROM ad_products p LEFT JOIN app_metadata am ON am.product_id = p.id WHERE p.store_platform IN ('ios','playstore') AND p.store_url IS NOT NULL AND p.store_url != '' AND p.store_url != 'not_found' AND am.id IS NULL"
 );
 
+// Step 11: Clean up JS code that leaked into headlines/descriptions
+$db->execute(
+    "UPDATE ad_details SET headline = NULL
+     WHERE headline REGEXP 'function\\\\(|var [a-z]|Object\\\\.create|typeof |prototype|globalThis|querySelector|document\\\\.|window\\\\.|createElement|appendChild|innerHTML'"
+);
+$results['js_headlines_cleaned'] = $db->rowCount();
+
+$db->execute(
+    "UPDATE ad_details SET description = NULL
+     WHERE description REGEXP 'function\\\\(|var [a-z]|Object\\\\.create|typeof |prototype|globalThis|querySelector|document\\\\.|window\\\\.|createElement|appendChild|innerHTML'"
+);
+$results['js_descriptions_cleaned'] = $db->rowCount();
+
 echo json_encode(array('success' => true, 'results' => $results), JSON_PRETTY_PRINT);

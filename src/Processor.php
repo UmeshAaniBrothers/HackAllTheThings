@@ -221,7 +221,7 @@ class Processor
             if (preg_match('/^\d+$/', $t)) continue; // pure numbers
             if (preg_match('/^[a-f0-9]{32,}$/i', $t)) continue; // hashes
             if (preg_match('/^[\d\/]+$/', $t)) continue; // date-like or path-like numbers
-            if (preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(|var |const |let |return |throw /i', $t)) continue; // JS code/errors
+            if (preg_match('/Cannot find|global object|Error\(|undefined|function\s*\(|var\s+\w|const\s+\w|let\s+\w|return\s+\w|throw\s|typeof\s|Object\.create|prototype|\.split\(|\.length|querySelector|document\.|window\.|globalThis|createElement|appendChild|innerHTML|addEventListener|className|setAttribute|getElementById|\.call\(|\.apply\(|\.bind\(|new\s+\w+\(/i', $t)) continue; // JS code/errors
             $cleanTexts[] = $t;
         }
         $cleanTexts = array_values(array_unique($cleanTexts));

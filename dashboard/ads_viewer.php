@@ -584,7 +584,12 @@
                 var isVideo = ad.ad_type === 'video';
                 var advName = ad.advertiser_name || ad.advertiser_id || '';
                 var transparencyUrl = 'https://adstransparency.google.com/advertiser/' + encodeURIComponent(ad.advertiser_id) + '/creative/' + encodeURIComponent(ad.creative_id);
-                var headline = ad.headline || advName;
+                // Sanitize headline — strip any JavaScript code that leaked through
+                var rawHeadline = ad.headline || '';
+                if (rawHeadline && /(\bfunction\s*\(|\bvar\s+\w|Object\.create|prototype|typeof\s|\.split\(|\.length|forEach|querySelector|document\.|window\.|globalThis)/i.test(rawHeadline)) {
+                    rawHeadline = ''; // JS code leaked as headline, clear it
+                }
+                var headline = rawHeadline || advName;
                 var headlineSource = ad.headline_source || '';
                 var sourceLabel = headlineSource === 'youtube' ? ' <span class="badge bg-danger bg-opacity-75" style="font-size:.6rem;vertical-align:middle"><i class="bi bi-youtube me-1"></i>YouTube Title</span>' : '';
                 var productName = ad.product_names ? ad.product_names.split('||')[0] : '';
@@ -611,13 +616,13 @@
                         '</div>';
                 } else if (isVideo) {
                     thumbHtml = '<div class="ad-thumb d-flex align-items-center justify-content-center" style="background:#1a1a2e"><i class="bi bi-play-circle" style="font-size:3rem;color:rgba(255,255,255,.5)"></i></div>';
-                } else if (ad.preview_url) {
-                    thumbHtml = '<div class="ad-thumb ad-thumb-preview"><iframe src="' + escapeHtml(ad.preview_url) + '" sandbox="allow-scripts allow-same-origin" loading="lazy" scrolling="no" style="width:100%;height:100%;border:none;pointer-events:none"></iframe></div>';
                 } else {
-                    // Placeholder with ad type icon for cards with no thumbnail
+                    // Styled placeholder with ad type icon and headline preview
                     var typeIcons = { text: 'bi-file-text', image: 'bi-image', video: 'bi-play-circle' };
                     var typeIcon = typeIcons[ad.ad_type] || 'bi-file-earmark';
-                    thumbHtml = '<div class="ad-thumb d-flex align-items-center justify-content-center" style="background:#f0f0f5"><i class="bi ' + typeIcon + '" style="font-size:3rem;color:rgba(0,0,0,.15)"></i></div>';
+                    var previewText = headline && headline.length > 5 ? '<div style="font-size:.75rem;color:rgba(0,0,0,.35);max-width:80%;text-align:center;margin-top:8px;line-height:1.3" class="text-truncate">' + escapeHtml(headline.substring(0,60)) + '</div>' : '';
+                    var gradBg = ad.ad_type === 'text' ? 'linear-gradient(135deg,#e8eaf6,#f3e5f5)' : (ad.ad_type === 'image' ? 'linear-gradient(135deg,#e3f2fd,#e8f5e9)' : 'linear-gradient(135deg,#fce4ec,#fff3e0)');
+                    thumbHtml = '<div class="ad-thumb d-flex flex-column align-items-center justify-content-center" style="background:' + gradBg + '"><i class="bi ' + typeIcon + '" style="font-size:2.5rem;color:rgba(0,0,0,.12)"></i>' + previewText + '</div>';
                 }
 
                 // Landing URL domain
@@ -674,7 +679,7 @@
                     '</div>' + (viewCount > 0 ? '<small class="text-muted"><i class="bi bi-eye-fill me-1"></i>' + viewCountStr + '</small>' : '') + '<small class="text-muted">' + formatDate(ad.last_seen) + '</small></div></div>' +
                     '<div class="ad-body">' +
                     '<div class="ad-headline">' + escapeHtml(headline) + sourceLabel + '</div>' +
-                    (ad.description ? '<div class="ad-description">' + escapeHtml(ad.description.substring(0, 150)) + '</div>' : '') +
+                    (ad.description && !/(\bfunction\s*\(|\bvar\s+\w|Object\.create|prototype|typeof\s|\.split\(|\.length\b|querySelector|document\.|window\.|globalThis)/i.test(ad.description) ? '<div class="ad-description">' + escapeHtml(ad.description.substring(0, 150)) + '</div>' : '') +
                     (ad.cta ? '<div class="mt-1"><span class="badge bg-primary">' + escapeHtml(ad.cta) + '</span></div>' : '') +
                     productHtml +
                     landingHtml +
