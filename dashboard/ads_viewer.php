@@ -421,11 +421,18 @@
         return { data, endpoint };
     }
 
-    async function loadStats() {
+    async function loadStats(filteredTotal) {
+        // Update "Shown Results" from the filtered API response
+        if (filteredTotal !== undefined) {
+            document.getElementById('vStatShown').textContent = formatNumber(filteredTotal);
+        }
         try {
-            const overview = await fetchAPI('overview.php', {
-                advertiser_id: S.filters.advertiser_id || null
+            // Pass all active filters to get accurate stats
+            var statsParams = {};
+            FILTER_KEYS.forEach(function(k) {
+                if (S.filters[k]) statsParams[k] = S.filters[k];
             });
+            const overview = await fetchAPI('overview.php', statsParams);
             if (overview.success && overview.stats) {
                 S.totalAds = overview.stats.total_ads || 0;
                 S.activeAds = overview.stats.active_ads || 0;
@@ -447,9 +454,6 @@
         resultsEl.innerHTML = '<div class="loading-overlay"><div class="spinner-border text-primary" role="status"></div></div>';
         document.getElementById('vPagination').innerHTML = '';
 
-        // Load stats separately so it can't crash the main load
-        loadStats();
-
         try {
             const { data, endpoint } = await loadData();
 
@@ -458,7 +462,8 @@
             const totalPages = data.total_pages || 1;
             const page = data.page || 1;
 
-            document.getElementById('vStatShown').textContent = formatNumber(total);
+            // Update stats with filtered total, load overview stats in background
+            loadStats(total);
 
             // Populate filter dropdowns from ads.php filter_options
             if (endpoint === 'ads.php' && data.filter_options) {
@@ -1177,19 +1182,33 @@
         });
     }
 
-    // Filter change handlers for dropdowns/date inputs
+    // Filter change handlers — ALL filters trigger instant reload
     function setupFilterListeners() {
         const onChange = () => {
             readFormToState();
             S.page = 1;
             load();
         };
+        // All dropdown and date filters
         ['vFilterAdvertiser', 'vFilterProduct', 'vFilterCountry', 'vFilterPlatform', 'vFilterType',
          'vFilterStatus', 'vFilterDateFrom', 'vFilterDateTo', 'vFilterAppGroup',
-         'vFilterVideoGroup', 'vFilterNewOnly'].forEach(id => {
+         'vFilterVideoGroup', 'vFilterTimeFilter', 'vFilterNewOnly'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', onChange);
         });
+
+        // Search input — debounced (300ms after typing stops)
+        var searchTimer = null;
+        var searchEl = document.getElementById('vFilterSearch');
+        if (searchEl) {
+            searchEl.addEventListener('input', function() {
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(onChange, 300);
+            });
+            searchEl.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); clearTimeout(searchTimer); onChange(); }
+            });
+        }
     }
 
     // ── CSV Export ─────────────────────────────────────────

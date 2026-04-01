@@ -1383,10 +1383,14 @@ class Processor
             );
 
             if ($productId) {
-                $this->db->insert('ad_product_map', [
-                    'creative_id' => $creativeId,
-                    'product_id'  => $productId,
-                ]);
+                try {
+                    $this->db->insert('ad_product_map', [
+                        'creative_id' => $creativeId,
+                        'product_id'  => $productId,
+                    ]);
+                } catch (\Exception $e) {
+                    // Duplicate mapping — skip
+                }
             }
         }
     }
