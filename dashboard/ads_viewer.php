@@ -428,7 +428,8 @@
         }
         try {
             // Map ads_viewer filter keys to overview.php parameter names
-            var statsParams = {};
+            // Use fast=1 to skip expensive entity queries (top apps, videos, etc.)
+            var statsParams = { fast: 1 };
             if (S.filters.advertiser_id) statsParams.advertiser_id = S.filters.advertiser_id;
             if (S.filters.ad_type) statsParams.ad_type = S.filters.ad_type;
             if (S.filters.country) statsParams.country = S.filters.country;

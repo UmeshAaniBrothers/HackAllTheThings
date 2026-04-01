@@ -399,112 +399,137 @@ try {
 
     // ---------------------------------------------------------------
     // Expensive entity queries (skipped in fast mode)
+    // Each wrapped in try/catch so one failure doesn't crash all
     // ---------------------------------------------------------------
 
     // Top apps (enhanced with app_metadata)
-    $topAppsWhere = "p.store_platform IN ('ios', 'playstore') AND p.product_name != 'Unknown'";
-    if ($wa['sql'] !== '1=1') {
-        $topAppsWhere .= " AND {$wa['sql']}";
-    }
-    $topApps = $db->fetchAll(
-        "SELECT p.id, COALESCE(MAX(NULLIF(am.app_name, '')), p.product_name) as product_name, p.store_platform, p.store_url,
-                MAX(am.icon_url) as icon_url, MAX(am.rating) as rating, MAX(am.downloads) as downloads,
-                COUNT(DISTINCT pm.creative_id) as ad_count,
-                COALESCE(SUM(a.view_count), 0) as total_views
-         FROM ad_products p
-         INNER JOIN ad_product_map pm ON p.id = pm.product_id
-         INNER JOIN ads a ON a.creative_id = pm.creative_id
-         LEFT JOIN app_metadata am ON am.product_id = p.id
-         WHERE {$topAppsWhere}
-         GROUP BY p.id
-         ORDER BY ad_count DESC
-         LIMIT 10",
-        $wa['params']
-    );
-
-    // ---------------------------------------------------------------
-    // Top countries (time + advertiser + drill filtered)
-    // ---------------------------------------------------------------
-    if ($timePeriod !== 'all' || $advertiserId || !empty($extras)) {
-        $topCountries = $db->fetchAll(
-            "SELECT t.country, COUNT(DISTINCT t.creative_id) as ad_count
-             FROM ad_targeting t
-             INNER JOIN ads a ON a.creative_id = t.creative_id
-             WHERE {$wa['sql']}
-             GROUP BY t.country
+    $topApps = array();
+    try {
+        $topAppsWhere = "p.store_platform IN ('ios', 'playstore') AND p.product_name != 'Unknown'";
+        if ($wa['sql'] !== '1=1') {
+            $topAppsWhere .= " AND {$wa['sql']}";
+        }
+        $topApps = $db->fetchAll(
+            "SELECT p.id, COALESCE(MAX(NULLIF(am.app_name, '')), p.product_name) as product_name, p.store_platform, p.store_url,
+                    MAX(am.icon_url) as icon_url, MAX(am.rating) as rating, MAX(am.downloads) as downloads,
+                    COUNT(DISTINCT pm.creative_id) as ad_count,
+                    COALESCE(SUM(a.view_count), 0) as total_views
+             FROM ad_products p
+             INNER JOIN ad_product_map pm ON p.id = pm.product_id
+             INNER JOIN ads a ON a.creative_id = pm.creative_id
+             LEFT JOIN app_metadata am ON am.product_id = p.id
+             WHERE {$topAppsWhere}
+             GROUP BY p.id
              ORDER BY ad_count DESC
              LIMIT 10",
             $wa['params']
         );
-    } else {
-        $topCountries = $db->fetchAll(
-            "SELECT country, COUNT(DISTINCT creative_id) as ad_count
-             FROM ad_targeting
-             GROUP BY country
-             ORDER BY ad_count DESC
-             LIMIT 10"
-        );
+    } catch (Exception $e) {
+        $topApps = array();
+    }
+
+    // ---------------------------------------------------------------
+    // Top countries (time + advertiser + drill filtered)
+    // ---------------------------------------------------------------
+    $topCountries = array();
+    try {
+        if ($timePeriod !== 'all' || $advertiserId || !empty($extras)) {
+            $topCountries = $db->fetchAll(
+                "SELECT t.country, COUNT(DISTINCT t.creative_id) as ad_count
+                 FROM ad_targeting t
+                 INNER JOIN ads a ON a.creative_id = t.creative_id
+                 WHERE {$wa['sql']}
+                 GROUP BY t.country
+                 ORDER BY ad_count DESC
+                 LIMIT 10",
+                $wa['params']
+            );
+        } else {
+            $topCountries = $db->fetchAll(
+                "SELECT country, COUNT(DISTINCT creative_id) as ad_count
+                 FROM ad_targeting
+                 GROUP BY country
+                 ORDER BY ad_count DESC
+                 LIMIT 10"
+            );
+        }
+    } catch (Exception $e) {
+        $topCountries = array();
     }
 
     // ---------------------------------------------------------------
     // Top YouTube videos (single JOIN query, no N+1)
     // ---------------------------------------------------------------
-    $videoJoinFilter = $wa['sql'] !== '1=1' ? "AND {$wa['sql']}" : "";
-    $videoParams = $wa['params'];
+    $topVideos = array();
+    try {
+        $videoJoinFilter = $wa['sql'] !== '1=1' ? "AND {$wa['sql']}" : "";
+        $videoParams = $wa['params'];
 
-    $topVideos = $db->fetchAll(
-        "SELECT ym.video_id, ym.title, ym.channel_name, ym.view_count, ym.like_count,
-                ym.comment_count, ym.thumbnail_url, ym.duration, ym.publish_date,
-                COUNT(DISTINCT a.creative_id) as ad_count
-         FROM youtube_metadata ym
-         LEFT JOIN ad_assets aa ON aa.type = 'video'
-            AND aa.original_url = CONCAT('https://www.youtube.com/watch?v=', ym.video_id)
-         LEFT JOIN ads a ON a.creative_id = aa.creative_id {$videoJoinFilter}
-         WHERE ym.view_count > 0
-         GROUP BY ym.video_id
-         ORDER BY ym.view_count DESC
-         LIMIT 6",
-        $videoParams
-    );
+        $topVideos = $db->fetchAll(
+            "SELECT ym.video_id, ym.title, ym.channel_name, ym.view_count, ym.like_count,
+                    ym.comment_count, ym.thumbnail_url, ym.duration, ym.publish_date,
+                    COUNT(DISTINCT a.creative_id) as ad_count
+             FROM youtube_metadata ym
+             LEFT JOIN ad_assets aa ON aa.type = 'video'
+                AND aa.original_url = CONCAT('https://www.youtube.com/watch?v=', ym.video_id)
+             LEFT JOIN ads a ON a.creative_id = aa.creative_id {$videoJoinFilter}
+             WHERE ym.view_count > 0
+             GROUP BY ym.video_id
+             ORDER BY ym.view_count DESC
+             LIMIT 6",
+            $videoParams
+        );
+    } catch (Exception $e) {
+        $topVideos = array();
+    }
 
     // ---------------------------------------------------------------
     // Recent activity (last 20 ads, filtered)
     // ---------------------------------------------------------------
-    $recentWhereA = $wa['sql'] !== '1=1' ? "WHERE {$wa['sql']}" : "";
+    $recentActivity = array();
+    try {
+        $recentWhereA = $wa['sql'] !== '1=1' ? "WHERE {$wa['sql']}" : "";
 
-    $recentActivity = $db->fetchAll(
-        "SELECT a.creative_id, a.advertiser_id, a.ad_type, a.status, a.last_seen,
-                d.headline,
-                COALESCE(adv.name, a.advertiser_id) as advertiser_name
-         FROM ads a
-         LEFT JOIN ad_details d ON a.creative_id = d.creative_id
-             AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
-         LEFT JOIN managed_advertisers adv ON a.advertiser_id = adv.advertiser_id
-         {$recentWhereA}
-         ORDER BY a.last_seen DESC
-         LIMIT 20",
-        $wa['params']
-    );
+        $recentActivity = $db->fetchAll(
+            "SELECT a.creative_id, a.advertiser_id, a.ad_type, a.status, a.last_seen,
+                    d.headline,
+                    COALESCE(adv.name, a.advertiser_id) as advertiser_name
+             FROM ads a
+             LEFT JOIN ad_details d ON a.creative_id = d.creative_id
+                 AND d.id = (SELECT MAX(id) FROM ad_details WHERE creative_id = a.creative_id)
+             LEFT JOIN managed_advertisers adv ON a.advertiser_id = adv.advertiser_id
+             {$recentWhereA}
+             ORDER BY a.last_seen DESC
+             LIMIT 20",
+            $wa['params']
+        );
+    } catch (Exception $e) {
+        $recentActivity = array();
+    }
 
     // ---------------------------------------------------------------
     // Top advertisers (filtered, only when no specific advertiser selected)
     // ---------------------------------------------------------------
     $topAdvertisers = array();
-    if (!$advertiserId) {
-        $topAdvWhere = buildWhereClause($timePeriod, null, 'a.first_seen', 'a.advertiser_id', $extras, 'a.ad_type', 'a.status');
-        $topAdvWhereStr = $topAdvWhere['sql'] !== '1=1' ? "WHERE {$topAdvWhere['sql']}" : "";
-        $topAdvertisers = $db->fetchAll(
-            "SELECT a.advertiser_id, COALESCE(ma.name, a.advertiser_id) as name,
-                    COUNT(*) as total_ads,
-                    SUM(a.status = 'active') as active_ads
-             FROM ads a
-             LEFT JOIN managed_advertisers ma ON a.advertiser_id = ma.advertiser_id
-             {$topAdvWhereStr}
-             GROUP BY a.advertiser_id
-             ORDER BY total_ads DESC
-             LIMIT 5",
-            $topAdvWhere['params']
-        );
+    try {
+        if (!$advertiserId) {
+            $topAdvWhere = buildWhereClause($timePeriod, null, 'a.first_seen', 'a.advertiser_id', $extras, 'a.ad_type', 'a.status');
+            $topAdvWhereStr = $topAdvWhere['sql'] !== '1=1' ? "WHERE {$topAdvWhere['sql']}" : "";
+            $topAdvertisers = $db->fetchAll(
+                "SELECT a.advertiser_id, COALESCE(ma.name, a.advertiser_id) as name,
+                        COUNT(*) as total_ads,
+                        SUM(a.status = 'active') as active_ads
+                 FROM ads a
+                 LEFT JOIN managed_advertisers ma ON a.advertiser_id = ma.advertiser_id
+                 {$topAdvWhereStr}
+                 GROUP BY a.advertiser_id
+                 ORDER BY total_ads DESC
+                 LIMIT 5",
+                $topAdvWhere['params']
+            );
+        }
+    } catch (Exception $e) {
+        $topAdvertisers = array();
     }
 
     // ---------------------------------------------------------------
