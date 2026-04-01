@@ -2726,13 +2726,17 @@ class Processor
             if (!$meta) {
                 if (!$hasExistingMetadata) {
                     // Insert minimal record to avoid retrying
-                    $this->db->insert('app_metadata', [
-                        'product_id'     => $product['product_id'],
-                        'store_platform' => $product['store_platform'],
-                        'store_url'      => $product['store_url'],
-                        'app_name'       => $product['product_name'],
-                        'fetched_at'     => date('Y-m-d H:i:s'),
-                    ]);
+                    try {
+                        $this->db->insert('app_metadata', [
+                            'product_id'     => $product['product_id'],
+                            'store_platform' => $product['store_platform'],
+                            'store_url'      => $product['store_url'],
+                            'app_name'       => $product['product_name'],
+                            'fetched_at'     => date('Y-m-d H:i:s'),
+                        ]);
+                    } catch (\Exception $e) {
+                        // Duplicate — skip
+                    }
                 }
                 continue;
             }
@@ -2748,7 +2752,26 @@ class Processor
                 $this->db->update('app_metadata', $metaRow, 'id = ?', [$product['metadata_id']]);
             } else {
                 $metaRow['product_id'] = $product['product_id'];
-                $this->db->insert('app_metadata', $metaRow);
+                try {
+                    $this->db->insert('app_metadata', $metaRow);
+                } catch (\Exception $e) {
+                    // Duplicate product_id — update instead
+                    if (strpos($e->getMessage(), '1062') !== false) {
+                        $this->db->query(
+                            "UPDATE app_metadata SET app_name = ?, icon_url = ?, developer_name = ?, rating = ?, fetched_at = ? WHERE product_id = ?",
+                            [
+                                $meta['app_name'] ?? null,
+                                $meta['icon_url'] ?? null,
+                                $meta['developer_name'] ?? null,
+                                $meta['rating'] ?? null,
+                                date('Y-m-d H:i:s'),
+                                $product['product_id']
+                            ]
+                        );
+                    } else {
+                        throw $e;
+                    }
+                }
             }
 
             // Update product name if we got a better one
