@@ -285,6 +285,79 @@ if ($deepScan && $targetAdvertiser) {
 }
 
 // ══════════════════════════════════════════════
+// DISCOVER APPS MODE: Enrich metadata + discover developer apps
+// Usage: &discover_apps=1 (optionally &advertiser_id=AR...)
+// ══════════════════════════════════════════════
+$discoverApps = isset($_GET['discover_apps']) && $_GET['discover_apps'] === '1';
+if ($discoverApps) {
+    progress("=== DEVELOPER APP DISCOVERY ===");
+    progress("Time: " . date('Y-m-d H:i:s'));
+    if ($targetAdvertiser) {
+        progress("Target advertiser: {$targetAdvertiser}");
+    } else {
+        progress("Target: ALL advertisers");
+    }
+    progress("");
+
+    // Step 1: Enrich metadata to populate developer_url for apps that are missing it
+    progress("Step 1: Enriching app metadata (to get developer URLs)...");
+    $enriched = $processor->enrichAppMetadata();
+    progress("  Enriched {$enriched} apps with metadata");
+    progress("");
+
+    // Step 2: Run developer discovery using iTunes artist lookup
+    progress("Step 2: Discovering developer apps via iTunes Lookup API...");
+    $discovered = $processor->discoverDeveloperApps($targetAdvertiser ?: null);
+    progress("  Discovered {$discovered} new apps from developer accounts");
+    progress("");
+
+    // Step 3: Enrich newly discovered apps
+    if ($discovered > 0) {
+        progress("Step 3: Enriching newly discovered apps...");
+        $enriched2 = $processor->enrichAppMetadata();
+        progress("  Enriched {$enriched2} new apps with metadata");
+        progress("");
+    }
+
+    // Show final app counts per advertiser
+    if ($targetAdvertiser) {
+        $apps = $db->fetchAll(
+            "SELECT p.product_name, p.store_platform, p.store_url,
+                    am.developer_name, am.developer_url
+             FROM ad_products p
+             LEFT JOIN app_metadata am ON am.product_id = p.id
+             WHERE p.advertiser_id = ? AND p.store_platform IN ('ios', 'playstore')
+             ORDER BY p.product_name",
+            [$targetAdvertiser]
+        );
+        progress("=== APPS FOR ADVERTISER (" . count($apps) . " total) ===");
+        foreach ($apps as $a) {
+            $devInfo = $a['developer_name'] ? " [dev: {$a['developer_name']}]" : '';
+            $devUrl = $a['developer_url'] ? " (URL: yes)" : " (URL: missing)";
+            progress("  {$a['store_platform']}: {$a['product_name']}{$devInfo}{$devUrl}");
+        }
+    } else {
+        $advCounts = $db->fetchAll(
+            "SELECT p.advertiser_id, COALESCE(ma.name, p.advertiser_id) as name,
+                    COUNT(*) as app_count
+             FROM ad_products p
+             LEFT JOIN managed_advertisers ma ON p.advertiser_id = ma.advertiser_id
+             WHERE p.store_platform IN ('ios', 'playstore')
+             GROUP BY p.advertiser_id
+             ORDER BY app_count DESC"
+        );
+        progress("=== APPS PER ADVERTISER ===");
+        foreach ($advCounts as $ac) {
+            progress("  {$ac['name']}: {$ac['app_count']} apps");
+        }
+    }
+
+    progress("");
+    progress("Done! " . date('Y-m-d H:i:s'));
+    exit;
+}
+
+// ══════════════════════════════════════════════
 // NORMAL MODE: Process only unmapped ads
 // ══════════════════════════════════════════════
 progress("=== Store URL + Video Deep Enrichment ===");

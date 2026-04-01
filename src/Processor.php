@@ -2719,6 +2719,7 @@ class Processor
                  am.id IS NULL
                  OR (am.icon_url IS NULL AND am.rating IS NULL AND am.developer_name IS NULL)
                  OR am.app_name IS NULL OR am.app_name = ''
+                 OR am.developer_url IS NULL OR am.developer_url = ''
                )
              ORDER BY (SELECT COUNT(*) FROM ad_product_map pm WHERE pm.product_id = p.id) DESC
              LIMIT 50"
@@ -2774,11 +2775,12 @@ class Processor
                     // Duplicate product_id — update instead
                     if (strpos($e->getMessage(), '1062') !== false) {
                         $this->db->query(
-                            "UPDATE app_metadata SET app_name = ?, icon_url = ?, developer_name = ?, rating = ?, fetched_at = ? WHERE product_id = ?",
+                            "UPDATE app_metadata SET app_name = ?, icon_url = ?, developer_name = ?, developer_url = ?, rating = ?, fetched_at = ? WHERE product_id = ?",
                             [
                                 $meta['app_name'] ?? null,
                                 $meta['icon_url'] ?? null,
                                 $meta['developer_name'] ?? null,
+                                $meta['developer_url'] ?? null,
                                 $meta['rating'] ?? null,
                                 date('Y-m-d H:i:s'),
                                 $product['product_id']
