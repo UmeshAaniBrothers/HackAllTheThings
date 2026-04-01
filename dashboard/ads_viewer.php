@@ -1249,7 +1249,6 @@
         syncFormFromState();
         setupDebounce();
         setupFilterListeners();
-        loadTags();
         load();
     });
 
