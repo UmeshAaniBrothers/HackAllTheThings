@@ -427,11 +427,13 @@
             document.getElementById('vStatShown').textContent = formatNumber(filteredTotal);
         }
         try {
-            // Pass all active filters to get accurate stats
+            // Map ads_viewer filter keys to overview.php parameter names
             var statsParams = {};
-            FILTER_KEYS.forEach(function(k) {
-                if (S.filters[k]) statsParams[k] = S.filters[k];
-            });
+            if (S.filters.advertiser_id) statsParams.advertiser_id = S.filters.advertiser_id;
+            if (S.filters.ad_type) statsParams.ad_type = S.filters.ad_type;
+            if (S.filters.country) statsParams.country = S.filters.country;
+            if (S.filters.status) statsParams.status = S.filters.status;
+            if (S.filters.time_filter) statsParams.time_period = S.filters.time_filter;
             const overview = await fetchAPI('overview.php', statsParams);
             if (overview.success && overview.stats) {
                 S.totalAds = overview.stats.total_ads || 0;
